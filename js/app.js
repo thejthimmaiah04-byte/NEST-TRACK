@@ -480,6 +480,8 @@ function switchTab(name, pushHistory = true) {
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
   if (pushHistory) history.pushState({ tab: name }, '');
+  const fab = document.querySelector('.fab');
+  if (fab) fab.style.display = name === 'trays' ? '' : 'none';
   render();
 }
 
@@ -2106,10 +2108,8 @@ function init() {
   // Floating action button — quick add
   const fab = document.createElement('button');
   fab.className = 'fab'; fab.title = 'Quick add'; fab.textContent = '+';
-  fab.onclick = () => {
-    if (activeTab !== 'trays') switchTab('trays');
-    showTrayFabMenu();
-  };
+  fab.onclick = () => { showTrayFabMenu(); };
+  fab.style.display = activeTab === 'trays' ? '' : 'none';
   document.body.appendChild(fab);
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
