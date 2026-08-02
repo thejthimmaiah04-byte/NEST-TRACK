@@ -571,6 +571,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   box-shadow: 0 6px 20px rgba(0,0,0,.35);
   outline: none;
 }
+.sex-info {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin-top: 2px;
+}
 .stat-stage-hint {
   font-size: 10px;
   font-weight: 500;
@@ -693,6 +701,30 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 }
 
 /* ---------- Cohort Timeline (Gantt) ---------- */
+/* Chart shelf/tray filter row */
+.chart-filter-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.chart-filter-row select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: auto;
+}
+.chart-filter-row select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .gantt-wrap {
   overflow-x: auto;
   overflow-y: hidden;

@@ -193,91 +193,221 @@ function forecast(weeks, filter = () => true) {
   return { names, points };
 }
 
-function renderCohortTimeline(filter = () => true) {
-  const cohorts = live('cohorts').filter(c => filter(c) && cohortNet(c) > 0);
-  if (!cohorts.length) return '';
+function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
+  const today = new Date();
+  const names = orderedStageNames();
+  if (!names.length) return '';
 
+  let trays = live('trays');
+  if (shelfId !== 'all') trays = trays.filter(t => t.shelfId === shelfId);
+  if (trayId  !== 'all') trays = trays.filter(t => t.id === trayId);
+
+  // Count individuals per stage per tray
+  const trayData = [];
+  for (const tray of trays) {
+    const cohorts = live('cohorts').filter(c => c.trayId === tray.id && cohortNet(c) > 0);
+    if (!cohorts.length) continue;
+    const stageCounts = new Map();
+    for (const c of cohorts) {
+      const { name } = stageIndexAt(c, today);
+      stageCounts.set(name, (stageCounts.get(name) || 0) + cohortNet(c));
+    }
+    const total = [...stageCounts.values()].reduce((s, v) => s + v, 0);
+    if (total > 0) trayData.push({ tray, stageCounts, total });
+  }
+
+  if (!trayData.length) return '';
+
+  // Dimensions
+  const VW = 560, PT = 12, PL = 30, PR = 12;
+  const drawW = VW - PL - PR;
+  const drawH = 148;
+  const xLabelH = 20, legendH = 22, gapH = 8;
+  const VH = PT + drawH + xLabelH + gapH + legendH;
+
+  const numGroups = names.length;
+  const numBars   = trayData.length;
+  const groupW    = drawW / numGroups;
+  const barW      = Math.max(6, Math.min(26, (groupW - 12) / Math.max(numBars, 1)));
+
+  const maxVal = Math.max(1, ...trayData.flatMap(d =>
+    names.map(nm => d.stageCounts.get(nm) || 0)));
+
+  // When multiple trays: distinct tray palette; single tray: stage colors
+  const TRAY_PAL = ['#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c','#38bdf8'];
+  const barColor = (stageIdx, trayIdx) =>
+    numBars === 1 ? STAGE_HEX[stageIdx % STAGE_HEX.length]
+                  : TRAY_PAL[trayIdx % TRAY_PAL.length];
+
+  let bars = '', xLabels = '', yLines = '', legend = '';
+
+  // Y-axis gridlines + labels (0, 25%, 50%, 75%, 100%)
+  yLines += `<line x1="${PL}" y1="${PT + drawH}" x2="${PL + drawW}" y2="${PT + drawH}" stroke="rgba(255,255,255,.15)" stroke-width="1"/>`;
+  for (let t = 1; t <= 4; t++) {
+    const frac = t / 4;
+    const yy   = PT + drawH * (1 - frac);
+    const val  = Math.round(maxVal * frac);
+    yLines += `<line x1="${PL}" y1="${yy}" x2="${PL + drawW}" y2="${yy}" class="g-grid"/>`;
+    yLines += `<text x="${PL - 4}" y="${yy + 3}" class="g-dt" text-anchor="end">${val}</text>`;
+  }
+
+  // Bars grouped by stage
+  names.forEach((nm, gi) => {
+    const totalGroupW = barW * numBars;
+    const gx = PL + gi * groupW + (groupW - totalGroupW) / 2;
+
+    trayData.forEach(({ tray, stageCounts }, ti) => {
+      const count = stageCounts.get(nm) || 0;
+      if (!count) return;
+      const bh    = (count / maxVal) * drawH;
+      const bx    = gx + ti * barW;
+      const by    = PT + drawH - bh;
+      const color = barColor(gi, ti);
+      bars += `<rect x="${bx + 1}" y="${by}" width="${Math.max(barW - 2, 4)}" height="${bh}"
+        rx="3" fill="${color}" opacity=".84">
+        <title>${esc(tray.name)} · ${nm}: ${count}</title></rect>`;
+      if (bh > 18)
+        bars += `<text x="${bx + barW / 2}" y="${by - 4}" class="g-dt" text-anchor="middle">${count}</text>`;
+    });
+
+    // Stage name on X-axis
+    xLabels += `<text x="${PL + gi * groupW + groupW / 2}" y="${PT + drawH + xLabelH - 4}"
+      class="g-dt" text-anchor="middle">${esc(nm)}</text>`;
+  });
+
+  // Legend
+  const legendY = PT + drawH + xLabelH + gapH + 14;
+  if (numBars === 1) {
+    names.forEach((nm, i) => {
+      const lx = PL + i * (drawW / names.length);
+      legend += `<rect x="${lx}" y="${legendY - 9}" width="9" height="9" rx="2" fill="${STAGE_HEX[i]}" opacity=".84"/>`;
+      legend += `<text x="${lx + 12}" y="${legendY}" class="g-dt">${esc(nm)}</text>`;
+    });
+  } else {
+    const itemW = Math.min(90, drawW / trayData.length);
+    trayData.forEach(({ tray }, ti) => {
+      const lx = PL + ti * itemW;
+      const color = TRAY_PAL[ti % TRAY_PAL.length];
+      legend += `<rect x="${lx}" y="${legendY - 9}" width="9" height="9" rx="2" fill="${color}" opacity=".84"/>`;
+      legend += `<text x="${lx + 12}" y="${legendY}" class="g-dt">${esc(tray.name)}</text>`;
+    });
+  }
+
+  return `<div class="gantt-wrap">
+    <svg class="gantt-svg" viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg">
+      <defs><style>
+        .g-dt{font:10px Inter,sans-serif;fill:var(--text-2)}
+        .g-grid{stroke:rgba(255,255,255,.07);stroke-width:1}
+      </style></defs>
+      ${yLines}${bars}${xLabels}${legend}
+    </svg>
+  </div>`;
+}
+
+function renderCohortTimeline(shelfId = 'all', trayId = 'all') {
   const PAST  = 14;
   const FUT   = 70;
   const TOTAL = PAST + FUT;
-  const LW    = 108; // label column width
+  const LW    = 116; // label column width
   const DPX   = 5;   // px per day
-  const RH    = 30;  // row height
-  const RG    = 5;   // row gap
+  const RH    = 34;  // row height
+  const RG    = 4;   // row gap
   const HDR   = 32;  // header height
   const PAD_B = 12;
   const today     = new Date();
   const startDate = addDays(today, -PAST);
 
-  cohorts.sort((a, b) => new Date(a.birthDate) - new Date(b.birthDate));
+  // Collect trays to show, applying shelf / tray filters
+  let trays = live('trays');
+  if (shelfId !== 'all') trays = trays.filter(t => t.shelfId === shelfId);
+  if (trayId  !== 'all') trays = trays.filter(t => t.id      === trayId);
+
+  // Group active cohorts by tray — one row per tray
+  const trayRows = [];
+  for (const tray of trays) {
+    const cohorts = live('cohorts')
+      .filter(c => c.trayId === tray.id && cohortNet(c) > 0)
+      .sort((a, b) => new Date(a.birthDate) - new Date(b.birthDate)); // oldest first
+    if (!cohorts.length) continue;
+    const netTotal = cohorts.reduce((s, c) => s + cohortNet(c), 0);
+    trayRows.push({ tray, cohorts, netTotal });
+  }
+
+  if (!trayRows.length) return '';
 
   const W = LW + TOTAL * DPX;
-  const H = HDR + cohorts.length * (RH + RG) + PAD_B;
+  const H = HDR + trayRows.length * (RH + RG) + PAD_B;
   const todayX = LW + PAST * DPX;
 
-  // Week gridlines + date labels (skip any label too close to today)
+  // Week gridlines + date labels
   let grid = '', hdates = '';
   for (let d = 0; d <= TOTAL; d += 7) {
-    const x = LW + d * DPX;
+    const x  = LW + d * DPX;
     const dt = addDays(startDate, d);
     grid += `<line x1="${x}" y1="${HDR - 4}" x2="${x}" y2="${H - PAD_B}" class="g-grid"/>`;
     if (Math.abs(x - todayX) > 22)
       hdates += `<text x="${x}" y="18" class="g-dt" text-anchor="middle">${fmtDate(dt)}</text>`;
   }
 
-  // Cohort rows
+  // One row per tray; multiple cohorts draw layered bars within the row
   let rows = '';
-  cohorts.forEach((cohort, ri) => {
-    const y    = HDR + ri * (RH + RG);
-    const sp   = speciesOf(cohort);
-    const tray = byId('trays', cohort.trayId);
-    const label = tray ? tray.name : (cohort.name || 'Cohort');
-    const net  = cohortNet(cohort);
-    const stages = sp?.stages ? [...sp.stages].sort((a,b) => a.startDay - b.startDay) : [];
-    const birth = new Date(cohort.birthDate + 'T00:00:00');
+  trayRows.forEach(({ tray, cohorts, netTotal }, ri) => {
+    const y = HDR + ri * (RH + RG);
 
+    // Row background stripe
     rows += `<rect x="${LW}" y="${y + 2}" width="${TOTAL * DPX}" height="${RH - 4}" rx="4" class="g-row-bg"/>`;
 
-    if (stages.length) {
-      stages.forEach((st, si) => {
-        const nextSt = stages[si + 1];
-        const segStart = new Date(Math.max(addDays(birth, st.startDay), startDate));
-        const segEnd   = nextSt
-          ? new Date(Math.min(addDays(birth, nextSt.startDay), addDays(today, FUT)))
-          : addDays(today, FUT);
-        if (segStart >= segEnd) return;
-        const dx = Math.floor((segStart - startDate) / 86400000);
-        const dw = Math.ceil((segEnd - segStart) / 86400000);
-        const sx = LW + dx * DPX;
-        const sw = dw * DPX;
-        const hex = STAGE_HEX[si % STAGE_HEX.length];
-        const past = segEnd <= today;
-        rows += `<rect x="${sx}" y="${y + 5}" width="${sw}" height="${RH - 10}" rx="3" fill="${hex}" opacity="${past ? .30 : .75}">
-          <title>${esc(st.name)}</title></rect>`;
-        // stage transition tick
-        if (si > 0) {
-          const tx = LW + dx * DPX;
-          rows += `<line x1="${tx}" y1="${y + 2}" x2="${tx}" y2="${y + RH - 2}" stroke="${hex}" stroke-width="2" opacity=".55"/>`;
-        }
-      });
-    } else {
-      // No stages: single bar from birth to today
-      const dx = Math.max(0, Math.floor((birth - startDate) / 86400000));
-      const sw = Math.max(DPX, (PAST - dx) * DPX);
-      rows += `<rect x="${LW + dx * DPX}" y="${y + 5}" width="${sw}" height="${RH - 10}" rx="3" fill="#94a3b8" opacity=".35"/>`;
-    }
+    // Draw each cohort's stage bars — oldest behind, newest in front
+    cohorts.forEach((cohort, ci) => {
+      const sp     = speciesOf(cohort);
+      const stages = sp?.stages ? [...sp.stages].sort((a,b) => a.startDay - b.startDay) : [];
+      const birth  = new Date(cohort.birthDate + 'T00:00:00');
+      // Newer cohorts get a slightly thinner bar so layering is visible
+      const shrink = ci * 3;
+      const barY   = y + 5 + shrink;
+      const barH   = RH - 10 - shrink * 2;
 
-    rows += `<text x="${LW - 6}" y="${y + RH/2 + 4}" class="g-lbl" text-anchor="end">${esc(label)}</text>`;
-    rows += `<text x="${LW + TOTAL * DPX - 4}" y="${y + RH/2 + 4}" class="g-cnt" text-anchor="end">${net}</text>`;
+      if (stages.length) {
+        stages.forEach((st, si) => {
+          const nextSt   = stages[si + 1];
+          const segStart = new Date(Math.max(+addDays(birth, st.startDay), +startDate));
+          const segEnd   = nextSt
+            ? new Date(Math.min(+addDays(birth, nextSt.startDay), +addDays(today, FUT)))
+            : addDays(today, FUT);
+          if (segStart >= segEnd) return;
+          const dx  = Math.floor((segStart - startDate) / 86400000);
+          const dw  = Math.ceil((segEnd - segStart) / 86400000);
+          const sx  = LW + dx * DPX;
+          const sw  = dw * DPX;
+          const hex = STAGE_HEX[si % STAGE_HEX.length];
+          const past = segEnd <= today;
+          rows += `<rect x="${sx}" y="${barY}" width="${sw}" height="${barH}" rx="3"
+            fill="${hex}" opacity="${past ? .28 : .72}"><title>${esc(tray.name)} · ${esc(st.name)}</title></rect>`;
+          if (si > 0)
+            rows += `<line x1="${sx}" y1="${y + 3}" x2="${sx}" y2="${y + RH - 3}"
+              stroke="${hex}" stroke-width="1.5" opacity=".4"/>`;
+        });
+      } else {
+        const dx = Math.max(0, Math.floor((+birth - +startDate) / 86400000));
+        const sw = Math.max(DPX, (PAST - dx) * DPX);
+        rows += `<rect x="${LW + dx * DPX}" y="${barY}" width="${sw}" height="${barH}"
+          rx="3" fill="#94a3b8" opacity=".35"/>`;
+      }
+    });
+
+    // Cohort-count badge (when tray has >1 cohort)
+    const badge = cohorts.length > 1
+      ? ` <tspan style="font-size:9px;opacity:.65">(${cohorts.length})</tspan>` : '';
+    rows += `<text x="${LW - 6}" y="${y + RH/2 + 4}" class="g-lbl" text-anchor="end">${esc(tray.name)}${badge}</text>`;
+    rows += `<text x="${LW + TOTAL * DPX + 2}" y="${y + RH/2 + 4}" class="g-cnt" text-anchor="start">${netTotal}</text>`;
   });
 
-  // Today line — label at header row height, replacing the suppressed date label
   const todayLine = `
     <line x1="${todayX}" y1="${HDR - 4}" x2="${todayX}" y2="${H - PAD_B}" class="g-today"/>
     <text x="${todayX}" y="18" class="g-today-lbl" text-anchor="middle">Today</text>`;
 
   return `<div class="gantt-wrap">
-    <svg class="gantt-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <svg class="gantt-svg" viewBox="0 0 ${W + 28} ${H}" xmlns="http://www.w3.org/2000/svg">
       <defs><style>
         .g-dt{font:10px Inter,sans-serif;fill:var(--text-2)}
         .g-lbl{font:600 11px Inter,sans-serif;fill:var(--text)}
@@ -354,8 +484,10 @@ window.addEventListener('beforeunload', e => {
 /* ------------------------------------------------------------------ *
  *  Rendering
  * ------------------------------------------------------------------ */
-let dashFilterSpecies = 'all';
-let fcVisibleStages  = null; // null = all visible; Set of stage names when filtered
+let dashFilterSpecies  = 'all';
+let fcVisibleStages   = null; // null = all visible; Set of stage names when filtered
+let chartFilterShelf  = 'all';
+let chartFilterTray   = 'all';
 
 function render() {
   renderSync();
@@ -378,6 +510,16 @@ function renderDashboard() {
   const { totals, total } = stageTotalsAt(new Date(), filter);
   const names = orderedStageNames();
 
+  // Sex totals per stage
+  const stageMales = new Map(), stageFemales = new Map();
+  for (const c of live('cohorts')) {
+    if (!filter(c) || cohortNet(c) <= 0) continue;
+    if (c.males == null && c.females == null) continue;
+    const { name } = stageIndexAt(c, new Date());
+    if (c.males)   stageMales.set(name,   (stageMales.get(name)   || 0) + Number(c.males));
+    if (c.females) stageFemales.set(name, (stageFemales.get(name) || 0) + Number(c.females));
+  }
+
   if (live('cohorts').length === 0) {
     el.innerHTML = emptyState('🥚','No litters logged yet',
       'Go to the <b>Trays</b> tab and add a litter to a tray to start tracking.');
@@ -387,12 +529,18 @@ function renderDashboard() {
   // Stat cards — tappable to open "remove by stage" modal
   const stageCards = names.map((nm, i) => {
     const v = totals.get(nm) || 0;
+    const m = stageMales.get(nm) || 0;
+    const f = stageFemales.get(nm) || 0;
+    const sexLine = (m || f)
+      ? `<div class="sex-info"><span>♂ ${m}</span><span>♀ ${f}</span></div>`
+      : '';
     return `<div class="stat-stage stat-stage-btn" data-s="${i}"
         data-act="remove-stage" data-stage="${esc(nm)}" data-sidx="${i}"
         role="button" tabindex="0" title="Remove ${esc(nm)}">
       <span class="stage-edge" style="background:${stageColor(i)}"></span>
       <div class="n">${v}</div>
       <div class="l">${esc(nm)}</div>
+      ${sexLine}
       <div class="stat-stage-hint">tap to remove</div>
     </div>`;
   }).join('');
@@ -548,9 +696,22 @@ function renderCharts() {
     return;
   }
 
+  const shelves   = live('shelves');
+  const allTrays  = live('trays');
+  const shownTrays = chartFilterShelf === 'all'
+    ? allTrays
+    : allTrays.filter(t => t.shelfId === chartFilterShelf);
+
+  const shelfOpts = shelves.map(s =>
+    `<option value="${s.id}" ${s.id === chartFilterShelf ? 'selected' : ''}>${esc(s.name)}</option>`
+  ).join('');
+  const trayOpts = shownTrays.map(t =>
+    `<option value="${t.id}" ${t.id === chartFilterTray ? 'selected' : ''}>${esc(t.name)}</option>`
+  ).join('');
+
   const { totals } = stageTotalsAt(new Date());
   const names = orderedStageNames();
-  const timeline = renderCohortTimeline();
+  const barChart = renderTrayStageBarChart(chartFilterShelf, chartFilterTray);
   const removalRates = computeRemovalInsights();
   const insights = renderRemovalInsights(removalRates);
 
@@ -563,11 +724,34 @@ function renderCharts() {
       </div>
     </div>
 
-    <h2 class="section-title" style="margin-top:26px;margin-bottom:10px">Cohort timeline</h2>
+    <h2 class="section-title" style="margin-top:26px;margin-bottom:10px">Individuals by stage</h2>
     <div class="card" style="padding:14px 10px 10px">
-      ${timeline || '<p class="small muted">No active cohorts.</p>'}
+      <div class="chart-filter-row">
+        <select id="cft-shelf">
+          <option value="all" ${chartFilterShelf === 'all' ? 'selected' : ''}>All shelves</option>
+          ${shelfOpts}
+        </select>
+        <select id="cft-tray">
+          <option value="all" ${chartFilterTray === 'all' ? 'selected' : ''}>All trays</option>
+          ${trayOpts}
+        </select>
+      </div>
+      ${barChart || '<p class="small muted" style="padding:8px 0">No active cohorts in this view.</p>'}
       ${insights}
     </div>`;
+
+  // Wire selectors — re-render charts on change
+  const shelfSel = $('#cft-shelf', el);
+  const traySel  = $('#cft-tray', el);
+  if (shelfSel) shelfSel.onchange = () => {
+    chartFilterShelf = shelfSel.value;
+    chartFilterTray  = 'all';
+    renderCharts();
+  };
+  if (traySel) traySel.onchange = () => {
+    chartFilterTray = traySel.value;
+    renderCharts();
+  };
 }
 
 /* ---------- Remove by stage modal ---------- */
@@ -975,7 +1159,7 @@ function trayDetailModal(trayId) {
         <div class="cn">${net}
           <span class="pill" style="background:${stageColor(si)}">${esc(name)}</span>
         </div>
-        <div class="small muted">Born ${esc(c.birthDate)} · ${age}d old · started ${c.initialCount}${c.notes?' · '+esc(c.notes):''}</div>
+        <div class="small muted">Born ${esc(c.birthDate)} · ${age}d old · started ${c.initialCount}${(c.males!=null||c.females!=null)?' · ♂ '+(c.males??'?')+' ♀ '+(c.females??'?'):''}${c.notes?' · '+esc(c.notes):''}</div>
       </div>
       <div class="cohort-remove">
         ${depleted?'':`<input type="number" min="1" max="${net}" placeholder="0" data-remove="${c.id}" />
@@ -1109,20 +1293,31 @@ function editCohortModal(cohortId, trayId) {
       <label class="field"><span>Initial count</span>
         <input id="f-count" type="number" min="${Math.max(1, alreadyRemoved)}" value="${c.initialCount}" /></label>
     </div>
+    <div class="field-row">
+      <label class="field"><span>♂ Males (optional)</span>
+        <input id="f-males" type="number" min="0" value="${c.males ?? ''}" placeholder="—" /></label>
+      <label class="field"><span>♀ Females (optional)</span>
+        <input id="f-females" type="number" min="0" value="${c.females ?? ''}" placeholder="—" /></label>
+    </div>
     <label class="field"><span>Notes (optional)</span>
       <input id="f-notes" value="${esc(c.notes || '')}" placeholder="e.g. dam #4" /></label>
     <button class="btn primary block" data-save>Save changes</button>
   `, root => {
     $('[data-save]', root).onclick = () => {
-      const birthDate = $('#f-date', root).value;
+      const birthDate    = $('#f-date', root).value;
       const initialCount = Number($('#f-count', root).value);
-      const notes = $('#f-notes', root).value.trim();
+      const notes        = $('#f-notes', root).value.trim();
+      const mVal = $('#f-males', root).value;
+      const fVal = $('#f-females', root).value;
+      const males   = mVal !== '' ? Number(mVal) : null;
+      const females = fVal !== '' ? Number(fVal) : null;
       if (!birthDate) return toast('Pick a birth date', true);
       if (!initialCount || initialCount <= 0) return toast('Enter a count', true);
       if (initialCount < alreadyRemoved) return toast(`${alreadyRemoved} already removed — count must be at least ${alreadyRemoved}`, true);
-      c.birthDate = birthDate;
-      c.initialCount = initialCount;
-      c.notes = notes;
+      if (males !== null && females !== null && males + females > initialCount)
+        return toast(`♂ + ♀ (${males + females}) exceeds count (${initialCount})`, true);
+      c.birthDate = birthDate; c.initialCount = initialCount; c.notes = notes;
+      c.males = males; c.females = females;
       touch('cohorts', c);
       saveState();
       toast('Litter updated');
