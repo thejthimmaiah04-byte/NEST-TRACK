@@ -17,7 +17,7 @@ var SCHEMAS = {
   species:  ['id', 'name', 'stages', 'updatedAt', 'deleted', 'syncedAt'],
   shelves:  ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
   trays:    ['id', 'shelfId', 'name', 'speciesId', 'updatedAt', 'deleted', 'syncedAt'],
-  cohorts:  ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'updatedAt', 'deleted', 'syncedAt'],
+  cohorts:  ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
   removals: ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals'];
@@ -142,7 +142,7 @@ function hydrate(entity, row) {
     var v = row[c];
     if (JSON_FIELDS[c]) { try { v = JSON.parse(v || '[]'); } catch (e) { v = []; } }
     else if (c === 'deleted') { v = (v === true || v === 'true' || v === 'TRUE'); }
-    else if (c === 'initialCount' || c === 'count' || c === 'sortOrder' || c === 'updatedAt' || c === 'syncedAt') {
+    else if (c === 'initialCount' || c === 'count' || c === 'sortOrder' || c === 'males' || c === 'females' || c === 'updatedAt' || c === 'syncedAt') {
       v = v === '' || v == null ? 0 : Number(v);
     }
     obj[c] = v;

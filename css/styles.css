@@ -90,7 +90,19 @@ html, body {
 .dot.ok      { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
 .dot.pending { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
 .dot.offline { background: var(--danger); }
+.dot.error   { background: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
 .dot.syncing { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.sync-error-msg {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  background: rgba(239,68,68,.12);
+  border: 1px solid rgba(239,68,68,.3);
+  border-radius: 8px;
+  color: #f87171;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.2} }
 
 /* ---------- Nav tabs ---------- */

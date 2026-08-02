@@ -1034,10 +1034,14 @@ function renderSettings() {
         <input id="script-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(url)}" />
       </label>
       <p class="small muted" style="margin:0 0 14px">Once set, all changes sync automatically. Data also saves locally on this device and uploads when back online.</p>
-      <button class="btn primary" data-act="save-url">Save URL</button>
+      <div class="gap">
+        <button class="btn primary" data-act="save-url">Save URL</button>
+        ${url ? `<button class="btn" data-act="sync-now">Sync now</button>` : ''}
+      </div>
+      ${syncError ? `<p class="sync-error-msg">⚠ Last sync error: ${esc(syncError)}</p>` : ''}
       <hr class="hr" />
       <div class="small muted">
-        <div class="spread"><span>Sync status</span><span>${pc>0?`${pc} changes queued`:(url?'Up to date':'No URL set')}</span></div>
+        <div class="spread"><span>Sync status</span><span>${syncing?'Syncing…':syncError?'Error':pc>0?`${pc} queued`:url?'Up to date':'No URL set'}</span></div>
         <div class="spread mt"><span>Last sync</span><span>${last}</span></div>
         <div class="spread mt"><span>Network</span><span>${navigator.onLine?'Online':'Offline'}</span></div>
       </div>
@@ -1430,6 +1434,7 @@ function onClick(e) {
       if (v && navigator.onLine) syncNow();
       return;
     }
+    case 'sync-now': syncNow(true); return;
     case 'export': return exportJSON();
     case 'import': return importJSON();
     case 'wipe':   return confirmDelete('ALL local data', () => {
@@ -1490,6 +1495,7 @@ function importJSON() {
  * ------------------------------------------------------------------ */
 let syncTimer = null;
 let syncing   = false;
+let syncError = null; // last error message, cleared on success
 
 function scheduleSync() {
   renderSync();
@@ -1543,15 +1549,16 @@ async function syncNow(manual = false) {
       }
     }
     state.meta.lastSync = data.serverTime || now();
+    syncError = null;
     saveState();
     syncing = false; renderSync(); render();
     if (manual) toast('Synced');
   } catch(err) {
     clearTimeout(timeoutId);
+    syncError = err.name === 'AbortError' ? 'Timed out — script took >25s' : err.message;
     syncing = false; renderSync();
-    const msg = err.name === 'AbortError' ? 'Timed out (25s)' : err.message;
-    console.warn('sync failed', msg);
-    if (manual) toast('Sync failed: ' + msg, true);
+    console.warn('sync failed', syncError);
+    if (manual) toast('Sync failed: ' + syncError, true);
   }
 }
 
@@ -1564,6 +1571,7 @@ function renderSync() {
   if (!state.meta.scriptUrl) { cls+=' pending'; label='Local only'; }
   else if (syncing)           { cls+=' syncing'; label='Syncing…'; }
   else if (!navigator.onLine) { cls+=' offline';  label=pc?`Offline · ${pc} queued`:'Offline'; }
+  else if (syncError)         { cls+=' error';    label='Sync error'; }
   else if (pc > 0)            { cls+=' pending';  label=`${pc} pending`; }
   else                        { cls+=' ok';       label='Synced'; }
   dot.className=cls; txt.textContent=label;
