@@ -46,11 +46,11 @@ var EXTRA = {
 // 1-based column indices to HIDE in each entity's sheet
 // (data remains readable by the sync engine; users see only the clean columns)
 var HIDE = {
-  species:  [3, 4, 5, 6],        // STAGES(JSON), _UPDATED, _DELETED, _SYNCED
-  shelves:  [3, 4, 5, 6],        // _ORDER, _UPDATED, _DELETED, _SYNCED
-  trays:    [2, 4, 5, 6, 7],     // _SHELF ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
-  cohorts:  [2, 3, 9, 10, 11],   // _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
-  removals: [2, 3, 7, 8, 9]      // _COHORT ID, _TRAY ID, _UPDATED, _DELETED, _SYNCED
+  species:  [3, 4, 5, 6],           // STAGES(JSON), _UPDATED, _DELETED, _SYNCED
+  shelves:  [3, 4, 5, 6],           // _ORDER, _UPDATED, _DELETED, _SYNCED
+  trays:    [2, 4, 5, 6, 7],        // _SHELF ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
+  cohorts:  [1, 2, 3, 9, 10, 11],   // ID, _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
+  removals: [1, 2, 3, 7, 8, 9]      // ID, _COHORT ID, _TRAY ID, _UPDATED, _DELETED, _SYNCED
 };
 
 // ── HTTP handlers ────────────────────────────────────────────────────────────
