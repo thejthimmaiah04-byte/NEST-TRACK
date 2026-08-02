@@ -516,6 +516,7 @@ let fcVisibleStages   = null; // null = all visible; Set of stage names when fil
 let chartFilterShelf  = 'all';
 let chartFilterTray   = 'all';
 let collapsedShelves  = new Set(); // shelf IDs currently collapsed in Trays tab
+let selectedShelfId   = null;      // shelf being viewed in Trays tab (null = overview)
 
 function render() {
   renderSync();
@@ -1032,7 +1033,7 @@ function renderTrays() {
   const shelves = live('shelves').sort((a,b) => (a.sortOrder||0)-(b.sortOrder||0));
   const names = orderedStageNames();
 
-  // Harvest search card
+  // Harvest search card (always visible)
   const stageOpts = names.map(nm => `<option value="${esc(nm)}">${esc(nm)}</option>`).join('');
   let html = `
     <div class="harvest-card card">
@@ -1048,34 +1049,60 @@ function renderTrays() {
         <input id="harvest-count" type="number" min="1" placeholder="How many?" />
       </div>
       <div id="harvest-results"></div>
-    </div>
-
-    <div class="spread" style="margin-top:18px">
-      <h2 class="section-title" style="margin:4px 0 0">Shelves &amp; trays</h2>
-      <button class="btn sm primary" data-act="add-shelf">+ Shelf</button>
     </div>`;
 
-  if (!shelves.length) html += emptyState('🗄️','No shelves yet','Add a shelf, then trays inside it.');
+  if (!shelves.length) {
+    html += emptyState('🗄️', 'No shelves yet', 'Tap + to add your first shelf and trays.');
+    el.innerHTML = html;
+    const stageEl = $('#harvest-stage', el);
+    const countEl = $('#harvest-count', el);
+    if (stageEl) stageEl.onchange = refreshHarvestResults;
+    if (countEl) countEl.oninput  = refreshHarvestResults;
+    return;
+  }
 
-  for (const shelf of shelves) {
-    const trays = live('trays').filter(t => t.shelfId === shelf.id);
-    const isCollapsed = collapsedShelves.has(shelf.id);
-    html += `<div class="shelf${isCollapsed ? ' collapsed' : ''}" data-shelf-id="${shelf.id}">
-      <div class="shelf-head">
-        <button class="shelf-toggle" data-act="toggle-shelf" data-id="${shelf.id}">
-          <span class="shelf-chevron">${isCollapsed ? '▸' : '▾'}</span>
-          <span class="shelf-name-text">${esc(shelf.name)}</span>
-          <span class="shelf-tray-count">${trays.length} tray${trays.length !== 1 ? 's' : ''}</span>
-        </button>
-        <div class="row-actions">
-          <button class="btn sm" data-act="add-tray" data-id="${shelf.id}">+ Tray</button>
-          <button class="icon-btn" data-act="edit-shelf" data-id="${shelf.id}" title="Rename">✎</button>
-          <button class="icon-btn" data-act="del-shelf" data-id="${shelf.id}" title="Delete">🗑</button>
-        </div>
+  // Validate selectedShelfId still exists
+  if (selectedShelfId && !byId('shelves', selectedShelfId)) selectedShelfId = null;
+
+  if (!selectedShelfId) {
+    // ── SHELF OVERVIEW ──
+    html += `<h2 class="section-title" style="margin:14px 0 10px">Shelves</h2>
+      <div class="shelf-grid">`;
+    for (const shelf of shelves) {
+      const trays = live('trays').filter(t => t.shelfId === shelf.id);
+      let totalAlive = 0;
+      for (const t of trays) {
+        for (const c of live('cohorts').filter(c => c.trayId === t.id)) {
+          const net = cohortNet(c); if (net > 0) totalAlive += net;
+        }
+      }
+      html += `<button class="shelf-card" data-act="select-shelf" data-id="${shelf.id}">
+        <div class="sc-name">${esc(shelf.name)}</div>
+        <div class="sc-meta">${trays.length} tray${trays.length !== 1 ? 's' : ''}</div>
+        <div class="sc-alive">${totalAlive} alive</div>
+      </button>`;
+    }
+    html += `</div>`;
+  } else {
+    // ── TRAY VIEW ──
+    const shelf = byId('shelves', selectedShelfId);
+    const trays = live('trays').filter(t => t.shelfId === selectedShelfId)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    html += `
+    <div class="shelf-nav">
+      <button class="back-btn" data-act="back-shelves">← Shelves</button>
+      <span class="shelf-nav-name">${esc(shelf.name)}</span>
+      <div class="shelf-nav-actions">
+        <button class="icon-btn" data-act="edit-shelf" data-id="${selectedShelfId}" title="Rename">✎</button>
+        <button class="icon-btn" data-act="del-shelf" data-id="${selectedShelfId}" title="Delete">🗑</button>
       </div>
-      <div class="tray-grid">`;
+    </div>
+    <div class="tray-grid">`;
 
-    if (!trays.length) html += `<p class="muted small">No trays. Add one above.</p>`;
+    if (!trays.length) {
+      html += `<p class="muted small" style="grid-column:1/-1">No trays yet. Tap + to add trays to this shelf.</p>`;
+    }
 
     for (const tray of trays) {
       const sp = speciesOf(tray);
@@ -1104,7 +1131,7 @@ function renderTrays() {
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
       </div>`;
     }
-    html += `</div></div>`;
+    html += `</div>`;
   }
 
   el.innerHTML = html;
@@ -1336,21 +1363,113 @@ function toast(msg, isErr = false) {
 
 /* ----- Shelf ----- */
 function shelfModal(existing) {
-  const s = existing || {};
-  openModal(existing?'Rename shelf':'Add shelf', `
+  // rename-only — creation goes through newShelfModal()
+  openModal('Rename shelf', `
     <label class="field"><span>Shelf name</span>
-      <input id="f-name" value="${esc(s.name||'')}" placeholder="e.g. Shelf A / Top rack" /></label>
+      <input id="f-name" value="${esc(existing.name||'')}" placeholder="e.g. A or Top Rack" /></label>
     <button class="btn primary block" data-save>Save</button>
   `, root => {
     $('#f-name', root).focus();
     $('[data-save]', root).onclick = () => {
       const name = $('#f-name', root).value.trim();
       if (!name) return toast('Enter a name', true);
-      if (existing) { existing.name = name; touch('shelves', existing); }
-      else { const r = rec('shelves',{name, sortOrder:live('shelves').length}); upsertLocal('shelves',r); touch('shelves',r); }
+      existing.name = name; touch('shelves', existing);
       closeModal(); render();
     };
   });
+}
+
+function newShelfModal() {
+  const speciesList = live('species');
+  const opts = speciesList.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  const speciesField = speciesList.length
+    ? `<label class="field"><span>Species for all trays</span><select id="f-species">${opts}</select></label>`
+    : `<p class="small muted" style="margin:0 0 14px">No species yet — you can set species per tray later.</p>`;
+  openModal('Add shelf', `
+    <label class="field"><span>Shelf name</span>
+      <input id="f-shelf-name" placeholder="e.g. A or Top Rack" /></label>
+    ${speciesField}
+    <label class="field"><span>Number of trays to create</span>
+      <input id="f-tray-count" type="number" min="1" max="100" placeholder="e.g. 20" /></label>
+    <button class="btn primary block" data-save>Create shelf + trays</button>
+  `, root => {
+    $('#f-shelf-name', root).focus();
+    $('[data-save]', root).onclick = () => {
+      const name = $('#f-shelf-name', root).value.trim();
+      const speciesId = speciesList.length ? ($('#f-species', root)?.value || null) : null;
+      const trayCount = parseInt($('#f-tray-count', root).value, 10);
+      if (!name)                             return toast('Enter a shelf name', true);
+      if (!trayCount || trayCount < 1 || trayCount > 100) return toast('Enter 1–100 trays', true);
+      const shelf = rec('shelves', { name, sortOrder: live('shelves').length });
+      upsertLocal('shelves', shelf); touch('shelves', shelf);
+      for (let i = 0; i < trayCount; i++) {
+        const trayId = genTrayId(shelf.id);
+        const tray = rec('trays', { id: trayId, shelfId: shelf.id, name: trayId, speciesId });
+        upsertLocal('trays', tray); touch('trays', tray);
+      }
+      selectedShelfId = shelf.id;
+      closeModal(); render();
+      toast(`Created "${name}" with ${trayCount} tray${trayCount !== 1 ? 's' : ''}`);
+    };
+  });
+}
+
+function addTraysToShelfModal(shelfId) {
+  const shelf = byId('shelves', shelfId);
+  if (!shelf) return;
+  const speciesList = live('species');
+  const existingTray = live('trays').find(t => t.shelfId === shelfId);
+  const defaultSpeciesId = existingTray?.speciesId || speciesList[0]?.id || null;
+  const opts = speciesList.map(s =>
+    `<option value="${s.id}" ${s.id === defaultSpeciesId ? 'selected' : ''}>${esc(s.name)}</option>`
+  ).join('');
+  const speciesField = speciesList.length
+    ? `<label class="field"><span>Species</span><select id="f-species">${opts}</select></label>`
+    : '';
+  openModal(`Add trays to ${esc(shelf.name)}`, `
+    <label class="field"><span>How many trays to add?</span>
+      <input id="f-count" type="number" min="1" max="100" placeholder="e.g. 5" /></label>
+    ${speciesField}
+    <button class="btn primary block" data-save>Add trays</button>
+  `, root => {
+    $('#f-count', root).focus();
+    $('[data-save]', root).onclick = () => {
+      const count = parseInt($('#f-count', root).value, 10);
+      const speciesId = speciesList.length ? ($('#f-species', root)?.value || null) : null;
+      if (!count || count < 1 || count > 100) return toast('Enter 1–100', true);
+      for (let i = 0; i < count; i++) {
+        const trayId = genTrayId(shelfId);
+        const tray = rec('trays', { id: trayId, shelfId, name: trayId, speciesId });
+        upsertLocal('trays', tray); touch('trays', tray);
+      }
+      closeModal(); render();
+      toast(`Added ${count} tray${count !== 1 ? 's' : ''} to ${shelf.name}`);
+    };
+  });
+}
+
+function showTrayFabMenu() {
+  const existing = document.querySelector('.fab-menu');
+  if (existing) { existing.remove(); return; }
+  const menu = document.createElement('div');
+  menu.className = 'fab-menu';
+  const shelfName = selectedShelfId && byId('shelves', selectedShelfId)
+    ? `Add trays to ${esc(byId('shelves', selectedShelfId).name)}`
+    : 'Add trays (select a shelf first)';
+  menu.innerHTML = `
+    <button class="fab-menu-item" id="fmi-shelf">+ Add shelf</button>
+    <button class="fab-menu-item" id="fmi-tray">${shelfName}</button>`;
+  document.body.appendChild(menu);
+  document.getElementById('fmi-shelf').onclick = () => { menu.remove(); newShelfModal(); };
+  document.getElementById('fmi-tray').onclick  = () => {
+    menu.remove();
+    if (!selectedShelfId || !byId('shelves', selectedShelfId)) {
+      toast('Select a shelf first', true); return;
+    }
+    addTraysToShelfModal(selectedShelfId);
+  };
+  // Dismiss on next outside click
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 10);
 }
 
 /* ----- Tray ----- */
@@ -1630,26 +1749,15 @@ function onClick(e) {
   const id  = el.dataset.id;
 
   switch (act) {
-    case 'toggle-shelf': {
-      const shelfDiv = el.closest('.shelf');
-      if (collapsedShelves.has(id)) {
-        collapsedShelves.delete(id);
-        shelfDiv?.classList.remove('collapsed');
-        const icon = el.querySelector('.shelf-chevron');
-        if (icon) icon.textContent = '▾';
-      } else {
-        collapsedShelves.add(id);
-        shelfDiv?.classList.add('collapsed');
-        const icon = el.querySelector('.shelf-chevron');
-        if (icon) icon.textContent = '▸';
-      }
-      return;
-    }
-    case 'add-shelf':   return shelfModal();
+    case 'select-shelf': selectedShelfId = id; renderTrays(); return;
+    case 'back-shelves': selectedShelfId = null; renderTrays(); return;
+    case 'add-shelf':   return newShelfModal();
     case 'edit-shelf':  return shelfModal(byId('shelves',id));
     case 'del-shelf':   return confirmDelete('shelf', () => {
       live('trays').filter(t=>t.shelfId===id).forEach(t=>cascadeDeleteTray(t.id));
-      removeRecord('shelves',id); render();
+      removeRecord('shelves',id);
+      if (selectedShelfId === id) selectedShelfId = null;
+      render();
     });
     case 'add-tray':    return trayModal(id);
     case 'open-tray':   return trayDetailModal(id);
@@ -1855,17 +1963,8 @@ function init() {
   const fab = document.createElement('button');
   fab.className = 'fab'; fab.title = 'Quick add'; fab.textContent = '+';
   fab.onclick = () => {
-    const shelves = live('shelves');
-    if (!shelves.length) { switchTab('trays'); toast('Add a shelf first, then a tray'); return; }
-    const trays = live('trays');
-    if (!trays.length) {
-      switchTab('trays');
-      onClick({ target: document.querySelector('[data-act="add-tray"]') });
-      return;
-    }
-    // Open add-litter on the first available tray
-    switchTab('trays');
-    trayDetailModal(trays[0].id);
+    if (activeTab !== 'trays') switchTab('trays');
+    showTrayFabMenu();
   };
   document.body.appendChild(fab);
 

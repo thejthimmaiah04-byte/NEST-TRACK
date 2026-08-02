@@ -415,18 +415,56 @@ input:focus, select:focus, textarea:focus {
 .harvest-none { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
 
 /* ---------- Shelves / Trays ---------- */
-.shelf { margin-bottom: 22px; }
-.shelf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-/* Shelf toggle button (name + chevron) */
-.shelf-toggle {
-  display: flex; align-items: center; gap: 8px; flex: 1;
-  background: none; border: none; cursor: pointer; color: inherit;
-  padding: 0; text-align: left; min-width: 0;
+/* Shelf overview grid */
+.shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
 }
-.shelf-chevron { font-size: 12px; color: var(--muted); width: 14px; flex-shrink: 0; }
-.shelf-name-text { font-size: 15px; font-weight: 700; }
-.shelf-tray-count { font-size: 11px; color: var(--muted); font-weight: 500; }
-.shelf.collapsed .tray-grid { display: none; }
+.shelf-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+  padding: 16px 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+  cursor: pointer; text-align: left;
+  transition: border-color .14s, background .14s, transform .12s;
+}
+.shelf-card:hover { border-color: var(--accent); background: var(--surface-2); transform: translateY(-2px); }
+.sc-name  { font-size: 17px; font-weight: 800; color: var(--text); }
+.sc-meta  { font-size: 12px; color: var(--text-2); }
+.sc-alive { font-size: 13px; font-weight: 700; color: var(--ok); margin-top: 6px; }
+
+/* Shelf nav breadcrumb (inside tray view) */
+.shelf-nav {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 14px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.back-btn {
+  background: none; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 5px 12px; font-size: 13px; font-weight: 600;
+  color: var(--text-2); cursor: pointer; flex-shrink: 0;
+  transition: border-color .14s, color .14s;
+}
+.back-btn:hover { border-color: var(--accent); color: var(--text); }
+.shelf-nav-name { font-size: 17px; font-weight: 800; color: var(--text); flex: 1; }
+.shelf-nav-actions { display: flex; gap: 4px; }
+
+/* FAB menu popover */
+.fab-menu {
+  position: fixed; bottom: 90px; right: 20px; z-index: 1100;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.fab-menu-item {
+  background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 18px;
+  font-size: 14px; font-weight: 600; color: var(--text);
+  cursor: pointer; text-align: left; white-space: nowrap;
+  box-shadow: 0 4px 24px rgba(0,0,0,.55);
+  transition: background .12s, border-color .12s;
+}
+.fab-menu-item:hover { background: var(--surface-2); border-color: var(--accent); }
+
 .tray-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 10px; }
 
 .tray {
