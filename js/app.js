@@ -715,6 +715,112 @@ function renderStageDistributionGrid(totals, names) {
   return `<div class="dist-grid">${cells}</div>`;
 }
 
+function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
+  const DAYS = 90, STEP = 2; // sample every 2 days → 46 points
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  // Build cohort filter matching current shelf/tray selection
+  const trayIds = (() => {
+    if (trayId !== 'all') return new Set([trayId]);
+    if (shelfId !== 'all') return new Set(live('trays').filter(t => t.shelfId === shelfId).map(t => t.id));
+    return null;
+  })();
+  const cohortFilter = c => !trayIds || trayIds.has(c.trayId);
+
+  // Sample x-axis: day offsets
+  const xDays = [];
+  for (let d = 0; d <= DAYS; d += STEP) xDays.push(d);
+
+  // All stage names in chronological order
+  const stageNames = orderedStageNames();
+  if (!stageNames.length) return '';
+
+  // Collect counts per stage per day (assumes no future removals, which is correct)
+  const series = new Map(); // stageName → number[]
+  stageNames.forEach(nm => series.set(nm, []));
+
+  for (const d of xDays) {
+    const at = addDays(today, d);
+    const { totals } = stageTotalsAt(at, cohortFilter);
+    stageNames.forEach(nm => series.get(nm).push(totals.get(nm) || 0));
+  }
+
+  // Only keep stages that have any animals during the window
+  const active = stageNames.filter(nm => series.get(nm).some(v => v > 0));
+  if (!active.length) return '';
+
+  // Max Y with 10 % headroom, snapped to a nice number
+  let maxY = 1;
+  active.forEach(nm => { maxY = Math.max(maxY, ...series.get(nm)); });
+  maxY = Math.ceil(maxY * 1.12);
+
+  // SVG layout
+  const W = 560, H = 220, PL = 38, PR = 14, PT = 16, PB = 36;
+  const cw = W - PL - PR, ch = H - PT - PB;
+  const xS = d  => PL + (d / DAYS) * cw;
+  const yS = v  => PT + ch - (v / maxY) * ch;
+
+  // Y-axis gridlines + labels (4 levels)
+  let grid = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = Math.round(maxY * i / 4);
+    const y = +yS(v).toFixed(1);
+    grid += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="var(--border)" stroke-dasharray="3,3" opacity=".55"/>`;
+    grid += `<text x="${PL-5}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${v}</text>`;
+  }
+
+  // X-axis ticks every 2 weeks
+  let xAxis = '';
+  for (let d = 0; d <= DAYS; d += 14) {
+    const x = +xS(d).toFixed(1);
+    const lbl = d === 0 ? 'Today' : '+' + d + 'd';
+    xAxis += `<line x1="${x}" y1="${PT}" x2="${x}" y2="${H-PB}" stroke="var(--border)" stroke-dasharray="3,3" opacity=".35"/>`;
+    xAxis += `<text x="${x}" y="${H-PB+15}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${lbl}</text>`;
+  }
+
+  // One line + area fill per active stage
+  let lines = '';
+  active.forEach(nm => {
+    const color = STAGE_HEX[stageNames.indexOf(nm) % STAGE_HEX.length];
+    const xyPts = xDays.map((d, j) => `${xS(d).toFixed(1)},${yS(series.get(nm)[j]).toFixed(1)}`);
+    const polyPts = xyPts.join(' ');
+    const baseY = +yS(0).toFixed(1);
+    // Area fill
+    const area = `M${xS(xDays[0]).toFixed(1)},${baseY} ` +
+      xDays.map((d, j) => `L${xS(d).toFixed(1)},${yS(series.get(nm)[j]).toFixed(1)}`).join(' ') +
+      ` L${xS(xDays.at(-1)).toFixed(1)},${baseY} Z`;
+    lines += `<path d="${area}" fill="${color}" fill-opacity=".1"/>`;
+    lines += `<polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    // "Today" dot
+    lines += `<circle cx="${xS(0).toFixed(1)}" cy="${yS(series.get(nm)[0]).toFixed(1)}" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2"/>`;
+  });
+
+  // Axes
+  const axes = `
+    <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" stroke="var(--border)" stroke-width="1"/>
+    <line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" stroke="var(--border)" stroke-width="1"/>
+    <text x="${PL}" y="${PT-3}" font-size="9" fill="var(--text-muted)">individuals</text>`;
+
+  // Legend
+  const legend = active.map(nm => {
+    const color = STAGE_HEX[stageNames.indexOf(nm) % STAGE_HEX.length];
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+      <svg width="22" height="10" viewBox="0 0 22 10" style="flex-shrink:0">
+        <line x1="0" y1="5" x2="22" y2="5" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span style="font-size:11px;color:var(--text-muted)">${esc(nm)}</span>
+    </span>`;
+  }).join('');
+
+  return `
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+      <svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:300px;overflow:visible">
+        ${grid}${lines}${axes}${xAxis}
+      </svg>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-left:${PL}px">${legend}</div>`;
+}
+
 function renderCharts() {
   const el = $('#tab-charts');
   if (live('cohorts').length === 0) {
@@ -741,6 +847,7 @@ function renderCharts() {
   const barChart = renderTrayStageBarChart(chartFilterShelf, chartFilterTray);
   const removalRates = computeRemovalInsights();
   const insights = renderRemovalInsights(removalRates);
+  const forecast = renderPopulationForecast(chartFilterShelf, chartFilterTray);
 
   el.innerHTML = `
     <h2 class="section-title" style="margin-bottom:10px">Stage distribution</h2>
@@ -765,7 +872,14 @@ function renderCharts() {
       </div>
       ${barChart || '<p class="small muted" style="padding:8px 0">No active cohorts in this view.</p>'}
       ${insights}
-    </div>`;
+    </div>
+
+    ${forecast ? `
+    <h2 class="section-title" style="margin-top:26px;margin-bottom:4px">Population forecast — next 90 days</h2>
+    <p class="small muted" style="margin:0 0 10px">Projects current animals through stages. Assumes no future removals.</p>
+    <div class="card" style="padding:14px 10px 10px">
+      ${forecast}
+    </div>` : ''}`;
 
   // Wire selectors — re-render charts on change
   const shelfSel = $('#cft-shelf', el);
