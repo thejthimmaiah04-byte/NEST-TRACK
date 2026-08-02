@@ -260,11 +260,9 @@ function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
   const maxVal = Math.max(1, ...trayData.flatMap(d =>
     names.map(nm => d.stageCounts.get(nm) || 0)));
 
-  // When multiple trays: distinct tray palette; single tray: stage colors
-  const TRAY_PAL = ['#60a5fa','#34d399','#f472b6','#a78bfa','#fb923c','#38bdf8'];
-  const barColor = (stageIdx, trayIdx) =>
-    numBars === 1 ? STAGE_HEX[stageIdx % STAGE_HEX.length]
-                  : TRAY_PAL[trayIdx % TRAY_PAL.length];
+  // Always use stage colors; vary opacity to distinguish multiple trays
+  const barColor   = (stageIdx) => STAGE_HEX[stageIdx % STAGE_HEX.length];
+  const barOpacity = (trayIdx)  => numBars <= 1 ? 0.84 : Math.max(0.35, 0.88 - trayIdx * 0.18);
 
   let bars = '', xLabels = '', yLines = '', legend = '';
 
@@ -289,9 +287,9 @@ function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
       const bh    = (count / maxVal) * drawH;
       const bx    = gx + ti * barW;
       const by    = PT + drawH - bh;
-      const color = barColor(gi, ti);
+      const color = barColor(gi);
       bars += `<rect x="${bx + 1}" y="${by}" width="${Math.max(barW - 2, 4)}" height="${bh}"
-        rx="3" fill="${color}" opacity=".84">
+        rx="3" fill="${color}" opacity="${barOpacity(ti).toFixed(2)}">
         <title>${esc(tray.name)} · ${nm}: ${count}</title></rect>`;
       if (bh > 18)
         bars += `<text x="${bx + barW / 2}" y="${by - 4}" class="g-dt" text-anchor="middle">${count}</text>`;
@@ -314,8 +312,7 @@ function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
     const itemW = Math.min(90, drawW / trayData.length);
     trayData.forEach(({ tray }, ti) => {
       const lx = PL + ti * itemW;
-      const color = TRAY_PAL[ti % TRAY_PAL.length];
-      legend += `<rect x="${lx}" y="${legendY - 9}" width="9" height="9" rx="2" fill="${color}" opacity=".84"/>`;
+      legend += `<rect x="${lx}" y="${legendY - 9}" width="9" height="9" rx="2" fill="${STAGE_HEX[0]}" opacity="${barOpacity(ti).toFixed(2)}"/>`;
       legend += `<text x="${lx + 12}" y="${legendY}" class="g-dt">${esc(tray.name)}</text>`;
     });
   }
