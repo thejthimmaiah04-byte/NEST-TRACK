@@ -18,11 +18,20 @@ const $$  = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const uid = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
 const now = () => Date.now();
 const todayISO = () => new Date().toISOString().slice(0,10);
+// Store dates as yyyymmdd (e.g. "20260802")
+const toYMD     = d  => d.toISOString().slice(0,10).replace(/-/g,'');
+// Parse "20260802", "2026-08-02", or full ISO timestamp → Date
+const parseYMD  = s  => { s=String(s||''); if(/^\d{8}$/.test(s)) s=s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8); if(s.length>10) s=s.slice(0,10); return new Date(s?s+'T00:00:00':NaN); };
+// "20260802" → "2026-08-02" for <input type="date">
+const ymdToInput = s => { s=String(s||''); return /^\d{8}$/.test(s)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8):s; };
+// Normalize any date string to yyyymmdd for lexicographic comparison
+const normYMD   = s  => toYMD(parseYMD(s));
+
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-function daysBetween(fromISO, toDate = new Date()) {
-  const a = new Date(fromISO + 'T00:00:00');
+function daysBetween(fromDateStr, toDate = new Date()) {
+  const a = parseYMD(fromDateStr); // handles both formats
   const b = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate());
   return Math.floor((b - a) / 86400000);
 }
@@ -76,6 +85,24 @@ function rec(entity, fields) {
   return Object.assign({ id:uid(), updatedAt:now(), deleted:false }, fields);
 }
 
+// Readable ID generators
+function genTrayId(shelfId) {
+  const shelf = byId('shelves', shelfId);
+  const prefix = shelf ? shelf.name.trim()[0].toUpperCase() : 'T';
+  let n = live('trays').filter(t => t.shelfId === shelfId).length + 1;
+  while (live('trays').some(t => t.id === `${prefix}-${n}`)) n++;
+  return `${prefix}-${n}`;
+}
+function genSpeciesId(name) {
+  const base = name.trim().slice(0,3).toUpperCase().replace(/[^A-Z]/g,'') || 'SPP';
+  if (!live('species').some(s => s.id === base)) return base;
+  for (let i = 2; i < 20; i++) {
+    const cand = base.slice(0,2) + i;
+    if (!live('species').some(s => s.id === cand)) return cand;
+  }
+  return uid();
+}
+
 function touch(entity, record) {
   record.updatedAt = now();
   markPending(entity, record.id);
@@ -110,11 +137,11 @@ const speciesOf = obj => byId('species', obj.speciesId);
  *  Domain calculations
  * ------------------------------------------------------------------ */
 function cohortNet(cohort, asOf = new Date()) {
-  const asISO = asOf.toISOString().slice(0,10);
+  const asYMD = toYMD(asOf);
   let removed = 0;
   for (const r of state.removals) {
     if (r.deleted || r.cohortId !== cohort.id) continue;
-    if (r.date <= asISO) removed += Number(r.count) || 0;
+    if (normYMD(r.date) <= asYMD) removed += Number(r.count) || 0;
   }
   return Math.max(0, (Number(cohort.initialCount) || 0) - removed);
 }
@@ -158,12 +185,12 @@ function orderedStageNames() {
 function computeRemovalInsights() {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
-  const recent = live('removals').filter(r => r.count > 0 && new Date(r.date) >= cutoff);
+  const recent = live('removals').filter(r => r.count > 0 && parseYMD(r.date) >= cutoff);
   const byStage = new Map();
   for (const r of recent) {
     const cohort = live('cohorts').find(c => c.id === r.cohortId);
     if (!cohort) continue;
-    const { name } = stageIndexAt(cohort, new Date(r.date + 'T00:00:00'));
+    const { name } = stageIndexAt(cohort, parseYMD(r.date));
     byStage.set(name, (byStage.get(name) || 0) + (Number(r.count) || 0));
   }
   const weeksObs = 30 / 7;
@@ -327,7 +354,7 @@ function renderCohortTimeline(shelfId = 'all', trayId = 'all') {
   for (const tray of trays) {
     const cohorts = live('cohorts')
       .filter(c => c.trayId === tray.id && cohortNet(c) > 0)
-      .sort((a, b) => new Date(a.birthDate) - new Date(b.birthDate)); // oldest first
+      .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate)); // oldest first
     if (!cohorts.length) continue;
     const netTotal = cohorts.reduce((s, c) => s + cohortNet(c), 0);
     trayRows.push({ tray, cohorts, netTotal });
@@ -361,7 +388,7 @@ function renderCohortTimeline(shelfId = 'all', trayId = 'all') {
     cohorts.forEach((cohort, ci) => {
       const sp     = speciesOf(cohort);
       const stages = sp?.stages ? [...sp.stages].sort((a,b) => a.startDay - b.startDay) : [];
-      const birth  = new Date(cohort.birthDate + 'T00:00:00');
+      const birth  = parseYMD(cohort.birthDate);
       // Newer cohorts get a slightly thinner bar so layering is visible
       const shrink = ci * 3;
       const barY   = y + 5 + shrink;
@@ -811,7 +838,7 @@ function openRemoveByStage(stageName, stageIdx) {
         const trayId   = inp.dataset.trayId;
         const max      = Number(inp.dataset.max);
         if (n > max) return toast(`Max available is ${max}`, true);
-        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n });
+        const r = rec('removals', { cohortId, trayId, date: toYMD(new Date()), stage: stageName, count: n });
         upsertLocal('removals', r);
         touch('removals', r);
         recorded += n;
@@ -890,7 +917,8 @@ let calSelected = todayISO();
 
 function getCalEvents() {
   const map = {};
-  const add = (date, ev) => { (map[date] = map[date] || []).push(ev); };
+  // Normalize to yyyy-mm-dd so stored yyyymmdd dates match the grid's keys
+  const add = (date, ev) => { const k=ymdToInput(date); (map[k]=map[k]||[]).push(ev); };
   for (const c of live('cohorts')) {
     const tray = byId('trays', c.trayId);
     const sp   = speciesOf(c);
@@ -1124,11 +1152,12 @@ function trayModal(shelfId, existing) {
   const speciesList = live('species');
   if (!speciesList.length) return toast('Add a species first', true);
   const t = existing || {};
+  const suggestedId = existing ? existing.id : genTrayId(shelfId); // e.g. "A-1"
   const opts = speciesList.map(s =>
     `<option value="${s.id}" ${s.id===t.speciesId?'selected':''}>${esc(s.name)}</option>`).join('');
   openModal(existing?'Edit tray':'Add tray', `
     <label class="field"><span>Tray name</span>
-      <input id="f-name" value="${esc(t.name||'')}" placeholder="e.g. Tray 3 / B2" /></label>
+      <input id="f-name" value="${esc(t.name || suggestedId)}" placeholder="e.g. A-1" /></label>
     <label class="field"><span>Species</span>
       <select id="f-species">${opts}</select></label>
     <button class="btn primary block" data-save>Save</button>
@@ -1139,7 +1168,7 @@ function trayModal(shelfId, existing) {
       const speciesId = $('#f-species', root).value;
       if (!name) return toast('Enter a name', true);
       if (existing) { existing.name=name; existing.speciesId=speciesId; touch('trays',existing); }
-      else { const r=rec('trays',{shelfId,name,speciesId}); upsertLocal('trays',r); touch('trays',r); }
+      else { const r=rec('trays',{id:suggestedId, shelfId, name, speciesId}); upsertLocal('trays',r); touch('trays',r); }
       closeModal(); render();
     };
   });
@@ -1151,7 +1180,7 @@ function trayDetailModal(trayId) {
   if (!tray) return;
   const sp = speciesOf(tray);
   const cohorts = live('cohorts').filter(c => c.trayId === trayId)
-    .sort((a,b) => a.birthDate < b.birthDate ? 1 : -1);
+    .sort((a,b) => parseYMD(b.birthDate) - parseYMD(a.birthDate));
 
   const rows = cohorts.map(c => {
     const net = cohortNet(c);
@@ -1163,7 +1192,7 @@ function trayDetailModal(trayId) {
         <div class="cn">${net}
           <span class="pill" style="background:${stageColor(si)}">${esc(name)}</span>
         </div>
-        <div class="small muted">Born ${esc(c.birthDate)} · ${age}d old · started ${c.initialCount}${(c.males!=null||c.females!=null)?' · ♂ '+(c.males??'?')+' ♀ '+(c.females??'?'):''}${c.notes?' · '+esc(c.notes):''}</div>
+        <div class="small muted">Born ${toYMD(parseYMD(c.birthDate))} · ${age}d old · started ${c.initialCount}${(c.males!=null||c.females!=null)?' · ♂ '+(c.males??'?')+' ♀ '+(c.females??'?'):''}${c.notes?' · '+esc(c.notes):''}</div>
       </div>
       <div class="cohort-remove">
         ${depleted?'':`<input type="number" min="1" max="${net}" placeholder="0" data-remove="${c.id}" />
@@ -1193,7 +1222,7 @@ function trayDetailModal(trayId) {
         if (!n || n <= 0) return toast('Enter a count', true);
         if (n > net) return toast(`Only ${net} available`, true);
         const { name } = stageIndexAt(c);
-        const r = rec('removals',{ cohortId:id, trayId, date:todayISO(), stage:name, count:n });
+        const r = rec('removals',{ cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n });
         upsertLocal('removals',r); touch('removals',r);
         toast(`Removed ${n} ${name}`);
         closeModal(); trayDetailModal(trayId); render();
@@ -1209,6 +1238,7 @@ function litterModal(trayId) {
     <p class="small muted">Into <b>${esc(tray.name)}</b> (${sp?esc(sp.name):'—'})</p>
     <div class="field-row">
       <label class="field"><span>Birth date</span><input id="f-date" type="date" value="${todayISO()}" /></label>
+
       <label class="field"><span>Count</span><input id="f-count" type="number" min="1" placeholder="e.g. 8" /></label>
     </div>
     <label class="field"><span>Notes (optional)</span><input id="f-notes" placeholder="e.g. dam #4" /></label>
@@ -1216,7 +1246,7 @@ function litterModal(trayId) {
   `, root => {
     $('#f-count', root).focus();
     $('[data-save]', root).onclick = () => {
-      const birthDate = $('#f-date', root).value;
+      const birthDate = toYMD(new Date($('#f-date', root).value));
       const initialCount = Number($('#f-count', root).value);
       const notes = $('#f-notes', root).value.trim();
       if (!birthDate) return toast('Pick a birth date', true);
@@ -1262,7 +1292,7 @@ function intakeModal(trayId) {
         if (!n || n <= 0) continue;
         const startDay  = Number(inp.dataset.startday);
         const stageName = inp.dataset.stage;
-        const birthDate = addDays(new Date(), -startDay).toISOString().slice(0, 10);
+        const birthDate = toYMD(addDays(new Date(), -startDay));
         const r = rec('cohorts', {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,
@@ -1293,7 +1323,7 @@ function editCohortModal(cohortId, trayId) {
     <p class="small muted" style="margin-bottom:14px">In <b>${esc(tray?.name || '')}</b></p>
     <div class="field-row">
       <label class="field"><span>Birth date</span>
-        <input id="f-date" type="date" value="${esc(c.birthDate)}" /></label>
+        <input id="f-date" type="date" value="${ymdToInput(toYMD(parseYMD(c.birthDate)))}" /></label>
       <label class="field"><span>Initial count</span>
         <input id="f-count" type="number" min="${Math.max(1, alreadyRemoved)}" value="${c.initialCount}" /></label>
     </div>
@@ -1308,7 +1338,7 @@ function editCohortModal(cohortId, trayId) {
     <button class="btn primary block" data-save>Save changes</button>
   `, root => {
     $('[data-save]', root).onclick = () => {
-      const birthDate    = $('#f-date', root).value;
+      const birthDate    = toYMD(new Date($('#f-date', root).value));
       const initialCount = Number($('#f-count', root).value);
       const notes        = $('#f-notes', root).value.trim();
       const mVal = $('#f-males', root).value;
@@ -1376,7 +1406,7 @@ function speciesModal(existing) {
       if (!stages.length) return toast('Add at least one stage', true);
       stages.sort((a,b)=>a.startDay-b.startDay);
       if (existing) { existing.name=name; existing.stages=stages; touch('species',existing); }
-      else { const r=rec('species',{name,stages}); upsertLocal('species',r); touch('species',r); }
+      else { const r=rec('species',{id:genSpeciesId(name), name, stages}); upsertLocal('species',r); touch('species',r); }
       closeModal(); render();
     };
   });
