@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!--
+    NestTrak rat silhouette — matches the uploaded minimalist logo style.
+    Uses currentColor so it inherits from CSS.
+  -->
+  <!-- Body + head: single smooth path, rat faces left, sitting upright -->
+  <path fill="currentColor" d="
+    M 36 14
+    C 22 10 6 20 5 35
+    C 4 47 12 57 24 61
+    C 15 67 11 78 14 89
+    C 17 100 30 106 43 101
+    C 48 110 59 116 72 114
+    C 90 110 102 95 100 78
+    C 108 75 116 65 113 54
+    C 110 43 98 40 91 44
+    C 88 31 78 19 64 14
+    C 55 11 45 13 36 14 Z
+  "/>
+  <!-- Tail: exits lower-right body, curves up then loops at tip -->
+  <path fill="none" stroke="currentColor" stroke-width="5.5"
+        stroke-linecap="round" stroke-linejoin="round"
+        d="M 100 78 C 116 64 120 42 110 27 C 103 16 93 20 98 31"/>
+  <!-- Eye: small filled circle in head area -->
+  <circle cx="13" cy="37" r="3.5" fill="black"/>
+  <!-- Front paw left -->
+  <ellipse cx="31" cy="109" rx="8" ry="3.5" fill="currentColor"/>
+  <!-- Front paw right -->
+  <ellipse cx="48" cy="114" rx="8" ry="3.5" fill="currentColor"/>
+</svg>
