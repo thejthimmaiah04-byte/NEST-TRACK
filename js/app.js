@@ -165,6 +165,8 @@ function stageTotalsAt(atDate = new Date(), filter = () => true) {
     if (!filter(c)) continue;
     const net = cohortNet(c, atDate);
     if (net <= 0) continue;
+    const sp = speciesOf(c);
+    if (sp?.lifespan && daysBetween(c.birthDate, atDate) >= sp.lifespan) continue;
     const { name } = stageIndexAt(c, atDate);
     totals.set(name, (totals.get(name) || 0) + net);
     total += net;
@@ -737,12 +739,24 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
   // Collect counts per stage per day (assumes no future removals, which is correct)
   const series = new Map(); // stageName → number[]
   stageNames.forEach(nm => series.set(nm, []));
+  const deathSeries = []; // projected natural deaths (cumulative alive animals past lifespan)
 
   for (const d of xDays) {
     const at = addDays(today, d);
     const { totals } = stageTotalsAt(at, cohortFilter);
     stageNames.forEach(nm => series.get(nm).push(totals.get(nm) || 0));
+
+    // Count cohorts that will have exceeded lifespan by this date
+    let deaths = 0;
+    for (const c of live('cohorts')) {
+      if (!cohortFilter(c)) continue;
+      const sp = speciesOf(c);
+      if (!sp?.lifespan) continue;
+      if (daysBetween(c.birthDate, at) >= sp.lifespan) deaths += cohortNet(c);
+    }
+    deathSeries.push(deaths);
   }
+  const hasDeaths = deathSeries.some(v => v > 0);
 
   // Only keep stages that have any animals during the window
   const active = stageNames.filter(nm => series.get(nm).some(v => v > 0));
@@ -751,6 +765,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
   // Max Y with 10 % headroom, snapped to a nice number
   let maxY = 1;
   active.forEach(nm => { maxY = Math.max(maxY, ...series.get(nm)); });
+  if (hasDeaths) maxY = Math.max(maxY, ...deathSeries);
   maxY = Math.ceil(maxY * 1.12);
 
   // SVG layout
@@ -784,15 +799,20 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
     const xyPts = xDays.map((d, j) => `${xS(d).toFixed(1)},${yS(series.get(nm)[j]).toFixed(1)}`);
     const polyPts = xyPts.join(' ');
     const baseY = +yS(0).toFixed(1);
-    // Area fill
     const area = `M${xS(xDays[0]).toFixed(1)},${baseY} ` +
       xDays.map((d, j) => `L${xS(d).toFixed(1)},${yS(series.get(nm)[j]).toFixed(1)}`).join(' ') +
       ` L${xS(xDays.at(-1)).toFixed(1)},${baseY} Z`;
     lines += `<path d="${area}" fill="${color}" fill-opacity=".1"/>`;
     lines += `<polyline points="${polyPts}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
-    // "Today" dot
     lines += `<circle cx="${xS(0).toFixed(1)}" cy="${yS(series.get(nm)[0]).toFixed(1)}" r="4" fill="${color}" stroke="var(--surface)" stroke-width="2"/>`;
   });
+
+  // Natural death projection — dashed grey line
+  if (hasDeaths) {
+    const deathPts = xDays.map((d, j) => `${xS(d).toFixed(1)},${yS(deathSeries[j]).toFixed(1)}`).join(' ');
+    lines += `<polyline points="${deathPts}" fill="none" stroke="#ef4444" stroke-width="1.8"
+      stroke-dasharray="5,4" stroke-linejoin="round" stroke-linecap="round" opacity=".75"/>`;
+  }
 
   // Axes
   const axes = `
@@ -809,7 +829,13 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
       </svg>
       <span style="font-size:11px;font-weight:600;color:var(--text)">${esc(nm)}</span>
     </span>`;
-  }).join('');
+  }).join('') + (hasDeaths ? `
+    <span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+      <svg width="22" height="10" viewBox="0 0 22 10" style="flex-shrink:0">
+        <line x1="0" y1="5" x2="22" y2="5" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round"/>
+      </svg>
+      <span style="font-size:11px;font-weight:600;color:var(--text)">Natural deaths</span>
+    </span>` : '');
 
   return `
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -967,36 +993,47 @@ function openRemoveByStage(stageName, stageIdx) {
 
 /* ---------- Harvest Search ---------- */
 function refreshHarvestResults() {
+  const spEl    = $('#harvest-species');
   const stageEl = $('#harvest-stage');
   const countEl = $('#harvest-count');
   const outEl   = $('#harvest-results');
   if (!stageEl || !countEl || !outEl) return;
 
-  const stage  = stageEl.value;
-  const needed = parseInt(countEl.value, 10);
+  const speciesId = spEl?.value || 'all';
+  const stage     = stageEl.value;
+  const needed    = parseInt(countEl.value, 10);
   if (!stage || isNaN(needed) || needed < 1) { outEl.innerHTML = ''; return; }
 
-  // Gather trays with animals in the requested stage
   const today = new Date();
   const matches = [];
+
   for (const tray of live('trays')) {
     let count = 0;
+    let oldestDate = null; // earliest birth date of cohorts in this stage
     for (const c of live('cohorts')) {
       if (c.trayId !== tray.id) continue;
+      if (speciesId !== 'all' && c.speciesId !== speciesId) continue;
       const net = cohortNet(c, today);
       if (net <= 0) continue;
-      if (stageIndexAt(c, today).name === stage) count += net;
+      if (stageIndexAt(c, today).name !== stage) continue;
+      count += net;
+      // Track oldest cohort (smallest birth date = entered world earliest)
+      const bd = parseYMD(c.birthDate);
+      if (!oldestDate || bd < oldestDate) oldestDate = bd;
     }
-    if (count > 0) matches.push({ tray, count });
+    if (count > 0) matches.push({ tray, count, oldestDate });
   }
-  matches.sort((a, b) => b.count - a.count); // most first
+
+  // Sort oldest animals first — they should be used before they die naturally
+  matches.sort((a, b) => a.oldestDate - b.oldestDate);
 
   if (!matches.length) {
-    outEl.innerHTML = `<p class="harvest-none">No ${esc(stage)} available in any tray.</p>`;
+    const spName = speciesId !== 'all' ? (byId('species', speciesId)?.name || '') : '';
+    outEl.innerHTML = `<p class="harvest-none">No ${esc(stage)}${spName ? ' ('+esc(spName)+')' : ''} available in any tray.</p>`;
     return;
   }
 
-  // Greedy selection: pick trays from largest until need is met
+  // Greedy: pick oldest trays first until needed count is met
   let remaining = needed;
   const suggested = new Set();
   for (const m of matches) {
@@ -1004,13 +1041,19 @@ function refreshHarvestResults() {
     suggested.add(m.tray.id);
     remaining -= m.count;
   }
-  const total = matches.reduce((s, m) => s + m.count, 0);
+  const total  = matches.reduce((s, m) => s + m.count, 0);
   const canFill = remaining <= 0;
 
   const btns = matches.map(m => {
     const cls = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
-    return `<button class="${cls}" data-act="open-tray" data-id="${m.tray.id}">
+    const ageDays = m.oldestDate ? Math.floor((today - m.oldestDate) / 86400000) : null;
+    // Warn if within 30 days of lifespan
+    const sp = speciesId !== 'all' ? byId('species', speciesId)
+      : live('species').find(s => live('cohorts').some(c => c.trayId === m.tray.id && c.speciesId === s.id));
+    const urgent = sp?.lifespan && ageDays != null && (sp.lifespan - ageDays) <= 30;
+    return `<button class="${cls}${urgent ? ' urgent' : ''}" data-act="open-tray" data-id="${m.tray.id}">
       <span class="hb-name">${esc(m.tray.name)}</span>
+      ${ageDays != null ? `<span class="hb-age${urgent ? ' hb-age-warn' : ''}">${ageDays}d old</span>` : ''}
       <span class="hb-count">${m.count}</span>
     </button>`;
   }).join('');
@@ -1031,7 +1074,8 @@ function renderTrays() {
   const names = orderedStageNames();
 
   // Harvest search card (always visible)
-  const stageOpts = names.map(nm => `<option value="${esc(nm)}">${esc(nm)}</option>`).join('');
+  const stageOpts   = names.map(nm => `<option value="${esc(nm)}">${esc(nm)}</option>`).join('');
+  const speciesOpts = live('species').map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   let html = `
     <div class="harvest-card card">
       <div class="harvest-header">
@@ -1039,6 +1083,10 @@ function renderTrays() {
         <span class="harvest-label">Harvest search</span>
       </div>
       <div class="harvest-row">
+        <select id="harvest-species">
+          <option value="all">All species</option>
+          ${speciesOpts}
+        </select>
         <select id="harvest-stage">
           <option value="">Stage…</option>
           ${stageOpts}
@@ -1051,10 +1099,12 @@ function renderTrays() {
   if (!shelves.length) {
     html += emptyState('🗄️', 'No shelves yet', 'Tap + to add your first shelf and trays.');
     el.innerHTML = html;
-    const stageEl = $('#harvest-stage', el);
-    const countEl = $('#harvest-count', el);
-    if (stageEl) stageEl.onchange = refreshHarvestResults;
-    if (countEl) countEl.oninput  = refreshHarvestResults;
+    const spEl2    = $('#harvest-species', el);
+    const stageEl2 = $('#harvest-stage', el);
+    const countEl2 = $('#harvest-count', el);
+    if (spEl2)    spEl2.onchange    = refreshHarvestResults;
+    if (stageEl2) stageEl2.onchange = refreshHarvestResults;
+    if (countEl2) countEl2.oninput  = refreshHarvestResults;
     return;
   }
 
@@ -1134,8 +1184,10 @@ function renderTrays() {
   el.innerHTML = html;
 
   // Wire harvest search inputs
+  const spEl    = $('#harvest-species', el);
   const stageEl = $('#harvest-stage', el);
   const countEl = $('#harvest-count', el);
+  if (spEl)    spEl.onchange    = refreshHarvestResults;
   if (stageEl) stageEl.onchange = refreshHarvestResults;
   if (countEl) countEl.oninput  = refreshHarvestResults;
 }
@@ -1700,6 +1752,9 @@ function speciesModal(existing) {
   openModal(existing?'Edit species':'Add species', `
     <label class="field"><span>Species name</span>
       <input id="f-name" value="${esc(sp.name)}" placeholder="e.g. Mouse, Rat, Quail" /></label>
+    <label class="field"><span>Natural lifespan (days)</span>
+      <input id="f-lifespan" type="number" min="1" value="${sp.lifespan||''}" placeholder="e.g. 730 = 2 years" /></label>
+    <p class="small muted" style="margin:-8px 0 10px">Used to show a natural death curve on the forecast and to prioritise oldest animals in harvest search.</p>
     <span class="small muted">Stages — name and the age in days it enters that stage (0 = birth).</span>
     <div class="stage-rows mt" id="stage-rows">${stageRows(sp.stages)}</div>
     <button class="btn sm" id="add-stage">+ Add stage</button>
@@ -1722,13 +1777,14 @@ function speciesModal(existing) {
       rowsEl.innerHTML = stageRows(cur); rebind();
     };
     $('[data-save]', root).onclick = () => {
-      const name = $('#f-name', root).value.trim();
+      const name     = $('#f-name', root).value.trim();
+      const lifespan = parseInt($('#f-lifespan', root).value, 10) || null;
       let stages = collect().filter(s => s.name);
       if (!name) return toast('Enter a species name', true);
       if (!stages.length) return toast('Add at least one stage', true);
       stages.sort((a,b)=>a.startDay-b.startDay);
-      if (existing) { existing.name=name; existing.stages=stages; touch('species',existing); }
-      else { const r=rec('species',{id:genSpeciesId(name), name, stages}); upsertLocal('species',r); touch('species',r); }
+      if (existing) { existing.name=name; existing.stages=stages; existing.lifespan=lifespan; touch('species',existing); }
+      else { const r=rec('species',{id:genSpeciesId(name), name, stages, lifespan}); upsertLocal('species',r); touch('species',r); }
       closeModal(); render();
     };
   });

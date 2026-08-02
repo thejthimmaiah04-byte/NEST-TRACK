@@ -14,7 +14,7 @@
 
 // ── schemas (internal field order — do NOT change) ──────────────────────────
 var SCHEMAS = {
-  species:  ['id', 'name', 'stages', 'updatedAt', 'deleted', 'syncedAt'],
+  species:  ['id', 'name', 'stages', 'lifespan', 'updatedAt', 'deleted', 'syncedAt'],
   shelves:  ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
   trays:    ['id', 'shelfId', 'name', 'speciesId', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:  ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
@@ -27,7 +27,7 @@ var JSON_FIELDS = { stages: true };
 
 // Human-readable caps label for each schema field
 var COL_LABELS = {
-  id: 'ID', name: 'NAME', stages: 'STAGES', sortOrder: '_ORDER',
+  id: 'ID', name: 'NAME', stages: 'STAGES', lifespan: 'LIFESPAN (DAYS)', sortOrder: '_ORDER',
   updatedAt: '_UPDATED', deleted: '_DELETED', syncedAt: '_SYNCED',
   shelfId: '_SHELF ID', speciesId: '_SPECIES ID',
   trayId: '_TRAY ID', cohortId: '_COHORT ID',
@@ -46,7 +46,7 @@ var EXTRA = {
 // 1-based column indices to HIDE in each entity's sheet
 // (data remains readable by the sync engine; users see only the clean columns)
 var HIDE = {
-  species:  [3, 4, 5, 6],           // STAGES(JSON), _UPDATED, _DELETED, _SYNCED
+  species:  [3, 5, 6, 7],           // STAGES(JSON), _UPDATED, _DELETED, _SYNCED  (col 4 = LIFESPAN stays visible)
   shelves:  [3, 4, 5, 6],           // _ORDER, _UPDATED, _DELETED, _SYNCED
   trays:    [2, 4, 5, 6, 7],        // _SHELF ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
   cohorts:  [1, 2, 3, 9, 10, 11],   // ID, _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
@@ -244,7 +244,7 @@ function hydrate(entity, row) {
     } else if (c === 'deleted') {
       v = (v === true || v === 'true' || v === 'TRUE');
     } else if (c === 'initialCount' || c === 'count' || c === 'sortOrder' ||
-               c === 'males' || c === 'females' || c === 'updatedAt' || c === 'syncedAt') {
+               c === 'males' || c === 'females' || c === 'updatedAt' || c === 'syncedAt' || c === 'lifespan') {
       v = (v === '' || v == null) ? 0 : Number(v);
     }
     obj[c] = v;
