@@ -837,13 +837,102 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
       <span style="font-size:11px;font-weight:600;color:var(--text)">Natural deaths</span>
     </span>` : '');
 
+  // Embed chart data for hover tooltip
+  const chartData = JSON.stringify({
+    xDays, STEP,
+    stages: active.map(nm => ({
+      name: nm,
+      color: STAGE_HEX[stageNames.indexOf(nm) % STAGE_HEX.length],
+      values: series.get(nm)
+    })),
+    deathValues: hasDeaths ? deathSeries : null,
+    layout: { W, H, PL, PR, PT, PB, DAYS, maxY }
+  });
+
   return `
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-      <svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:300px;overflow:visible">
-        ${grid}${lines}${axes}${xAxis}
-      </svg>
-    </div>
-    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-left:${PL}px">${legend}</div>`;
+    <div id="fc-wrap" style="position:relative">
+      <script type="application/json" id="fc-data">${chartData}<\/script>
+      <div class="fc-tt" id="fc-tooltip" style="display:none"></div>
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <svg id="fc-svg" width="100%" viewBox="0 0 ${W} ${H}" style="min-width:300px;overflow:visible">
+          ${grid}${lines}${axes}${xAxis}
+          <line id="fc-crosshair" x1="0" y1="${PT}" x2="0" y2="${H-PB}"
+            stroke="rgba(255,255,255,.45)" stroke-width="1.5" stroke-dasharray="4,3"
+            style="display:none" pointer-events="none"/>
+          <rect id="fc-hit" x="${PL}" y="${PT}" width="${W-PL-PR}" height="${H-PT-PB}"
+            fill="transparent" style="cursor:crosshair"/>
+        </svg>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-left:${PL}px">${legend}</div>
+    </div>`;
+}
+
+function wireForeCastHover() {
+  const wrap  = document.getElementById('fc-wrap');
+  const dataEl = document.getElementById('fc-data');
+  const svg   = document.getElementById('fc-svg');
+  const tt    = document.getElementById('fc-tooltip');
+  const ch    = document.getElementById('fc-crosshair');
+  if (!wrap || !dataEl || !svg || !tt) return;
+
+  const { xDays, STEP, stages, deathValues, layout } = JSON.parse(dataEl.textContent);
+  const { W, H, PL, PR, PT, PB, DAYS, maxY } = layout;
+  const cw = W - PL - PR, chwh = H - PT - PB;
+
+  const xS = d => PL + (d / DAYS) * cw;
+  const yS = v => PT + chwh - (v / maxY) * chwh;
+
+  const hide = () => { tt.style.display = 'none'; if (ch) ch.style.display = 'none'; };
+
+  svg.addEventListener('mousemove', e => {
+    const rect  = svg.getBoundingClientRect();
+    const svgX  = (e.clientX - rect.left) / rect.width * W;
+    if (svgX < PL || svgX > W - PR) { hide(); return; }
+
+    const frac = (svgX - PL) / cw;
+    const j    = Math.max(0, Math.min(Math.round(frac * DAYS / STEP), xDays.length - 1));
+    const day  = xDays[j];
+    const cx   = +xS(day).toFixed(1);
+
+    // Move crosshair
+    if (ch) { ch.setAttribute('x1', cx); ch.setAttribute('x2', cx); ch.style.display = ''; }
+
+    // Build tooltip
+    const label   = day === 0 ? 'Today' : `+${day}d`;
+    const dateObj = new Date(); dateObj.setDate(dateObj.getDate() + day);
+    const dateStr = dateObj.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    let html = `<div class="fc-tt-date">${label} · ${dateStr}</div>`;
+    for (const st of stages) {
+      const v = st.values[j] || 0;
+      if (v === 0) continue;
+      html += `<div class="fc-tt-row">
+        <span class="fc-tt-dot" style="background:${st.color}"></span>
+        <span class="fc-tt-nm">${esc(st.name)}</span>
+        <span class="fc-tt-val">${v}</span>
+      </div>`;
+    }
+    if (deathValues) {
+      const d = deathValues[j] || 0;
+      if (d > 0) html += `<div class="fc-tt-row">
+        <span class="fc-tt-dot" style="background:#ef4444"></span>
+        <span class="fc-tt-nm">Natural deaths</span>
+        <span class="fc-tt-val">${d}</span>
+      </div>`;
+    }
+    tt.innerHTML = html;
+    tt.style.display = 'block';
+
+    // Position tooltip: right of crosshair, flip left if near edge
+    const wrapRect = wrap.getBoundingClientRect();
+    const ttW = tt.offsetWidth || 150;
+    let left = e.clientX - wrapRect.left + 14;
+    if (left + ttW > wrapRect.width - 8) left = e.clientX - wrapRect.left - ttW - 14;
+    const top = Math.max(4, e.clientY - wrapRect.top - 24);
+    tt.style.left = left + 'px';
+    tt.style.top  = top + 'px';
+  });
+
+  svg.addEventListener('mouseleave', hide);
 }
 
 function renderCharts() {
@@ -905,6 +994,8 @@ function renderCharts() {
     <div class="card" style="padding:14px 10px 10px">
       ${forecast}
     </div>` : ''}`;
+
+  wireForeCastHover();
 
   // Wire selectors — re-render charts on change
   const shelfSel = $('#cft-shelf', el);

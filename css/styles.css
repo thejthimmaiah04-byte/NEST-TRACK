@@ -418,6 +418,19 @@ input:focus, select:focus, textarea:focus {
 .harvest-status.warn { color: #facc15;      background: rgba(250,204,21,.12); }
 .harvest-none { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
 
+/* ---------- Forecast hover tooltip ---------- */
+.fc-tt {
+  position: absolute; z-index: 50; pointer-events: none;
+  background: var(--surface-3); border: 1px solid rgba(255,255,255,.14);
+  border-radius: var(--radius-sm); padding: 8px 12px;
+  box-shadow: var(--shadow); min-width: 130px;
+}
+.fc-tt-date { font-size: 11px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.fc-tt-row  { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.fc-tt-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.fc-tt-nm   { flex: 1; font-size: 11px; color: var(--text-2); }
+.fc-tt-val  { font-size: 12px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
 /* ---------- Shelves / Trays ---------- */
 /* Shelf overview grid */
 .shelf-grid {
