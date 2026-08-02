@@ -767,7 +767,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
     const v = Math.round(maxY * i / 4);
     const y = +yS(v).toFixed(1);
     grid += `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="var(--border)" stroke-dasharray="3,3" opacity=".55"/>`;
-    grid += `<text x="${PL-5}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--text-muted)">${v}</text>`;
+    grid += `<text x="${PL-5}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--text-2)">${v}</text>`;
   }
 
   // X-axis ticks every 2 weeks
@@ -776,7 +776,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
     const x = +xS(d).toFixed(1);
     const lbl = d === 0 ? 'Today' : '+' + d + 'd';
     xAxis += `<line x1="${x}" y1="${PT}" x2="${x}" y2="${H-PB}" stroke="var(--border)" stroke-dasharray="3,3" opacity=".35"/>`;
-    xAxis += `<text x="${x}" y="${H-PB+15}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${lbl}</text>`;
+    xAxis += `<text x="${x}" y="${H-PB+15}" text-anchor="middle" font-size="10" fill="var(--text-2)">${lbl}</text>`;
   }
 
   // One line + area fill per active stage
@@ -800,7 +800,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
   const axes = `
     <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" stroke="var(--border)" stroke-width="1"/>
     <line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" stroke="var(--border)" stroke-width="1"/>
-    <text x="${PL}" y="${PT-3}" font-size="9" fill="var(--text-muted)">individuals</text>`;
+    <text x="${PL}" y="${PT-3}" font-size="9" fill="var(--text-2)">individuals</text>`;
 
   // Legend
   const legend = active.map(nm => {
@@ -809,7 +809,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
       <svg width="22" height="10" viewBox="0 0 22 10" style="flex-shrink:0">
         <line x1="0" y1="5" x2="22" y2="5" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
-      <span style="font-size:11px;color:var(--text-muted)">${esc(nm)}</span>
+      <span style="font-size:11px;font-weight:600;color:var(--text)">${esc(nm)}</span>
     </span>`;
   }).join('');
 
