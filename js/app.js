@@ -515,6 +515,7 @@ let dashFilterSpecies  = 'all';
 let fcVisibleStages   = null; // null = all visible; Set of stage names when filtered
 let chartFilterShelf  = 'all';
 let chartFilterTray   = 'all';
+let collapsedShelves  = new Set(); // shelf IDs currently collapsed in Trays tab
 
 function render() {
   renderSync();
@@ -966,22 +967,106 @@ function openRemoveByStage(stageName, stageIdx) {
   });
 }
 
+/* ---------- Harvest Search ---------- */
+function refreshHarvestResults() {
+  const stageEl = $('#harvest-stage');
+  const countEl = $('#harvest-count');
+  const outEl   = $('#harvest-results');
+  if (!stageEl || !countEl || !outEl) return;
+
+  const stage  = stageEl.value;
+  const needed = parseInt(countEl.value, 10);
+  if (!stage || isNaN(needed) || needed < 1) { outEl.innerHTML = ''; return; }
+
+  // Gather trays with animals in the requested stage
+  const today = new Date();
+  const matches = [];
+  for (const tray of live('trays')) {
+    let count = 0;
+    for (const c of live('cohorts')) {
+      if (c.trayId !== tray.id) continue;
+      const net = cohortNet(c, today);
+      if (net <= 0) continue;
+      if (stageIndexAt(c, today).name === stage) count += net;
+    }
+    if (count > 0) matches.push({ tray, count });
+  }
+  matches.sort((a, b) => b.count - a.count); // most first
+
+  if (!matches.length) {
+    outEl.innerHTML = `<p class="harvest-none">No ${esc(stage)} available in any tray.</p>`;
+    return;
+  }
+
+  // Greedy selection: pick trays from largest until need is met
+  let remaining = needed;
+  const suggested = new Set();
+  for (const m of matches) {
+    if (remaining <= 0) break;
+    suggested.add(m.tray.id);
+    remaining -= m.count;
+  }
+  const total = matches.reduce((s, m) => s + m.count, 0);
+  const canFill = remaining <= 0;
+
+  const btns = matches.map(m => {
+    const cls = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
+    return `<button class="${cls}" data-act="open-tray" data-id="${m.tray.id}">
+      <span class="hb-name">${esc(m.tray.name)}</span>
+      <span class="hb-count">${m.count}</span>
+    </button>`;
+  }).join('');
+
+  const statusCls = canFill ? 'harvest-status ok' : 'harvest-status warn';
+  const statusMsg = canFill
+    ? `✓ Can fill ${needed} from ${suggested.size} tray${suggested.size !== 1 ? 's' : ''} (${total} total available)`
+    : `⚠ Only ${total} of ${needed} available across all trays`;
+
+  outEl.innerHTML = `<div class="harvest-btns">${btns}</div>
+    <div class="${statusCls}">${statusMsg}</div>`;
+}
+
 /* ---------- Trays ---------- */
 function renderTrays() {
   const el = $('#tab-trays');
   const shelves = live('shelves').sort((a,b) => (a.sortOrder||0)-(b.sortOrder||0));
   const names = orderedStageNames();
 
-  let html = `<div class="spread"><h2 class="section-title" style="margin:4px 0 0">Shelves & trays</h2>
-    <button class="btn sm primary" data-act="add-shelf">+ Shelf</button></div>`;
+  // Harvest search card
+  const stageOpts = names.map(nm => `<option value="${esc(nm)}">${esc(nm)}</option>`).join('');
+  let html = `
+    <div class="harvest-card card">
+      <div class="harvest-header">
+        <span class="harvest-icon">🔍</span>
+        <span class="harvest-label">Harvest search</span>
+      </div>
+      <div class="harvest-row">
+        <select id="harvest-stage">
+          <option value="">Stage…</option>
+          ${stageOpts}
+        </select>
+        <input id="harvest-count" type="number" min="1" placeholder="How many?" />
+      </div>
+      <div id="harvest-results"></div>
+    </div>
+
+    <div class="spread" style="margin-top:18px">
+      <h2 class="section-title" style="margin:4px 0 0">Shelves &amp; trays</h2>
+      <button class="btn sm primary" data-act="add-shelf">+ Shelf</button>
+    </div>`;
 
   if (!shelves.length) html += emptyState('🗄️','No shelves yet','Add a shelf, then trays inside it.');
 
   for (const shelf of shelves) {
     const trays = live('trays').filter(t => t.shelfId === shelf.id);
-    html += `<div class="shelf">
+    const isCollapsed = collapsedShelves.has(shelf.id);
+    html += `<div class="shelf${isCollapsed ? ' collapsed' : ''}" data-shelf-id="${shelf.id}">
       <div class="shelf-head">
-        <h3>${esc(shelf.name)}</h3>
+        <button class="shelf-toggle" data-act="toggle-shelf" data-id="${shelf.id}">
+          <span class="shelf-chevron">${isCollapsed ? '▸' : '▾'}</span>
+          <span class="shelf-name-text">${esc(shelf.name)}</span>
+          <span class="shelf-tray-count">${trays.length} tray${trays.length !== 1 ? 's' : ''}</span>
+        </button>
         <div class="row-actions">
           <button class="btn sm" data-act="add-tray" data-id="${shelf.id}">+ Tray</button>
           <button class="icon-btn" data-act="edit-shelf" data-id="${shelf.id}" title="Rename">✎</button>
@@ -1021,7 +1106,14 @@ function renderTrays() {
     }
     html += `</div></div>`;
   }
+
   el.innerHTML = html;
+
+  // Wire harvest search inputs
+  const stageEl = $('#harvest-stage', el);
+  const countEl = $('#harvest-count', el);
+  if (stageEl) stageEl.onchange = refreshHarvestResults;
+  if (countEl) countEl.oninput  = refreshHarvestResults;
 }
 
 /* ---------- Calendar ---------- */
@@ -1538,6 +1630,21 @@ function onClick(e) {
   const id  = el.dataset.id;
 
   switch (act) {
+    case 'toggle-shelf': {
+      const shelfDiv = el.closest('.shelf');
+      if (collapsedShelves.has(id)) {
+        collapsedShelves.delete(id);
+        shelfDiv?.classList.remove('collapsed');
+        const icon = el.querySelector('.shelf-chevron');
+        if (icon) icon.textContent = '▾';
+      } else {
+        collapsedShelves.add(id);
+        shelfDiv?.classList.add('collapsed');
+        const icon = el.querySelector('.shelf-chevron');
+        if (icon) icon.textContent = '▸';
+      }
+      return;
+    }
     case 'add-shelf':   return shelfModal();
     case 'edit-shelf':  return shelfModal(byId('shelves',id));
     case 'del-shelf':   return confirmDelete('shelf', () => {

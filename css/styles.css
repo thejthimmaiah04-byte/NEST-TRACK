@@ -390,10 +390,43 @@ input:focus, select:focus, textarea:focus {
 .field-row { display: flex; gap: 10px; }
 .field-row > * { flex: 1; }
 
+/* ---------- Harvest Search ---------- */
+.harvest-card { padding: 14px; margin-bottom: 18px; }
+.harvest-header { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+.harvest-icon { font-size: 16px; }
+.harvest-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--text-2); }
+.harvest-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.harvest-row select, .harvest-row input { flex: 1; min-width: 0; }
+.harvest-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.harvest-btn {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 8px 16px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1.5px solid var(--border);
+  cursor: pointer; transition: all .15s; min-width: 62px;
+  color: var(--text);
+}
+.harvest-btn:hover { border-color: var(--accent); background: var(--surface-3); }
+.harvest-btn.suggested { border-color: var(--accent); background: rgba(249,115,22,.12); }
+.hb-name { font-size: 13px; font-weight: 700; }
+.hb-count { font-size: 22px; font-weight: 800; line-height: 1.1; color: var(--accent); }
+.harvest-status { font-size: 12px; padding: 5px 10px; border-radius: var(--radius-sm); font-weight: 600; }
+.harvest-status.ok   { color: var(--ok);    background: var(--ok-soft); }
+.harvest-status.warn { color: #facc15;      background: rgba(250,204,21,.12); }
+.harvest-none { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+
 /* ---------- Shelves / Trays ---------- */
 .shelf { margin-bottom: 22px; }
 .shelf-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.shelf-head h3 { margin: 0; font-size: 15px; font-weight: 700; }
+/* Shelf toggle button (name + chevron) */
+.shelf-toggle {
+  display: flex; align-items: center; gap: 8px; flex: 1;
+  background: none; border: none; cursor: pointer; color: inherit;
+  padding: 0; text-align: left; min-width: 0;
+}
+.shelf-chevron { font-size: 12px; color: var(--muted); width: 14px; flex-shrink: 0; }
+.shelf-name-text { font-size: 15px; font-weight: 700; }
+.shelf-tray-count { font-size: 11px; color: var(--muted); font-weight: 500; }
+.shelf.collapsed .tray-grid { display: none; }
 .tray-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 10px; }
 
 .tray {
