@@ -548,7 +548,7 @@ function renderDashboard() {
   }
 
   if (live('cohorts').length === 0) {
-    el.innerHTML = emptyState('🥚','No litters logged yet',
+    el.innerHTML = emptyState('🪹','No litters logged yet',
       'Go to the <b>Trays</b> tab and add a litter to a tray to start tracking.');
     return;
   }
@@ -838,7 +838,7 @@ function openRemoveByStage(stageName, stageIdx) {
         const trayId   = inp.dataset.trayId;
         const max      = Number(inp.dataset.max);
         if (n > max) return toast(`Max available is ${max}`, true);
-        const r = rec('removals', { cohortId, trayId, date: toYMD(new Date()), stage: stageName, count: n });
+        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n });
         upsertLocal('removals', r);
         touch('removals', r);
         recorded += n;
@@ -1192,7 +1192,7 @@ function trayDetailModal(trayId) {
         <div class="cn">${net}
           <span class="pill" style="background:${stageColor(si)}">${esc(name)}</span>
         </div>
-        <div class="small muted">Born ${toYMD(parseYMD(c.birthDate))} · ${age}d old · started ${c.initialCount}${(c.males!=null||c.females!=null)?' · ♂ '+(c.males??'?')+' ♀ '+(c.females??'?'):''}${c.notes?' · '+esc(c.notes):''}</div>
+        <div class="small muted">Born ${ymdToInput(c.birthDate)} · ${age}d old · started ${c.initialCount}${(c.males!=null||c.females!=null)?' · ♂ '+(c.males??'?')+' ♀ '+(c.females??'?'):''}${c.notes?' · '+esc(c.notes):''}</div>
       </div>
       <div class="cohort-remove">
         ${depleted?'':`<input type="number" min="1" max="${net}" placeholder="0" data-remove="${c.id}" />
@@ -1246,7 +1246,7 @@ function litterModal(trayId) {
   `, root => {
     $('#f-count', root).focus();
     $('[data-save]', root).onclick = () => {
-      const birthDate = toYMD(new Date($('#f-date', root).value));
+      const birthDate = $('#f-date', root).value;
       const initialCount = Number($('#f-count', root).value);
       const notes = $('#f-notes', root).value.trim();
       if (!birthDate) return toast('Pick a birth date', true);
@@ -1292,7 +1292,7 @@ function intakeModal(trayId) {
         if (!n || n <= 0) continue;
         const startDay  = Number(inp.dataset.startday);
         const stageName = inp.dataset.stage;
-        const birthDate = toYMD(addDays(new Date(), -startDay));
+        const birthDate = addDays(new Date(), -startDay).toISOString().slice(0, 10);
         const r = rec('cohorts', {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,
@@ -1338,7 +1338,7 @@ function editCohortModal(cohortId, trayId) {
     <button class="btn primary block" data-save>Save changes</button>
   `, root => {
     $('[data-save]', root).onclick = () => {
-      const birthDate    = toYMD(new Date($('#f-date', root).value));
+      const birthDate    = $('#f-date', root).value;
       const initialCount = Number($('#f-count', root).value);
       const notes        = $('#f-notes', root).value.trim();
       const mVal = $('#f-males', root).value;
