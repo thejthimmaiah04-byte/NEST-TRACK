@@ -1511,12 +1511,17 @@ async function syncNow(manual = false) {
     if (ids.length) changes[e] = ids.map(id => byId(e,id)).filter(Boolean);
   }
 
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), 25000); // 25s hard timeout
+
   try {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: state.meta.lastSync || 0, changes })
+      body: JSON.stringify({ since: state.meta.lastSync || 0, changes }),
+      signal: ctrl.signal
     });
+    clearTimeout(timeoutId);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -1542,9 +1547,11 @@ async function syncNow(manual = false) {
     syncing = false; renderSync(); render();
     if (manual) toast('Synced');
   } catch(err) {
+    clearTimeout(timeoutId);
     syncing = false; renderSync();
-    console.warn('sync failed', err);
-    if (manual) toast('Sync failed: ' + err.message, true);
+    const msg = err.name === 'AbortError' ? 'Timed out (25s)' : err.message;
+    console.warn('sync failed', msg);
+    if (manual) toast('Sync failed: ' + msg, true);
   }
 }
 
@@ -1557,7 +1564,7 @@ function renderSync() {
   if (!state.meta.scriptUrl) { cls+=' pending'; label='Local only'; }
   else if (syncing)           { cls+=' syncing'; label='Syncing…'; }
   else if (!navigator.onLine) { cls+=' offline';  label=pc?`Offline · ${pc} queued`:'Offline'; }
-  else if (pc > 0)            { cls+=' pending';  label=`Syncing…`; }
+  else if (pc > 0)            { cls+=' pending';  label=`${pc} pending`; }
   else                        { cls+=' ok';       label='Synced'; }
   dot.className=cls; txt.textContent=label;
   if (syncEl) syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
