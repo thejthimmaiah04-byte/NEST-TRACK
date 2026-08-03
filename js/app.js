@@ -38,6 +38,12 @@ function daysBetween(fromDateStr, toDate = new Date()) {
 }
 function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
 function fmtDate(d) { return d.toLocaleDateString(undefined, { month:'short', day:'numeric' }); }
+function fmtTimestamp(ms) {
+  const d = new Date(ms);
+  const ymd = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const hm  = String(d.getHours()).padStart(2,'0') + '-' + String(d.getMinutes()).padStart(2,'0');
+  return ymd + ': ' + hm;
+}
 function stageColor(i) { return `var(${STAGE_COLORS[i % STAGE_COLORS.length]})`; }
 
 /* ------------------------------------------------------------------ *
@@ -1451,7 +1457,7 @@ function renderSpecies() {
 function renderSettings() {
   const el = $('#tab-settings');
   const url  = state.meta.scriptUrl || '';
-  const last = state.meta.lastSync ? new Date(state.meta.lastSync).toLocaleString() : 'never';
+  const last = state.meta.lastSync ? fmtTimestamp(state.meta.lastSync) : 'never';
   const pc   = pendingCount();
 
   el.innerHTML = `

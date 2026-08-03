@@ -1,6 +1,6 @@
 {
-  "name": "NestTrak",
-  "short_name": "NestTrak",
+  "name": "RAT-TRACK",
+  "short_name": "RAT-TRACK",
   "description": "Track rodent breeding trays, life-stage counts and forecasts. Works offline, syncs to Google Sheets.",
   "start_url": "./",
   "scope": "./",
