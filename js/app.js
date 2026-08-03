@@ -1546,6 +1546,8 @@ function shelfModal(existing) {
     $('[data-save]', root).onclick = () => {
       const name = $('#f-name', root).value.trim();
       if (!name) return toast('Enter a name', true);
+      const duplicate = live('shelves').find(s => s.id !== existing.id && s.name.toLowerCase() === name.toLowerCase());
+      if (duplicate) return toast(`A shelf named "${name}" already exists`, true);
       existing.name = name; touch('shelves', existing);
       closeModal(); render();
     };
@@ -1572,6 +1574,7 @@ function newShelfModal() {
       const speciesId = speciesList.length ? ($('#f-species', root)?.value || null) : null;
       const trayCount = parseInt($('#f-tray-count', root).value, 10);
       if (!name)                             return toast('Enter a shelf name', true);
+      if (live('shelves').some(s => s.name.toLowerCase() === name.toLowerCase())) return toast(`A shelf named "${name}" already exists`, true);
       if (!trayCount || trayCount < 1 || trayCount > 100) return toast('Enter 1–100 trays', true);
       const shelf = rec('shelves', { name, sortOrder: live('shelves').length });
       upsertLocal('shelves', shelf); touch('shelves', shelf);
