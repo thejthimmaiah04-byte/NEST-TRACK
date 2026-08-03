@@ -793,6 +793,41 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .hb-status.lact     { background: rgba(250,204,21,.18); color: #facc15; }
 .hb-total-sm { font-size: 12px; font-weight: 500; color: var(--text-2); }
 
+/* ---------- Pending-changes banner ---------- */
+.pending-banner[hidden] { display: none; }
+.pending-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #7c2d12;
+  color: #fed7aa;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  animation: bannerPulse 2.5s ease-in-out infinite;
+}
+@keyframes bannerPulse {
+  0%, 100% { background: #7c2d12; }
+  50%       { background: #92400e; }
+}
+.pending-sync-btn {
+  background: #fb923c;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pending-sync-btn:active { background: #ea580c; }
+
 /* ---------- Stage distribution (donut + grid) ---------- */
 .dist-combined {
   display: flex;

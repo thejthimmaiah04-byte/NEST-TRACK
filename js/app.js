@@ -11,7 +11,7 @@ const LS_KEY          = 'rbm.state.v1';
 const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
 const SYNC_DEBOUNCE   = 1200;   // ms after last change before pushing
-const AUTO_PULL_MS    = 30000;  // background pull interval when online
+const AUTO_PULL_MS    = 15000;  // background pull interval when online
 const SYNC_TIMEOUT_MS = 45000;  // Apps Script cold-start can take 30-40s
 
 const $   = (sel, root = document) => root.querySelector(sel);
@@ -473,13 +473,32 @@ window.addEventListener('popstate', e => {
   if (tab && tab !== activeTab) switchTab(tab, false);
 });
 
-// Warn on page exit if changes are pending
+// Desktop: warn before tab close / navigation if changes are pending
 window.addEventListener('beforeunload', e => {
-  if (pendingCount() > 0 && state.meta.scriptUrl) {
+  if (pendingCount() > 0) {
     e.preventDefault();
-    e.returnValue = 'You have unsynced changes. Leave anyway?';
+    e.returnValue = 'You have unsynced changes that have not been uploaded to Google Sheet. Leave anyway?';
   }
 });
+
+// Mobile: fire-and-forget upload when app goes to background or page is hidden
+function syncOnExit() {
+  if (!pendingCount() || !navigator.onLine || !state.meta.scriptUrl) return;
+  const changes = {};
+  for (const e of ENTITIES) {
+    const ids = Object.keys(state.pending[e] || {});
+    if (ids.length) changes[e] = ids.map(id => byId(e, id)).filter(Boolean);
+  }
+  try {
+    fetch(state.meta.scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ since: state.meta.lastSync || 0, changes }),
+      keepalive: true   // keeps request alive even after page is unloaded
+    });
+  } catch(_) {}
+}
+window.addEventListener('pagehide',         syncOnExit);
 
 /* ------------------------------------------------------------------ *
  *  Rendering
@@ -2153,6 +2172,17 @@ function renderSync() {
   else                        { cls+=' ok';       label='Synced'; }
   dot.className=cls; txt.textContent=label;
   if (syncEl) syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
+
+  // Pending banner — visible whenever there are changes not yet on the server
+  const banner = $('#pending-banner');
+  const bannerTxt = $('#pending-banner-text');
+  if (banner && bannerTxt) {
+    const showBanner = pc > 0 && state.meta.scriptUrl;
+    banner.hidden = !showBanner;
+    if (showBanner) {
+      bannerTxt.textContent = `⚠ ${pc} change${pc !== 1 ? 's' : ''} not yet uploaded to Google Sheet`;
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -2168,7 +2198,11 @@ function init() {
   window.addEventListener('online',  () => { renderSync(); syncNow(); });
   window.addEventListener('offline', renderSync);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && navigator.onLine && state.meta.scriptUrl) syncNow();
+    if (document.visibilityState === 'hidden') {
+      syncOnExit(); // attempt to push pending data before app is suspended
+    } else if (navigator.onLine && state.meta.scriptUrl) {
+      syncNow();   // pull latest when returning to app
+    }
   });
   setInterval(() => {
     if (navigator.onLine && state.meta.scriptUrl && !syncing) syncNow();

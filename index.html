@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=38" />
+  <link rel="stylesheet" href="css/styles.css?v=39" />
 </head>
 <body>
   <header class="topbar">
@@ -23,6 +23,11 @@
       <span id="sync-text" class="sync-text">Local only</span>
     </div>
   </header>
+
+  <div id="pending-banner" class="pending-banner" hidden>
+    <span id="pending-banner-text"></span>
+    <button class="pending-sync-btn" data-act="sync-now">Upload now</button>
+  </div>
 
   <div class="tabs-wrap">
     <nav class="tabs" role="tablist">
@@ -58,6 +63,6 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script src="js/app.js?v=38"></script>
+  <script src="js/app.js?v=39"></script>
 </body>
 </html>
