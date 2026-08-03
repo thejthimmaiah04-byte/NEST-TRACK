@@ -47,8 +47,8 @@ var EXTRA = {
 // (data remains readable by the sync engine; users see only the clean columns)
 var HIDE = {
   species:  [3, 5, 6, 7],           // STAGES(JSON), _UPDATED, _DELETED, _SYNCED  (col 4 = LIFESPAN stays visible)
-  shelves:  [3, 4, 5, 6],           // _ORDER, _UPDATED, _DELETED, _SYNCED
-  trays:    [2, 4, 5, 6, 7],        // _SHELF ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
+  shelves:  [1, 3, 4, 5, 6],        // ID(UUID), _ORDER, _UPDATED, _DELETED, _SYNCED  (col 2 = NAME stays visible)
+  trays:    [2, 5, 6, 7],           // _SHELF ID, _UPDATED, _DELETED, _SYNCED  (col 4 = SPECIES CODE now visible)
   cohorts:  [1, 2, 3, 9, 10, 11],   // ID, _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
   removals: [1, 2, 3, 7, 8, 9]      // ID, _COHORT ID, _TRAY ID, _UPDATED, _DELETED, _SYNCED
 };
@@ -256,4 +256,26 @@ function json(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Run this ONCE from the Apps Script editor (Run › reformatSheets) after
+ * updating HIDE to fix column visibility on existing sheets without losing data.
+ */
+function reformatSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ENTITIES.forEach(function(entity) {
+    var sh = ss.getSheetByName(entity);
+    if (!sh) return;
+    var cols  = SCHEMAS[entity];
+    var extra = EXTRA[entity] || [];
+    var total = cols.length + extra.length;
+    // First show all columns, then re-hide according to updated HIDE config
+    sh.showColumns(1, total);
+    var hideCols = HIDE[entity] || [];
+    hideCols.forEach(function(col1) {
+      if (col1 <= total) sh.hideColumns(col1);
+    });
+  });
+  SpreadsheetApp.getUi().alert('Done! Column visibility updated on all sheets.');
 }
