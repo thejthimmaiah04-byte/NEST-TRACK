@@ -1708,7 +1708,10 @@ function trayDetailModal(trayId) {
     <div class="mt">${cohorts.length ? rows : '<p class="muted small">No litters yet.</p>'}</div>
     ${gravidSection}
     <hr class="hr" />
-    <button class="btn danger" data-act="del-tray" data-id="${trayId}">Delete tray</button>
+    <div class="gap">
+      <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" style="flex:1">✎ Edit tray / species</button>
+      <button class="btn danger" data-act="del-tray" data-id="${trayId}" style="flex:1">Delete tray</button>
+    </div>
   `, root => {
     $$('[data-act="do-remove"]', root).forEach(btn => {
       btn.onclick = () => {
@@ -1965,6 +1968,7 @@ function onClick(e) {
       render();
     });
     case 'add-tray':    return trayModal(id);
+    case 'edit-tray':   { const t = byId('trays', id); if (t) { closeModal(); setTimeout(() => trayModal(t.shelfId, t), 10); } return; }
     case 'open-tray':   return trayDetailModal(id);
     case 'del-tray':    closeModal(); return confirmDelete('tray and its litters', () => { cascadeDeleteTray(id); render(); });
     case 'add-litter':  return litterModal(id);
