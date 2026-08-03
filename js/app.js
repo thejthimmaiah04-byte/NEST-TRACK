@@ -653,7 +653,7 @@ function renderDonutChart(totals, names) {
     });
   }
 
-  return `<svg class="donut-svg" viewBox="0 0 ${SIZE} ${SIZE}" xmlns="http://www.w3.org/2000/svg">
+  return `<svg class="donut-svg" viewBox="0 0 ${SIZE} ${SIZE}" width="${SIZE}" height="${SIZE}" xmlns="http://www.w3.org/2000/svg">
     ${slices}
     <text x="${CX}" y="${CY}" text-anchor="middle" dominant-baseline="middle" style="font:800 26px Inter,sans-serif;fill:#f0f0f0">${total}</text>
     <text x="${CX}" y="${CY+22}" text-anchor="middle" style="font:500 11px Inter,sans-serif;fill:#a8a8a8">alive</text>
@@ -2021,7 +2021,9 @@ async function syncNow(manual = false) {
     state.meta.lastSync = data.serverTime || now();
     syncError = null;
     saveState();
-    syncing = false; renderSync(); render();
+    const gotNewData = ENTITIES.some(e => (data.changes?.[e]?.length || 0) > 0);
+    syncing = false; renderSync();
+    if (gotNewData || manual) render();
     if (manual) toast('Synced');
   } catch(err) {
     clearTimeout(timeoutId);

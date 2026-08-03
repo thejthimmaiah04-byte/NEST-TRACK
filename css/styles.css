@@ -732,6 +732,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   flex-shrink: 0;
   width: 148px;
   height: 148px;
+  display: block;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 .dist-combined .dist-grid {
   flex: 1;
