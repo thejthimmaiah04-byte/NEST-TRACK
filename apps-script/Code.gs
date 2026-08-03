@@ -76,6 +76,8 @@ function doPost(e) {
       accepted[entity] = upsertRecords(entity, incoming, serverNow);
     });
 
+    updateTrayStageStats();
+
     return json({ ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) });
   } catch (err) {
     return json({ error: String(err) });
@@ -256,6 +258,99 @@ function json(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * Called after every POST sync. For each live tray row, writes the current
+ * count of individuals in each stage into dedicated columns on the same row.
+ * Adds missing stage columns automatically; never adds extra tray rows.
+ */
+function updateTrayStageStats() {
+  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var sh  = ss.getSheetByName('trays');
+  if (!sh || sh.getLastRow() < 2) return;
+
+  var now = new Date();
+
+  // ── 1. Build species → ordered stages map ──────────────────────────────────
+  var speciesMap = {}; // speciesId -> [{name, days}, ...]
+  readAll('species').rows.forEach(function(sp) {
+    if (sp.deleted) return;
+    var stages = [];
+    try { stages = Array.isArray(sp.stages) ? sp.stages : JSON.parse(sp.stages || '[]'); } catch(e) {}
+    speciesMap[sp.id] = stages.slice().sort(function(a,b){ return (Number(a.days)||0)-(Number(b.days)||0); });
+  });
+
+  // Collect all stage names in day-order across all species (deduped)
+  var allStages = [], seen = {};
+  Object.values(speciesMap).forEach(function(stages) {
+    stages.forEach(function(st) {
+      if (st.name && !seen[st.name]) { seen[st.name] = true; allStages.push(st.name); }
+    });
+  });
+  if (!allStages.length) return;
+
+  // ── 2. Sum removals per cohort ─────────────────────────────────────────────
+  var remByCohort = {};
+  readAll('removals').rows.forEach(function(r) {
+    if (r.deleted) return;
+    remByCohort[r.cohortId] = (remByCohort[r.cohortId] || 0) + (Number(r.count) || 0);
+  });
+
+  // ── 3. Compute live stage counts per tray ──────────────────────────────────
+  var trayStats = {}; // trayId -> { stageName -> count }
+  readAll('cohorts').rows.forEach(function(c) {
+    if (c.deleted) return;
+    var net = (Number(c.initialCount) || 0) - (remByCohort[c.id] || 0);
+    if (net <= 0) return;
+    var stages = speciesMap[c.speciesId];
+    if (!stages || !stages.length) return;
+
+    var birthDate = new Date(c.birthDate);
+    var ageDays   = Math.floor((now - birthDate) / 86400000);
+    var stageName = stages[0].name;
+    for (var i = stages.length - 1; i >= 0; i--) {
+      if (ageDays >= (Number(stages[i].days) || 0)) { stageName = stages[i].name; break; }
+    }
+
+    if (!trayStats[c.trayId]) trayStats[c.trayId] = {};
+    trayStats[c.trayId][stageName] = (trayStats[c.trayId][stageName] || 0) + net;
+  });
+
+  // ── 4. Find / add stage columns in the tray sheet ─────────────────────────
+  // Stage count columns start right after schema + extra columns
+  var fixedCols = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 9
+  var lastCol   = sh.getLastColumn();
+  var headerVals = lastCol > fixedCols
+    ? sh.getRange(1, fixedCols + 1, 1, lastCol - fixedCols).getValues()[0]
+    : [];
+
+  var stageColMap = {}; // stageName -> 1-based col index
+  headerVals.forEach(function(h, i) {
+    if (h) stageColMap[String(h)] = fixedCols + 1 + i;
+  });
+
+  // Add any stage columns that don't exist yet
+  allStages.forEach(function(stageName) {
+    if (!stageColMap[stageName]) {
+      var newCol = sh.getLastColumn() + 1;
+      var cell   = sh.getRange(1, newCol);
+      cell.setValue(stageName);
+      cell.setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      stageColMap[stageName] = newCol;
+    }
+  });
+
+  // ── 5. Write counts into each tray row (in-place, no new rows) ────────────
+  var traysData = readAll('trays');
+  traysData.rows.forEach(function(tray, i) {
+    var rowNum = i + 2; // 1-based, +1 for header
+    var counts = tray.deleted ? {} : (trayStats[tray.id] || {});
+    allStages.forEach(function(stageName) {
+      var col = stageColMap[stageName];
+      if (col) sh.getRange(rowNum, col).setValue(counts[stageName] || 0);
+    });
+  });
 }
 
 /**
