@@ -158,7 +158,13 @@ function buildNameMaps() {
     if (idIdx < 0 || nameIdx < 0) return;
     sh.getRange(2, 1, sh.getLastRow() - 1, cols.length).getValues().forEach(function(row) {
       var id = String(row[idIdx] || '');
-      if (id) maps[entity][id] = row[nameIdx];
+      if (id) {
+        var nm = String(row[nameIdx] || '');
+        // For species: show short 3-letter code (e.g. "MOU" for Mouse)
+        maps[entity][id] = entity === 'species'
+          ? nm.replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase() || nm
+          : nm;
+      }
     });
   });
   return {

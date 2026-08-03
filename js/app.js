@@ -132,7 +132,14 @@ function pendingCount() {
 
 const live  = entity => state[entity].filter(r => !r.deleted);
 const byId  = (entity, id) => state[entity].find(r => r.id === id);
-const speciesOf = obj => byId('species', obj.speciesId);
+const speciesOf = obj => {
+  if (!obj) return null;
+  const exact = byId('species', obj.speciesId);
+  if (exact && !exact.deleted) return exact;
+  // Fallback: if only one live species exists, use it (handles ID-mismatch after re-sync)
+  const all = live('species');
+  return all.length === 1 ? all[0] : null;
+};
 
 /* ------------------------------------------------------------------ *
  *  Domain calculations
