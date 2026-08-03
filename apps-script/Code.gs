@@ -1,18 +1,27 @@
 /**
- * NestTrak — Google Apps Script sync backend (v3)
+ * NestTrak — Google Apps Script sync backend (v4)
  *
- * Sheets are clean and human-readable:
- *   • Internal sync columns (updatedAt, deleted, syncedAt) are hidden
- *   • Foreign-key ID columns are hidden; resolved names shown as extra columns
- *   • Headers are BOLD + ALL CAPS with a dark header row
- *   • Stages shown as readable text ("Pinky (0d) · Fuzzy (5d) · …")
+ * Sheet tabs:  Species | Shelves | Trays | Birth | Removal
+ * No UUIDs, no timestamps shown — only human-readable data.
  *
- * Deploy: Extensions › Apps Script › Deploy › New deployment ›
- *   Web app › Execute as "Me" › Access "Anyone" › Deploy
- * Paste the /exec URL into Settings › Apps Script URL.
+ * Deploy: Extensions › Apps Script › Deploy › New deployment
+ *   Web app · Execute as "Me" · Access "Anyone" · Deploy
+ * Paste the /exec URL into Settings › Apps Script URL in the app.
+ *
+ * After pasting this code, run  reformatSheets()  ONCE from the editor
+ * (click the function name → Run) to rename & clean existing sheets.
  */
 
-// ── schemas (internal field order — do NOT change) ──────────────────────────
+// ── Sheet tab names ───────────────────────────────────────────────────────────
+var SHEET_NAMES = {
+  species:  'Species',
+  shelves:  'Shelves',
+  trays:    'Trays',
+  cohorts:  'Birth',
+  removals: 'Removal'
+};
+
+// ── Internal schemas (column order — do NOT change) ───────────────────────────
 var SCHEMAS = {
   species:  ['id', 'name', 'stages', 'lifespan', 'updatedAt', 'deleted', 'syncedAt'],
   shelves:  ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
@@ -23,38 +32,45 @@ var SCHEMAS = {
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals'];
 var JSON_FIELDS = { stages: true };
 
-// ── display configuration ────────────────────────────────────────────────────
-
-// Human-readable caps label for each schema field
+// ── Column header labels  (_ prefix = will be hidden) ────────────────────────
 var COL_LABELS = {
-  id: 'ID', name: 'NAME', stages: 'STAGES', lifespan: 'LIFESPAN (DAYS)', sortOrder: '_ORDER',
-  updatedAt: '_UPDATED', deleted: '_DELETED', syncedAt: '_SYNCED',
-  shelfId: '_SHELF ID', speciesId: '_SPECIES ID',
-  trayId: '_TRAY ID', cohortId: '_COHORT ID',
-  birthDate: 'BIRTH DATE', initialCount: 'COUNT', notes: 'NOTES',
-  males: 'MALES', females: 'FEMALES', date: 'DATE', stage: 'STAGE', count: 'COUNT',
+  id: '_ID', name: 'NAME', stages: '_STAGES_JSON', lifespan: 'LIFESPAN (DAYS)',
+  sortOrder: '_ORDER', updatedAt: '_UPDATED', deleted: '_DELETED', syncedAt: '_SYNCED',
+  shelfId: '_SHELF ID', speciesId: '_SPECIES ID', trayId: '_TRAY ID', cohortId: '_COHORT ID',
+  birthDate: 'DATE', initialCount: 'COUNT', notes: 'NOTES',
+  males: '♂', females: '♀', date: 'DATE', stage: 'STAGE', count: 'REMOVED',
   gravidFemales: 'GRAVID ♀', lactatingFemales: 'LACTATING ♀'
 };
 
-// Extra resolved-name columns appended after the schema columns
+// ── Extra human-readable columns (appended after schema cols) ─────────────────
+// Species  : STAGES  = "Pinky 10d · Fuzzy 12d · Hopper 5d · Adult"
+// Shelves  : TRAYS   = count of live trays on this shelf (computed)
+// Trays    : SPECIES = 3-letter code e.g. MOU  (then dynamic stage cols follow)
+// Birth    : TRAY    = tray name e.g. A-3
+// Removal  : TRAY    = tray name
 var EXTRA = {
-  species:  ['STAGE NAMES'],
-  trays:    ['SHELF', 'SPECIES'],
+  species:  ['STAGES'],
+  shelves:  ['TRAYS'],
+  trays:    ['SPECIES'],
   cohorts:  ['TRAY'],
   removals: ['TRAY']
 };
 
-// 1-based column indices to HIDE in each entity's sheet
-// (data remains readable by the sync engine; users see only the clean columns)
+// ── Which columns to HIDE (1-based) ──────────────────────────────────────────
+// Species  cols: _ID(1) NAME(2) _JSON(3) LIFESPAN(4) _UPD(5) _DEL(6) _SYN(7) | STAGES(8)
+// Shelves  cols: _ID(1) NAME(2) _ORD(3) _UPD(4) _DEL(5) _SYN(6)               | TRAYS(7)
+// Trays    cols: _ID(1) _SHF(2) NAME(3) _SPID(4) GRAVID(5) LACT(6) _UPD(7) _DEL(8) _SYN(9) | SPECIES(10) stage_cols(11+)
+// Birth    cols: _ID(1) _TRAY(2) _SP(3) DATE(4) COUNT(5) NOTES(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
+// Removal  cols: _ID(1) _COH(2) _TRAY(3) DATE(4) STAGE(5) REMOVED(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
 var HIDE = {
-  species:  [3, 5, 6, 7],              // STAGES(JSON), _UPDATED, _DELETED, _SYNCED
-  shelves:  [1, 3, 4, 5, 6],           // ID(UUID), _ORDER, _UPDATED, _DELETED, _SYNCED
-  trays:    [2, 7, 8, 9],              // _SHELF ID, _UPDATED, _DELETED, _SYNCED  (cols 5,6 = GRAVID/LACT visible)
-  cohorts:  [1, 2, 3, 9, 10, 11],      // ID, _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
-  removals: [1, 2, 3, 9, 10, 11]       // ID, _COHORT ID, _TRAY ID, _UPDATED, _DELETED, _SYNCED  (cols 7,8 = MALES/FEMALES visible)
+  species:  [1, 3, 5, 6, 7],       // show: NAME | LIFESPAN | STAGES
+  shelves:  [1, 3, 4, 5, 6],       // show: NAME | TRAYS
+  trays:    [1, 2, 4, 7, 8, 9],    // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | [stage cols]
+  cohorts:  [1, 2, 3, 9, 10, 11],  // show: DATE | COUNT | NOTES | ♂ | ♀ | TRAY
+  removals: [1, 2, 3, 9, 10, 11]   // show: DATE | STAGE | REMOVED | ♂ | ♀ | TRAY
 };
 
-// ── HTTP handlers ────────────────────────────────────────────────────────────
+// ── HTTP handlers ─────────────────────────────────────────────────────────────
 
 function doGet(e) {
   var since = e && e.parameter && e.parameter.since ? Number(e.parameter.since) : 0;
@@ -65,9 +81,9 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(25000);
   try {
-    var body    = JSON.parse(e.postData.contents || '{}');
-    var since   = Number(body.since) || 0;
-    var changes = body.changes || {};
+    var body     = JSON.parse(e.postData.contents || '{}');
+    var since    = Number(body.since) || 0;
+    var changes  = body.changes || {};
     var accepted = {};
     var serverNow = Date.now();
 
@@ -78,6 +94,7 @@ function doPost(e) {
     });
 
     updateTrayStageStats();
+    updateShelfStats();
 
     return json({ ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) });
   } catch (err) {
@@ -87,19 +104,20 @@ function doPost(e) {
   }
 }
 
-// ── sheet helpers ────────────────────────────────────────────────────────────
+// ── Sheet helpers ─────────────────────────────────────────────────────────────
 
 function sheetFor(entity) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(entity);
+  var ss        = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = SHEET_NAMES[entity];
+  var sh        = ss.getSheetByName(sheetName);
   if (!sh) {
-    sh = ss.insertSheet(entity);
-    setupSheet(sh, entity);
-  } else {
-    // Detect old-style sheets (headers were lowercase field names like 'id', 'name')
-    var firstCell = sh.getLastRow() > 0 ? sh.getRange(1, 1).getValue() : '';
-    if (firstCell !== 'ID') {
-      sh.clear(); // wipe old data + formatting; app will re-sync from localStorage
+    // Rename old-style sheet (e.g. 'trays' → 'Trays') if it exists
+    var oldSh = ss.getSheetByName(entity);
+    if (oldSh) {
+      oldSh.setName(sheetName);
+      sh = oldSh;
+    } else {
+      sh = ss.insertSheet(sheetName);
       setupSheet(sh, entity);
     }
   }
@@ -107,50 +125,43 @@ function sheetFor(entity) {
 }
 
 function setupSheet(sh, entity) {
-  var cols  = SCHEMAS[entity];
-  var extra = EXTRA[entity] || [];
+  var cols    = SCHEMAS[entity];
+  var extra   = EXTRA[entity] || [];
   var headers = cols.map(function(c) { return COL_LABELS[c] || c.toUpperCase(); }).concat(extra);
-  var total = headers.length;
+  var total   = headers.length;
 
   sh.appendRow(headers);
   sh.setFrozenRows(1);
 
-  // Bold, dark header row
   var hdr = sh.getRange(1, 1, 1, total);
-  hdr.setFontWeight('bold');
-  hdr.setBackground('#1a1a2e');
-  hdr.setFontColor('#ffffff');
-  hdr.setFontSize(10);
+  hdr.setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
 
-  // Hide internal columns so users see only meaningful data
-  var hideCols = HIDE[entity] || [];
-  hideCols.forEach(function(col1) {
+  (HIDE[entity] || []).forEach(function(col1) {
     if (col1 <= total) sh.hideColumns(col1);
   });
 }
 
 function readAll(entity) {
-  var sh   = sheetFor(entity);
-  var cols = SCHEMAS[entity];
+  var sh      = sheetFor(entity);
+  var cols    = SCHEMAS[entity];
   var lastRow = sh.getLastRow();
   if (lastRow < 2) return { sh: sh, cols: cols, rows: [], index: {} };
-  // Read only the schema columns (extra display columns are beyond cols.length)
-  var values = sh.getRange(2, 1, lastRow - 1, cols.length).getValues();
-  var index  = {};
-  var rows   = values.map(function(row, i) {
+  var values  = sh.getRange(2, 1, lastRow - 1, cols.length).getValues();
+  var index   = {};
+  var rows    = values.map(function(row, i) {
     var obj = {};
     cols.forEach(function(c, j) { obj[c] = row[j]; });
-    index[String(obj.id)] = i + 2; // 1-based sheet row number
+    index[String(obj.id)] = i + 2;
     return obj;
   });
   return { sh: sh, cols: cols, rows: rows, index: index };
 }
 
-// Build id→name maps for shelf/species/tray lookups when writing extra columns
+// id→display-name maps used when writing extra resolved columns
 function buildNameMaps() {
   var maps = { shelves: {}, species: {}, trays: {} };
   ['shelves', 'species', 'trays'].forEach(function(entity) {
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(entity);
+    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES[entity]);
     if (!sh || sh.getLastRow() < 2) return;
     var cols    = SCHEMAS[entity];
     var idIdx   = cols.indexOf('id');
@@ -158,41 +169,44 @@ function buildNameMaps() {
     if (idIdx < 0 || nameIdx < 0) return;
     sh.getRange(2, 1, sh.getLastRow() - 1, cols.length).getValues().forEach(function(row) {
       var id = String(row[idIdx] || '');
-      if (id) {
-        var nm = String(row[nameIdx] || '');
-        // For species: show short 3-letter code (e.g. "MOU" for Mouse)
-        maps[entity][id] = entity === 'species'
-          ? nm.replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase() || nm
-          : nm;
-      }
+      if (!id) return;
+      var nm = String(row[nameIdx] || '');
+      // Species: use 3-letter code (MOU for Mouse, RAT for Rat, etc.)
+      maps[entity][id] = entity === 'species'
+        ? nm.replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase() || nm
+        : nm;
     });
   });
+
+  // Fallback: if only one species exists, use it for any unresolved speciesId
+  var speciesKeys = Object.keys(maps.species);
+  var singleSpeciesCode = speciesKeys.length === 1 ? maps.species[speciesKeys[0]] : null;
+
   return {
-    shelfName:   function(id) { return maps.shelves[String(id || '')] || String(id || ''); },
-    speciesName: function(id) { return maps.species[String(id || '')] || String(id || ''); },
-    trayName:    function(id) { return maps.trays[String(id   || '')] || String(id || ''); }
+    shelfName:   function(id) { return maps.shelves[String(id || '')] || ''; },
+    speciesName: function(id) {
+      return maps.species[String(id || '')] || singleSpeciesCode || '';
+    },
+    trayName:    function(id) { return maps.trays[String(id || '')] || ''; }
   };
 }
 
-// Format stages array → "Pinky (0d) · Fuzzy (5d) · …"
+// "Pinky 10d · Fuzzy 12d · Hopper 5d · Adult"
 function formatStages(stages) {
   var arr;
-  if (Array.isArray(stages)) {
-    arr = stages;
-  } else {
-    try { arr = JSON.parse(stages || '[]'); } catch(e) { arr = []; }
-  }
+  if (Array.isArray(stages)) { arr = stages; }
+  else { try { arr = JSON.parse(stages || '[]'); } catch(e) { arr = []; } }
   if (!arr || !arr.length) return '';
   return arr.map(function(s) {
-    return (s.name || '') + ' (' + (s.days || 0) + 'd)';
+    return (s.name || '') + ' ' + (s.days || 0) + 'd';
   }).join(' · ');
 }
 
 function upsertRecords(entity, incoming, serverNow) {
-  var data  = readAll(entity);
-  var cols  = data.cols;
-  var extra = EXTRA[entity] || [];
-  var ctx   = extra.length ? buildNameMaps() : null;
+  var data        = readAll(entity);
+  var cols        = data.cols;
+  var extra       = EXTRA[entity] || [];
+  var ctx         = extra.length ? buildNameMaps() : null;
   var acceptedIds = [];
 
   incoming.forEach(function(r) {
@@ -200,7 +214,6 @@ function upsertRecords(entity, incoming, serverNow) {
     var existingRow = data.index[String(r.id)];
     var existing    = existingRow ? data.rows[existingRow - 2] : null;
 
-    // Last-write-wins by client-provided updatedAt
     if (existing && Number(existing.updatedAt) > Number(r.updatedAt)) return;
 
     r.syncedAt = serverNow;
@@ -211,10 +224,10 @@ function upsertRecords(entity, incoming, serverNow) {
       return v == null ? '' : v;
     });
 
-    // Append resolved-name display columns
     if (ctx) {
       if (entity === 'species')  rowValues.push(formatStages(r.stages));
-      if (entity === 'trays')    rowValues.push(ctx.shelfName(r.shelfId), ctx.speciesName(r.speciesId));
+      if (entity === 'shelves')  rowValues.push('');  // computed by updateShelfStats
+      if (entity === 'trays')    rowValues.push(ctx.speciesName(r.speciesId));
       if (entity === 'cohorts')  rowValues.push(ctx.trayName(r.trayId));
       if (entity === 'removals') rowValues.push(ctx.trayName(r.trayId));
     }
@@ -252,9 +265,8 @@ function hydrate(entity, row) {
       try { v = JSON.parse(v || '[]'); } catch(e) { v = []; }
     } else if (c === 'deleted') {
       v = (v === true || v === 'true' || v === 'TRUE');
-    } else if (c === 'initialCount' || c === 'count' || c === 'sortOrder' ||
-               c === 'males' || c === 'females' || c === 'updatedAt' || c === 'syncedAt' ||
-               c === 'lifespan' || c === 'gravidFemales' || c === 'lactatingFemales') {
+    } else if (['initialCount','count','sortOrder','males','females',
+                'updatedAt','syncedAt','lifespan','gravidFemales','lactatingFemales'].indexOf(c) >= 0) {
       v = (v === '' || v == null) ? 0 : Number(v);
     }
     obj[c] = v;
@@ -268,77 +280,77 @@ function json(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ── Computed stats ────────────────────────────────────────────────────────────
+
 /**
- * Called after every POST sync. For each live tray row, writes the current
- * count of individuals in each stage into dedicated columns on the same row.
- * Adds missing stage columns automatically; never adds extra tray rows.
+ * After every sync: writes live stage counts into the Trays sheet.
+ * Stage columns are auto-created at col 11+ (after 9 schema + 1 SPECIES col).
+ * One row per tray — updated in place, never duplicated.
  */
 function updateTrayStageStats() {
-  var ss  = SpreadsheetApp.getActiveSpreadsheet();
-  var sh  = ss.getSheetByName('trays');
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(SHEET_NAMES.trays);
   if (!sh || sh.getLastRow() < 2) return;
 
   var now = new Date();
 
-  // ── 1. Build species → ordered stages map ──────────────────────────────────
-  var speciesMap = {}; // speciesId -> [{name, days}, ...]
+  // Build speciesId → sorted stages map
+  var speciesMap = {};
+  var fallbackStages = null;
   readAll('species').rows.forEach(function(sp) {
     if (sp.deleted) return;
     var stages = [];
     try { stages = Array.isArray(sp.stages) ? sp.stages : JSON.parse(sp.stages || '[]'); } catch(e) {}
-    speciesMap[sp.id] = stages.slice().sort(function(a,b){ return (Number(a.days)||0)-(Number(b.days)||0); });
+    stages = stages.slice().sort(function(a,b){ return (Number(a.days)||0)-(Number(b.days)||0); });
+    speciesMap[sp.id] = stages;
+    fallbackStages = stages; // last-one-wins fallback for ID-mismatch trays
   });
 
-  // Collect all stage names in day-order across all species (deduped)
-  var allStages = [], seen = {};
-  Object.values(speciesMap).forEach(function(stages) {
-    stages.forEach(function(st) {
-      if (st.name && !seen[st.name]) { seen[st.name] = true; allStages.push(st.name); }
+  var allStages = [], seenSt = {};
+  Object.keys(speciesMap).forEach(function(sid) {
+    speciesMap[sid].forEach(function(st) {
+      if (st.name && !seenSt[st.name]) { seenSt[st.name] = true; allStages.push(st.name); }
     });
   });
   if (!allStages.length) return;
 
-  // ── 2. Sum removals per cohort ─────────────────────────────────────────────
+  // Sum removals per cohort
   var remByCohort = {};
   readAll('removals').rows.forEach(function(r) {
     if (r.deleted) return;
     remByCohort[r.cohortId] = (remByCohort[r.cohortId] || 0) + (Number(r.count) || 0);
   });
 
-  // ── 3. Compute live stage counts per tray ──────────────────────────────────
-  var trayStats = {}; // trayId -> { stageName -> count }
+  // Compute live stage counts per tray
+  var trayStats = {};
   readAll('cohorts').rows.forEach(function(c) {
     if (c.deleted) return;
     var net = (Number(c.initialCount) || 0) - (remByCohort[c.id] || 0);
     if (net <= 0) return;
-    var stages = speciesMap[c.speciesId];
+    var stages = speciesMap[c.speciesId] || fallbackStages;
     if (!stages || !stages.length) return;
 
-    var birthDate = new Date(c.birthDate);
-    var ageDays   = Math.floor((now - birthDate) / 86400000);
+    var ageDays   = Math.floor((now - new Date(c.birthDate)) / 86400000);
     var stageName = stages[0].name;
     for (var i = stages.length - 1; i >= 0; i--) {
       if (ageDays >= (Number(stages[i].days) || 0)) { stageName = stages[i].name; break; }
     }
-
     if (!trayStats[c.trayId]) trayStats[c.trayId] = {};
     trayStats[c.trayId][stageName] = (trayStats[c.trayId][stageName] || 0) + net;
   });
 
-  // ── 4. Find / add stage columns in the tray sheet ─────────────────────────
-  // Stage count columns start right after schema + extra columns
-  var fixedCols = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 9
-  var lastCol   = sh.getLastColumn();
-  var headerVals = lastCol > fixedCols
+  // Stage cols start at fixedCols + 1  (schema=9, EXTRA=['SPECIES']=1 → fixed=10, stages at 11+)
+  var fixedCols   = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 10
+  var lastCol     = sh.getLastColumn();
+  var headerVals  = lastCol > fixedCols
     ? sh.getRange(1, fixedCols + 1, 1, lastCol - fixedCols).getValues()[0]
     : [];
 
-  var stageColMap = {}; // stageName -> 1-based col index
+  var stageColMap = {};
   headerVals.forEach(function(h, i) {
     if (h) stageColMap[String(h)] = fixedCols + 1 + i;
   });
 
-  // Add any stage columns that don't exist yet
   allStages.forEach(function(stageName) {
     if (!stageColMap[stageName]) {
       var newCol = sh.getLastColumn() + 1;
@@ -349,10 +361,9 @@ function updateTrayStageStats() {
     }
   });
 
-  // ── 5. Write counts into each tray row (in-place, no new rows) ────────────
   var traysData = readAll('trays');
   traysData.rows.forEach(function(tray, i) {
-    var rowNum = i + 2; // 1-based, +1 for header
+    var rowNum = i + 2;
     var counts = tray.deleted ? {} : (trayStats[tray.id] || {});
     allStages.forEach(function(stageName) {
       var col = stageColMap[stageName];
@@ -362,23 +373,85 @@ function updateTrayStageStats() {
 }
 
 /**
- * Run this ONCE from the Apps Script editor (Run › reformatSheets) after
- * updating HIDE to fix column visibility on existing sheets without losing data.
+ * After every sync: writes live tray count into the Shelves sheet (TRAYS col).
+ */
+function updateShelfStats() {
+  var shelfData   = readAll('shelves');
+  if (!shelfData.rows.length) return;
+  var sh          = shelfData.sh;
+  var traysColIdx = SCHEMAS.shelves.length + 1; // col 7
+
+  var trayCounts = {};
+  readAll('trays').rows.forEach(function(t) {
+    if (!t.deleted) trayCounts[t.shelfId] = (trayCounts[t.shelfId] || 0) + 1;
+  });
+
+  shelfData.rows.forEach(function(shelf, i) {
+    if (!shelf.deleted) sh.getRange(i + 2, traysColIdx).setValue(trayCounts[shelf.id] || 0);
+  });
+}
+
+// ── One-time migration ────────────────────────────────────────────────────────
+
+/**
+ * Run ONCE from the Apps Script editor after pasting this v4 code.
+ *
+ * What it does:
+ *  1. Renames tabs: species→Species, shelves→Shelves, trays→Trays,
+ *                   cohorts→Birth, removals→Removal
+ *  2. Removes the old SHELF extra column from Trays (was col 10; SPECIES shifts left)
+ *  3. Refreshes the SPECIES code in col 10 for every tray row
+ *  4. Re-applies HIDE on every sheet (hides all UUIDs and timestamps)
+ *  5. Computes Shelves TRAYS count and Trays stage counts
  */
 function reformatSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Rename tabs
+  var renames = { species:'Species', shelves:'Shelves', trays:'Trays', cohorts:'Birth', removals:'Removal' };
+  Object.keys(renames).forEach(function(oldName) {
+    var sh = ss.getSheetByName(oldName);
+    if (sh) sh.setName(renames[oldName]);
+  });
+
+  // 2. Remove old SHELF extra column from Trays if present
+  var traysSh = ss.getSheetByName('Trays');
+  if (traysSh && traysSh.getLastColumn() >= 10) {
+    var h10 = String(traysSh.getRange(1, 10).getValue());
+    if (h10 === 'SHELF') traysSh.deleteColumn(10); // SPECIES shifts 11→10, stages shift 12+→11+
+  }
+
+  // 3. Refresh SPECIES code in col 10 for all tray rows
+  var traysSh2 = ss.getSheetByName('Trays');
+  if (traysSh2 && traysSh2.getLastRow() > 1) {
+    var ctx = buildNameMaps();
+    var speciesColIdx = SCHEMAS.trays.length + 1; // col 10
+    readAll('trays').rows.forEach(function(tray, i) {
+      var code = ctx.speciesName(tray.speciesId);
+      traysSh2.getRange(i + 2, speciesColIdx).setValue(code);
+    });
+  }
+
+  // 4. Re-apply HIDE on all sheets
   ENTITIES.forEach(function(entity) {
-    var sh = ss.getSheetByName(entity);
-    if (!sh) return;
-    var cols  = SCHEMAS[entity];
-    var extra = EXTRA[entity] || [];
-    var total = cols.length + extra.length;
-    // First show all columns, then re-hide according to updated HIDE config
-    sh.showColumns(1, total);
-    var hideCols = HIDE[entity] || [];
-    hideCols.forEach(function(col1) {
-      if (col1 <= total) sh.hideColumns(col1);
+    var sh = ss.getSheetByName(SHEET_NAMES[entity]);
+    if (!sh || sh.getLastColumn() < 1) return;
+    sh.showColumns(1, sh.getLastColumn());
+    (HIDE[entity] || []).forEach(function(col1) {
+      if (col1 <= sh.getLastColumn()) sh.hideColumns(col1);
     });
   });
-  SpreadsheetApp.getUi().alert('Done! Column visibility updated on all sheets.');
+
+  // 5. Recompute stats
+  updateShelfStats();
+  updateTrayStageStats();
+
+  try {
+    SpreadsheetApp.getUi().alert(
+      'Done!\n\n' +
+      'Sheets renamed: Species · Shelves · Trays · Birth · Removal\n' +
+      'All UUID and timestamp columns hidden.\n\n' +
+      'Trigger a sync from the app to refresh any data.'
+    );
+  } catch(e) {}
 }
