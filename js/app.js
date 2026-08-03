@@ -1441,7 +1441,7 @@ function renderSpecies() {
         <td class="num">${next ? `${st.startDay}–${next.startDay-1} d` : `${st.startDay}+ d`}</td></tr>`;
     }).join('');
     html += `<div class="card">
-      <div class="spread"><b>${esc(sp.name)}</b>
+      <div class="spread"><div><b>${esc(sp.name)}</b><div class="species-id-chip">ID: <code>${esc(sp.id)}</code></div></div>
         <div class="row-actions">
           <button class="btn sm" data-act="edit-species" data-id="${sp.id}">Edit</button>
           <button class="icon-btn" data-act="del-species" data-id="${sp.id}" title="Delete">🗑</button>
@@ -1651,8 +1651,10 @@ function trayModal(shelfId, existing) {
   if (!speciesList.length) return toast('Add a species first', true);
   const t = existing || {};
   const suggestedId = existing ? existing.id : genTrayId(shelfId); // e.g. "A-1"
+  // If tray's speciesId doesn't match any live species, fall back to first
+  const resolvedSpeciesId = speciesList.find(s => s.id === t.speciesId)?.id || speciesList[0]?.id;
   const opts = speciesList.map(s =>
-    `<option value="${s.id}" ${s.id===t.speciesId?'selected':''}>${esc(s.name)}</option>`).join('');
+    `<option value="${s.id}" ${s.id===resolvedSpeciesId?'selected':''}>${esc(s.name)} [${esc(s.id)}]</option>`).join('');
   openModal(existing?'Edit tray':'Add tray', `
     <label class="field"><span>Tray name</span>
       <input id="f-name" value="${esc(t.name || suggestedId)}" placeholder="e.g. A-1" /></label>
@@ -1676,6 +1678,8 @@ function trayModal(shelfId, existing) {
 function trayDetailModal(trayId) {
   const tray = byId('trays', trayId);
   if (!tray) return;
+  const exactSpecies = byId('species', tray.speciesId);
+  const speciesMismatch = tray.speciesId && (!exactSpecies || exactSpecies.deleted);
   const sp = speciesOf(tray);
   const cohorts = live('cohorts').filter(c => c.trayId === trayId)
     .sort((a,b) => parseYMD(b.birthDate) - parseYMD(a.birthDate));
@@ -1732,7 +1736,14 @@ function trayDetailModal(trayId) {
       ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest (${gravid} gravid, ${lactating} lactating)</div>` : ''}
     </div>` : '';
 
-  openModal(`${esc(tray.name)} · ${sp?esc(sp.name):''}`, `
+  const mismatchBanner = speciesMismatch ? `
+    <div class="species-mismatch-warn">
+      ⚠ Species ID <code>${esc(tray.speciesId)}</code> not found.
+      Tap <b>Edit tray / species</b> below to fix.
+    </div>` : '';
+
+  openModal(`${esc(tray.name)} · ${sp?esc(sp.name):'—'}`, `
+    ${mismatchBanner}
     <div class="gap" style="margin-bottom:4px">
       <button class="btn primary" data-act="add-litter" data-id="${trayId}" style="flex:1">+ Born today</button>
       <button class="btn primary" data-act="add-intake" data-id="${trayId}" style="flex:1">+ Add by stage</button>
@@ -1939,6 +1950,8 @@ function speciesModal(existing) {
   openModal(existing?'Edit species':'Add species', `
     <label class="field"><span>Species name</span>
       <input id="f-name" value="${esc(sp.name)}" placeholder="e.g. Mouse, Rat, Quail" /></label>
+    <label class="field"><span>Species ID <span class="muted" style="font-weight:400;font-size:11px">(used to link trays — edit only to fix a mismatch)</span></span>
+      <input id="f-species-id" value="${esc(sp.id||'')}" placeholder="auto" style="font-family:monospace;font-size:13px" /></label>
     <label class="field"><span>Natural lifespan (days)</span>
       <input id="f-lifespan" type="number" min="1" value="${sp.lifespan||''}" placeholder="e.g. 730 = 2 years" /></label>
     <p class="small muted" style="margin:-8px 0 10px">Used to show a natural death curve on the forecast and to prioritise oldest animals in harvest search.</p>
@@ -1965,13 +1978,26 @@ function speciesModal(existing) {
     };
     $('[data-save]', root).onclick = () => {
       const name     = $('#f-name', root).value.trim();
+      const newId    = $('#f-species-id', root).value.trim() || genSpeciesId(name);
       const lifespan = parseInt($('#f-lifespan', root).value, 10) || null;
       let stages = collect().filter(s => s.name);
       if (!name) return toast('Enter a species name', true);
       if (!stages.length) return toast('Add at least one stage', true);
       stages.sort((a,b)=>a.startDay-b.startDay);
-      if (existing) { existing.name=name; existing.stages=stages; existing.lifespan=lifespan; touch('species',existing); }
-      else { const r=rec('species',{id:genSpeciesId(name), name, stages, lifespan}); upsertLocal('species',r); touch('species',r); }
+      if (existing) {
+        const oldId = existing.id;
+        existing.name = name; existing.stages = stages; existing.lifespan = lifespan;
+        if (newId !== oldId) {
+          existing.id = newId;
+          // Update all tray and cohort references to the new ID
+          live('trays').forEach(t => { if (t.speciesId === oldId) { t.speciesId = newId; touch('trays', t); } });
+          live('cohorts').forEach(c => { if (c.speciesId === oldId) { c.speciesId = newId; touch('cohorts', c); } });
+        }
+        touch('species', existing);
+      } else {
+        const r = rec('species', {id: newId, name, stages, lifespan});
+        upsertLocal('species', r); touch('species', r);
+      }
       closeModal(); render();
     };
   });
@@ -2139,13 +2165,10 @@ async function syncNow(manual = false) {
         if (!local || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, remote);
       }
     }
-    // Clear successfully pushed pending entries
+    // Clear pending for all records we successfully sent
     for (const e of ENTITIES) {
       for (const r of (changes[e] || [])) {
-        const remote = (data.changes?.[e]||[]).find(x=>x.id===r.id);
-        if (!remote || (remote.updatedAt||0) <= r.updatedAt) {
-          if (state.pending[e]) delete state.pending[e][r.id];
-        }
+        if (state.pending[e]) delete state.pending[e][r.id];
       }
     }
     state.meta.lastSync = data.serverTime || now();

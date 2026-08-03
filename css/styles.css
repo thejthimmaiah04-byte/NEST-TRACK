@@ -781,6 +781,39 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   margin-top: 10px;
 }
 
+/* ---------- Species ID chip (species tab) ---------- */
+.species-id-chip {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.species-id-chip code {
+  font-family: monospace;
+  background: var(--card2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  user-select: all;
+}
+
+/* ---------- Tray detail species mismatch warning ---------- */
+.species-mismatch-warn {
+  background: #7c2d12;
+  color: #fed7aa;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.species-mismatch-warn code {
+  font-family: monospace;
+  background: rgba(0,0,0,.25);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 /* ---------- Harvest button gravid/lactating badges ---------- */
 .hb-status {
   font-size: 10px;
