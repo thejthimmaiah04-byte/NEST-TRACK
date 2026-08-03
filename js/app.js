@@ -232,93 +232,57 @@ function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
   if (shelfId !== 'all') trays = trays.filter(t => t.shelfId === shelfId);
   if (trayId  !== 'all') trays = trays.filter(t => t.id === trayId);
 
-  // Count individuals per stage per tray
-  const trayData = [];
+  // Aggregate counts across all trays — one total per stage
+  const stageTotals = new Map();
   for (const tray of trays) {
-    const cohorts = live('cohorts').filter(c => c.trayId === tray.id && cohortNet(c) > 0);
-    if (!cohorts.length) continue;
-    const stageCounts = new Map();
-    for (const c of cohorts) {
+    for (const c of live('cohorts').filter(c => c.trayId === tray.id && cohortNet(c) > 0)) {
       const { name } = stageIndexAt(c, today);
-      stageCounts.set(name, (stageCounts.get(name) || 0) + cohortNet(c));
+      stageTotals.set(name, (stageTotals.get(name) || 0) + cohortNet(c));
     }
-    const total = [...stageCounts.values()].reduce((s, v) => s + v, 0);
-    if (total > 0) trayData.push({ tray, stageCounts, total });
   }
 
-  if (!trayData.length) return '';
+  const stageData = names.map((nm, i) => ({ nm, i, count: stageTotals.get(nm) || 0 }))
+                         .filter(d => d.count > 0);
+  if (!stageData.length) return '';
 
   // Dimensions
-  const VW = 560, PT = 12, PL = 30, PR = 12;
+  const VW = 560, PT = 20, PL = 36, PR = 16;
   const drawW = VW - PL - PR;
   const drawH = 148;
-  const xLabelH = 20, legendH = 22, gapH = 8;
-  const VH = PT + drawH + xLabelH + gapH + legendH;
+  const xLabelH = 22;
+  const VH = PT + drawH + xLabelH;
 
-  const numGroups = names.length;
-  const numBars   = trayData.length;
-  const groupW    = drawW / numGroups;
-  const barW      = Math.max(6, Math.min(26, (groupW - 12) / Math.max(numBars, 1)));
+  const maxVal  = Math.max(1, ...stageData.map(d => d.count));
+  const numBars = stageData.length;
+  const groupW  = drawW / numBars;
+  const barW    = Math.max(20, Math.min(72, groupW * 0.55));
 
-  const maxVal = Math.max(1, ...trayData.flatMap(d =>
-    names.map(nm => d.stageCounts.get(nm) || 0)));
+  let bars = '', xLabels = '', yLines = '';
 
-  // Always use stage colors; vary opacity to distinguish multiple trays
-  const barColor   = (stageIdx) => STAGE_HEX[stageIdx % STAGE_HEX.length];
-  const barOpacity = (trayIdx)  => numBars <= 1 ? 0.84 : Math.max(0.35, 0.88 - trayIdx * 0.18);
-
-  let bars = '', xLabels = '', yLines = '', legend = '';
-
-  // Y-axis gridlines + labels (0, 25%, 50%, 75%, 100%)
+  // Y-axis baseline + gridlines
   yLines += `<line x1="${PL}" y1="${PT + drawH}" x2="${PL + drawW}" y2="${PT + drawH}" stroke="rgba(255,255,255,.15)" stroke-width="1"/>`;
   for (let t = 1; t <= 4; t++) {
     const frac = t / 4;
     const yy   = PT + drawH * (1 - frac);
     const val  = Math.round(maxVal * frac);
     yLines += `<line x1="${PL}" y1="${yy}" x2="${PL + drawW}" y2="${yy}" class="g-grid"/>`;
-    yLines += `<text x="${PL - 4}" y="${yy + 3}" class="g-dt" text-anchor="end">${val}</text>`;
+    yLines += `<text x="${PL - 5}" y="${yy + 4}" class="g-dt" text-anchor="end">${val}</text>`;
   }
 
-  // Bars grouped by stage
-  names.forEach((nm, gi) => {
-    const totalGroupW = barW * numBars;
-    const gx = PL + gi * groupW + (groupW - totalGroupW) / 2;
-
-    trayData.forEach(({ tray, stageCounts }, ti) => {
-      const count = stageCounts.get(nm) || 0;
-      if (!count) return;
-      const bh    = (count / maxVal) * drawH;
-      const bx    = gx + ti * barW;
-      const by    = PT + drawH - bh;
-      const color = barColor(gi);
-      bars += `<rect x="${bx + 1}" y="${by}" width="${Math.max(barW - 2, 4)}" height="${bh}"
-        rx="3" fill="${color}" opacity="${barOpacity(ti).toFixed(2)}">
-        <title>${esc(tray.name)} · ${nm}: ${count}</title></rect>`;
-      if (bh > 18)
-        bars += `<text x="${bx + barW / 2}" y="${by - 4}" class="g-dt" text-anchor="middle">${count}</text>`;
-    });
-
-    // Stage name on X-axis
-    xLabels += `<text x="${PL + gi * groupW + groupW / 2}" y="${PT + drawH + xLabelH - 4}"
+  // One bar per stage
+  stageData.forEach(({ nm, i, count }, idx) => {
+    const bh    = (count / maxVal) * drawH;
+    const cx    = PL + idx * groupW + groupW / 2;
+    const bx    = cx - barW / 2;
+    const by    = PT + drawH - bh;
+    const color = STAGE_HEX[i % STAGE_HEX.length];
+    bars += `<rect x="${bx}" y="${by}" width="${barW}" height="${bh}"
+      rx="4" fill="${color}" opacity=".85">
+      <title>${esc(nm)}: ${count}</title></rect>`;
+    bars += `<text x="${cx}" y="${by - 6}" class="g-dt" text-anchor="middle" font-weight="700" fill="${color}">${count}</text>`;
+    xLabels += `<text x="${cx}" y="${PT + drawH + xLabelH - 4}"
       class="g-dt" text-anchor="middle">${esc(nm)}</text>`;
   });
-
-  // Legend
-  const legendY = PT + drawH + xLabelH + gapH + 14;
-  if (numBars === 1) {
-    names.forEach((nm, i) => {
-      const lx = PL + i * (drawW / names.length);
-      legend += `<rect x="${lx}" y="${legendY - 9}" width="9" height="9" rx="2" fill="${STAGE_HEX[i]}" opacity=".84"/>`;
-      legend += `<text x="${lx + 12}" y="${legendY}" class="g-dt">${esc(nm)}</text>`;
-    });
-  } else {
-    const itemW = Math.min(90, drawW / trayData.length);
-    trayData.forEach(({ tray }, ti) => {
-      const lx = PL + ti * itemW;
-      legend += `<rect x="${lx}" y="${legendY - 9}" width="9" height="9" rx="2" fill="${STAGE_HEX[0]}" opacity="${barOpacity(ti).toFixed(2)}"/>`;
-      legend += `<text x="${lx + 12}" y="${legendY}" class="g-dt">${esc(tray.name)}</text>`;
-    });
-  }
 
   return `<div class="gantt-wrap">
     <svg class="gantt-svg" viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg">
@@ -326,7 +290,7 @@ function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
         .g-dt{font:10px Inter,sans-serif;fill:var(--text-2)}
         .g-grid{stroke:rgba(255,255,255,.07);stroke-width:1}
       </style></defs>
-      ${yLines}${bars}${xLabels}${legend}
+      ${yLines}${bars}${xLabels}
     </svg>
   </div>`;
 }
