@@ -1000,16 +1000,22 @@ function openRemoveByStage(stageName, stageIdx) {
 
   const hex = STAGE_HEX[stageIdx % STAGE_HEX.length];
 
+  let rowIdx = 0;
   const rows = [...byTray.values()].map(({ tray, entries }) => {
     const trayTotal = entries.reduce((s, e) => s + e.net, 0);
     const trayLabel = tray ? esc(tray.name) : '(unknown tray)';
-    const cohortRows = entries.map(({ cohort, net }) =>
-      `<div class="rs-cohort">
+    const cohortRows = entries.map(({ cohort, net }) => {
+      const ri = rowIdx++;
+      return `<div class="rs-cohort">
         <span class="rs-info">Born ${esc(cohort.birthDate)} · <b>${net}</b> available</span>
         <input type="number" class="rs-input" min="0" max="${net}" placeholder="0"
-          data-cohort-id="${cohort.id}" data-tray-id="${cohort.trayId}" data-max="${net}" />
-      </div>`
-    ).join('');
+          data-cohort-id="${cohort.id}" data-tray-id="${cohort.trayId}" data-max="${net}" data-row="${ri}" />
+      </div>
+      <div class="sex-sub" id="rssex-${ri}" style="display:none">
+        <label class="sex-label">♂ <input type="number" class="rs-male" min="0" placeholder="—" /></label>
+        <label class="sex-label">♀ <input type="number" class="rs-female" min="0" placeholder="—" /></label>
+      </div>`;
+    }).join('');
     return `<div class="rs-tray">
       <div class="rs-tray-name">
         <span class="rs-dot" style="background:${hex}"></span>
@@ -1025,6 +1031,13 @@ function openRemoveByStage(stageName, stageIdx) {
     <div class="rs-list">${rows}</div>
     <button class="btn primary block" id="rs-save" style="margin-top:16px">Record removals</button>
   `, root => {
+    $$('.rs-input', root).forEach(inp => {
+      inp.addEventListener('input', () => {
+        const sub = $(`#rssex-${inp.dataset.row}`, root);
+        if (sub) sub.style.display = Number(inp.value) > 0 ? 'flex' : 'none';
+      });
+    });
+
     $('#rs-save', root).onclick = () => {
       const inputs = $$('.rs-input', root);
       let recorded = 0;
@@ -1034,8 +1047,13 @@ function openRemoveByStage(stageName, stageIdx) {
         const cohortId = inp.dataset.cohortId;
         const trayId   = inp.dataset.trayId;
         const max      = Number(inp.dataset.max);
+        const ri       = inp.dataset.row;
         if (n > max) return toast(`Max available is ${max}`, true);
-        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n });
+        const mVal = $(`#rssex-${ri} .rs-male`, root)?.value;
+        const fVal = $(`#rssex-${ri} .rs-female`, root)?.value;
+        const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
+        const females = fVal !== '' && fVal != null ? Number(fVal) : null;
+        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n, males, females });
         upsertLocal('removals', r);
         touch('removals', r);
         recorded += n;
@@ -1102,17 +1120,33 @@ function refreshHarvestResults() {
   const total  = matches.reduce((s, m) => s + m.count, 0);
   const canFill = remaining <= 0;
 
+  // Determine if searched stage is the last (adult) stage for any species in results
+  const isAdultStage = matches.some(m => {
+    const sp = live('species').find(s => live('cohorts').some(c => c.trayId === m.tray.id && c.speciesId === s.id));
+    if (!sp?.stages?.length) return false;
+    const last = [...sp.stages].sort((a,b) => (b.startDay||b.days||0)-(a.startDay||a.days||0))[0];
+    return last?.name === stage;
+  });
+
   const btns = matches.map(m => {
     const cls = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
     const ageDays = m.oldestDate ? Math.floor((today - m.oldestDate) / 86400000) : null;
-    // Warn if within 30 days of lifespan
     const sp = speciesId !== 'all' ? byId('species', speciesId)
       : live('species').find(s => live('cohorts').some(c => c.trayId === m.tray.id && c.speciesId === s.id));
     const urgent = sp?.lifespan && ageDays != null && (sp.lifespan - ageDays) <= 30;
+
+    const unavailable = isAdultStage ? ((m.tray.gravidFemales || 0) + (m.tray.lactatingFemales || 0)) : 0;
+    const available   = Math.max(0, m.count - unavailable);
+    const gravidNote  = isAdultStage && (m.tray.gravidFemales || 0) > 0
+      ? `<span class="hb-status gravid">${m.tray.gravidFemales} gravid</span>` : '';
+    const lactNote    = isAdultStage && (m.tray.lactatingFemales || 0) > 0
+      ? `<span class="hb-status lact">${m.tray.lactatingFemales} lactating</span>` : '';
+
     return `<button class="${cls}${urgent ? ' urgent' : ''}" data-act="open-tray" data-id="${m.tray.id}">
       <span class="hb-name">${esc(m.tray.name)}</span>
       ${ageDays != null ? `<span class="hb-age${urgent ? ' hb-age-warn' : ''}">${ageDays}d old</span>` : ''}
-      <span class="hb-count">${m.count}</span>
+      ${gravidNote}${lactNote}
+      <span class="hb-count">${available}<span class="hb-total-sm">/${m.count}</span></span>
     </button>`;
   }).join('');
 
@@ -1614,6 +1648,20 @@ function trayDetailModal(trayId) {
   const cohorts = live('cohorts').filter(c => c.trayId === trayId)
     .sort((a,b) => parseYMD(b.birthDate) - parseYMD(a.birthDate));
 
+  // Check for adult-stage animals (last stage = highest startDay)
+  const today = new Date();
+  const lastStageName = sp?.stages?.length
+    ? [...sp.stages].sort((a,b) => (b.startDay||b.days||0)-(a.startDay||a.days||0))[0]?.name
+    : null;
+  let adultCount = 0;
+  if (lastStageName) {
+    for (const c of cohorts) {
+      if (cohortNet(c) > 0 && stageIndexAt(c, today).name === lastStageName) adultCount += cohortNet(c);
+    }
+  }
+  const gravid    = tray.gravidFemales   || 0;
+  const lactating = tray.lactatingFemales || 0;
+
   const rows = cohorts.map(c => {
     const net = cohortNet(c);
     const { name, age } = stageIndexAt(c);
@@ -1635,12 +1683,30 @@ function trayDetailModal(trayId) {
     </div>`;
   }).join('');
 
+  const gravidSection = adultCount > 0 ? `
+    <div class="gravid-section">
+      <div class="gravid-title">♀ Female adult status <span class="gravid-sub">(${adultCount} adults in tray)</span></div>
+      <div class="gravid-row">
+        <label class="gravid-field">
+          <span>Gravid</span>
+          <input type="number" id="f-gravid" min="0" max="${adultCount}" value="${gravid}" placeholder="0" />
+        </label>
+        <label class="gravid-field">
+          <span>Lactating</span>
+          <input type="number" id="f-lact" min="0" max="${adultCount}" value="${lactating}" placeholder="0" />
+        </label>
+        <button class="btn sm" id="save-status">Save</button>
+      </div>
+      ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest (${gravid} gravid, ${lactating} lactating)</div>` : ''}
+    </div>` : '';
+
   openModal(`${esc(tray.name)} · ${sp?esc(sp.name):''}`, `
     <div class="gap" style="margin-bottom:4px">
       <button class="btn primary" data-act="add-litter" data-id="${trayId}" style="flex:1">+ Born today</button>
       <button class="btn primary" data-act="add-intake" data-id="${trayId}" style="flex:1">+ Add by stage</button>
     </div>
     <div class="mt">${cohorts.length ? rows : '<p class="muted small">No litters yet.</p>'}</div>
+    ${gravidSection}
     <hr class="hr" />
     <button class="btn danger" data-act="del-tray" data-id="${trayId}">Delete tray</button>
   `, root => {
@@ -1660,6 +1726,17 @@ function trayDetailModal(trayId) {
         closeModal(); trayDetailModal(trayId); render();
       };
     });
+
+    const saveStatusBtn = $('#save-status', root);
+    if (saveStatusBtn) {
+      saveStatusBtn.onclick = () => {
+        tray.gravidFemales   = Number($('#f-gravid', root).value) || 0;
+        tray.lactatingFemales = Number($('#f-lact',   root).value) || 0;
+        touch('trays', tray);
+        toast('Status saved');
+        closeModal(); trayDetailModal(trayId);
+      };
+    }
   });
 }
 
@@ -1707,7 +1784,11 @@ function intakeModal(trayId) {
       <span class="intake-name">${esc(st.name)}</span>
       <span class="intake-day small muted">day ${st.startDay}+</span>
       <input type="number" class="intake-input" min="0" placeholder="0"
-        data-startday="${st.startDay}" data-stage="${esc(st.name)}" />
+        data-startday="${st.startDay}" data-stage="${esc(st.name)}" data-row="${i}" />
+    </div>
+    <div class="sex-sub" id="isex-${i}" style="display:none">
+      <label class="sex-label">♂ <input type="number" class="sex-male" min="0" placeholder="—" data-row="${i}" /></label>
+      <label class="sex-label">♀ <input type="number" class="sex-female" min="0" placeholder="—" data-row="${i}" /></label>
     </div>`;
   }).join('');
 
@@ -1716,6 +1797,13 @@ function intakeModal(trayId) {
     <div class="intake-list">${rows}</div>
     <button class="btn primary block" id="intake-save" style="margin-top:16px">Add animals</button>
   `, root => {
+    $$('.intake-input', root).forEach(inp => {
+      inp.addEventListener('input', () => {
+        const sub = $(`#isex-${inp.dataset.row}`, root);
+        if (sub) sub.style.display = Number(inp.value) > 0 ? 'flex' : 'none';
+      });
+    });
+
     $('#intake-save', root).onclick = () => {
       const inputs = $$('.intake-input', root);
       let added = 0;
@@ -1724,10 +1812,16 @@ function intakeModal(trayId) {
         if (!n || n <= 0) continue;
         const startDay  = Number(inp.dataset.startday);
         const stageName = inp.dataset.stage;
+        const ri        = inp.dataset.row;
         const birthDate = addDays(new Date(), -startDay).toISOString().slice(0, 10);
+        const mVal = $(`#isex-${ri} .sex-male`, root)?.value;
+        const fVal = $(`#isex-${ri} .sex-female`, root)?.value;
+        const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
+        const females = fVal !== '' && fVal != null ? Number(fVal) : null;
         const r = rec('cohorts', {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,
+          males, females,
           notes: `Intake · ${stageName}`
         });
         upsertLocal('cohorts', r);

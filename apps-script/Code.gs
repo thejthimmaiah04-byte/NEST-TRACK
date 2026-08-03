@@ -16,9 +16,9 @@
 var SCHEMAS = {
   species:  ['id', 'name', 'stages', 'lifespan', 'updatedAt', 'deleted', 'syncedAt'],
   shelves:  ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
-  trays:    ['id', 'shelfId', 'name', 'speciesId', 'updatedAt', 'deleted', 'syncedAt'],
+  trays:    ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:  ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
-  removals: ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'updatedAt', 'deleted', 'syncedAt']
+  removals: ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals'];
 var JSON_FIELDS = { stages: true };
@@ -32,7 +32,8 @@ var COL_LABELS = {
   shelfId: '_SHELF ID', speciesId: '_SPECIES ID',
   trayId: '_TRAY ID', cohortId: '_COHORT ID',
   birthDate: 'BIRTH DATE', initialCount: 'COUNT', notes: 'NOTES',
-  males: 'MALES', females: 'FEMALES', date: 'DATE', stage: 'STAGE', count: 'COUNT'
+  males: 'MALES', females: 'FEMALES', date: 'DATE', stage: 'STAGE', count: 'COUNT',
+  gravidFemales: 'GRAVID ♀', lactatingFemales: 'LACTATING ♀'
 };
 
 // Extra resolved-name columns appended after the schema columns
@@ -46,11 +47,11 @@ var EXTRA = {
 // 1-based column indices to HIDE in each entity's sheet
 // (data remains readable by the sync engine; users see only the clean columns)
 var HIDE = {
-  species:  [3, 5, 6, 7],           // STAGES(JSON), _UPDATED, _DELETED, _SYNCED  (col 4 = LIFESPAN stays visible)
-  shelves:  [1, 3, 4, 5, 6],        // ID(UUID), _ORDER, _UPDATED, _DELETED, _SYNCED  (col 2 = NAME stays visible)
-  trays:    [2, 5, 6, 7],           // _SHELF ID, _UPDATED, _DELETED, _SYNCED  (col 4 = SPECIES CODE now visible)
-  cohorts:  [1, 2, 3, 9, 10, 11],   // ID, _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
-  removals: [1, 2, 3, 7, 8, 9]      // ID, _COHORT ID, _TRAY ID, _UPDATED, _DELETED, _SYNCED
+  species:  [3, 5, 6, 7],              // STAGES(JSON), _UPDATED, _DELETED, _SYNCED
+  shelves:  [1, 3, 4, 5, 6],           // ID(UUID), _ORDER, _UPDATED, _DELETED, _SYNCED
+  trays:    [2, 7, 8, 9],              // _SHELF ID, _UPDATED, _DELETED, _SYNCED  (cols 5,6 = GRAVID/LACT visible)
+  cohorts:  [1, 2, 3, 9, 10, 11],      // ID, _TRAY ID, _SPECIES ID, _UPDATED, _DELETED, _SYNCED
+  removals: [1, 2, 3, 9, 10, 11]       // ID, _COHORT ID, _TRAY ID, _UPDATED, _DELETED, _SYNCED  (cols 7,8 = MALES/FEMALES visible)
 };
 
 // ── HTTP handlers ────────────────────────────────────────────────────────────
@@ -246,7 +247,8 @@ function hydrate(entity, row) {
     } else if (c === 'deleted') {
       v = (v === true || v === 'true' || v === 'TRUE');
     } else if (c === 'initialCount' || c === 'count' || c === 'sortOrder' ||
-               c === 'males' || c === 'females' || c === 'updatedAt' || c === 'syncedAt' || c === 'lifespan') {
+               c === 'males' || c === 'females' || c === 'updatedAt' || c === 'syncedAt' ||
+               c === 'lifespan' || c === 'gravidFemales' || c === 'lactatingFemales') {
       v = (v === '' || v == null) ? 0 : Number(v);
     }
     obj[c] = v;

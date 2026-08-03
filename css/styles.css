@@ -722,6 +722,77 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .rs-info { font-size: 12px; color: var(--text-2); flex: 1; }
 .rs-input { width: 74px; text-align: right; }
 
+/* ---------- Sex sub-row (intake & removal modals) ---------- */
+.sex-sub {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 6px 0 8px 20px;
+  border-top: none;
+  border-bottom: 1px solid var(--border-2);
+}
+.sex-sub:last-child { border-bottom: none; }
+.sex-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.sex-label input { width: 60px; text-align: right; }
+
+/* ---------- Gravid / lactating section ---------- */
+.gravid-section {
+  background: rgba(239,68,68,.07);
+  border: 1px solid rgba(239,68,68,.25);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.gravid-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+.gravid-sub { font-size: 11px; font-weight: 400; color: var(--text-2); margin-left: 6px; }
+.gravid-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.gravid-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  flex: 1;
+  min-width: 80px;
+}
+.gravid-field input { width: 100%; text-align: right; }
+.gravid-warn {
+  font-size: 11px;
+  font-weight: 600;
+  color: #ef4444;
+  margin-top: 10px;
+}
+
+/* ---------- Harvest button gravid/lactating badges ---------- */
+.hb-status {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 99px;
+  margin-top: 2px;
+}
+.hb-status.gravid   { background: rgba(239,68,68,.18); color: #f87171; }
+.hb-status.lact     { background: rgba(250,204,21,.18); color: #facc15; }
+.hb-total-sm { font-size: 12px; font-weight: 500; color: var(--text-2); }
+
 /* ---------- Stage distribution (donut + grid) ---------- */
 .dist-combined {
   display: flex;
