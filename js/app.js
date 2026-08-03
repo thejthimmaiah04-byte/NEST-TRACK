@@ -11,7 +11,8 @@ const LS_KEY          = 'rbm.state.v1';
 const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
 const SYNC_DEBOUNCE   = 1200;   // ms after last change before pushing
-const AUTO_PULL_MS    = 45000;  // background pull interval when online
+const AUTO_PULL_MS    = 30000;  // background pull interval when online
+const SYNC_TIMEOUT_MS = 45000;  // Apps Script cold-start can take 30-40s
 
 const $   = (sel, root = document) => root.querySelector(sel);
 const $$  = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -2023,7 +2024,7 @@ async function syncNow(manual = false) {
   }
 
   const ctrl = new AbortController();
-  const timeoutId = setTimeout(() => ctrl.abort(), 25000); // 25s hard timeout
+  const timeoutId = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
 
   try {
     const res = await fetch(state.meta.scriptUrl, {
