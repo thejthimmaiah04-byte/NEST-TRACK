@@ -117,11 +117,14 @@ function sheetFor(entity) {
   var sheetName = SHEET_NAMES[entity];
   var sh        = ss.getSheetByName(sheetName);
   if (!sh) {
-    // Rename old-style sheet (e.g. 'trays' → 'Trays') if it exists
     var oldSh = ss.getSheetByName(entity);
     if (oldSh) {
-      oldSh.setName(sheetName);
-      sh = oldSh;
+      // Delete the old-name sheet if the target already exists (shouldn't reach here, but safety)
+      try { oldSh.setName(sheetName); sh = oldSh; } catch(e) {
+        if (oldSh.getLastRow() <= 1) ss.deleteSheet(oldSh);
+        sh = ss.getSheetByName(sheetName);
+        if (!sh) { sh = ss.insertSheet(sheetName); setupSheet(sh, entity); }
+      }
     } else {
       sh = ss.insertSheet(sheetName);
       setupSheet(sh, entity);
