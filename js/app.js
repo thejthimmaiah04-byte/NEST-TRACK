@@ -2452,7 +2452,7 @@ async function syncNow(manual = false) {
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
         const local = byId(e, remote.id);
-        if (!local || manual || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, remote);
+        if (!local || manual || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
       }
     }
     // Clear pending for all records we successfully sent
