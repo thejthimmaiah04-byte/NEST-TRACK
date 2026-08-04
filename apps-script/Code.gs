@@ -443,11 +443,19 @@ function updateShelfStats() {
 function reformatSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // 1. Rename tabs
+  // 1. Rename tabs — if target already exists, delete the (empty) old-name sheet
   var renames = { species:'Species', shelves:'Shelves', trays:'Trays', cohorts:'Birth', removals:'Removal' };
   Object.keys(renames).forEach(function(oldName) {
-    var sh = ss.getSheetByName(oldName);
-    if (sh) sh.setName(renames[oldName]);
+    var oldSh  = ss.getSheetByName(oldName);
+    var newSh  = ss.getSheetByName(renames[oldName]);
+    if (!oldSh) return;          // nothing to rename
+    if (newSh) {
+      // Target already exists — delete the old-name duplicate if it has no data rows
+      if (oldSh.getLastRow() <= 1) ss.deleteSheet(oldSh);
+      // else keep it; user can merge manually
+    } else {
+      oldSh.setName(renames[oldName]);
+    }
   });
 
   // 2. Remove old SHELF extra column from Trays if present
