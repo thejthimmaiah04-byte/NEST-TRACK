@@ -68,6 +68,24 @@ function trayAdultSex(trayId, sp) {
   return tracked ? { males, females } : null;
 }
 
+// Returns [{sp, count}] for species with a positive frozen balance
+function frozenStock() {
+  const totals = {};
+  live('removals').filter(r => r.reason === 'Frozen').forEach(r => {
+    const cohort = byId('cohorts', r.cohortId);
+    const spId = cohort?.speciesId;
+    if (!spId) return;
+    totals[spId] = (totals[spId] || 0) + (r.count || 0);
+  });
+  live('frozen_uses').forEach(u => {
+    if (!u.speciesId) return;
+    totals[u.speciesId] = (totals[u.speciesId] || 0) - (u.count || 0);
+  });
+  return Object.entries(totals)
+    .map(([spId, count]) => ({ sp: byId('species', spId), count }))
+    .filter(x => x.count > 0);
+}
+
 // Red = 0 males or >1 male; Yellow = 1 male but females off ratio; Green = 1 male + females on ratio
 function ratioStatus(males, females, ratio) {
   if (males === 0) return 'off';
@@ -85,10 +103,10 @@ function stageColor(i) { return `var(${STAGE_COLORS[i % STAGE_COLORS.length]})`;
 /* ------------------------------------------------------------------ *
  *  State
  * ------------------------------------------------------------------ */
-const ENTITIES = ['species','shelves','trays','cohorts','removals'];
+const ENTITIES = ['species','shelves','trays','cohorts','removals','frozen_uses'];
 
 let state = {
-  species:[], shelves:[], trays:[], cohorts:[], removals:[],
+  species:[], shelves:[], trays:[], cohorts:[], removals:[], frozen_uses:[],
   meta: { scriptUrl:'', lastSync:0, forecastWeeks:8 },
   pending: {}
 };
@@ -1105,6 +1123,7 @@ function openRemoveByStage(stageName, stageIdx) {
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Feeding">Feeding</button>
         <button class="reason-btn" data-reason="Dead">Dead</button>
+        <button class="reason-btn" data-reason="Frozen">Frozen</button>
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
@@ -1245,6 +1264,29 @@ function refreshHarvestResults() {
     <div class="${statusCls}">${statusMsg}</div>`;
 }
 
+/* ---------- Use frozen modal ---------- */
+function useFrozenModal(spId) {
+  const sp = byId('species', spId);
+  const available = frozenStock().find(x => x.sp?.id === spId)?.count || 0;
+  openModal(`Use frozen${sp ? ' · ' + esc(sp.name) : ''}`, `
+    <p class="small muted" style="margin-bottom:14px">${available} frozen available.</p>
+    <label class="field"><span>Count to use</span>
+      <input id="frozen-use-count" type="number" min="1" max="${available}" placeholder="1" /></label>
+    <button class="btn primary block" style="margin-top:14px" data-save>Confirm</button>
+  `, root => {
+    $('#frozen-use-count', root).focus();
+    $('[data-save]', root).onclick = () => {
+      const n = Number($('#frozen-use-count', root).value);
+      if (!n || n < 1) return toast('Enter a count', true);
+      if (n > available) return toast(`Only ${available} frozen available`, true);
+      const r = rec('frozen_uses', { speciesId: spId, date: todayISO(), count: n });
+      upsertLocal('frozen_uses', r); touch('frozen_uses', r);
+      toast(`Used ${n} frozen ${sp ? sp.name : ''}`);
+      closeModal(); render();
+    };
+  });
+}
+
 /* ---------- Trays ---------- */
 function renderTrays() {
   const el = $('#tab-trays');
@@ -1291,6 +1333,20 @@ function renderTrays() {
 
   if (!selectedShelfId) {
     // ── SHELF OVERVIEW ──
+    const stock = frozenStock();
+    if (stock.length) {
+      html += `<div class="frozen-section">
+        <h3 class="frozen-section-title">❄ Frozen Stock</h3>
+        ${stock.map(({ sp, count }) => `
+          <div class="frozen-card">
+            <div class="frozen-card-info">
+              <span class="frozen-species">${sp ? esc(sp.name) : 'Unknown'}</span>
+              <span class="frozen-count">${count} frozen</span>
+            </div>
+            <button class="btn sm" data-act="use-frozen" data-spid="${sp?.id||''}">Use</button>
+          </div>`).join('')}
+      </div>`;
+    }
     html += `<h2 class="section-title" style="margin:14px 0 10px">Shelves</h2>
       <div class="shelf-grid">`;
     for (const shelf of shelves) {
@@ -1535,7 +1591,11 @@ function renderSpecies() {
         </div>
       </div>
       <table class="tbl mt"><thead><tr><th>Stage</th><th class="num">Age range</th></tr></thead><tbody>${rows}</tbody></table>
-      ${sp.ratio ? `<div class="ratio-display">Target sex ratio: ♂ ${sp.ratio.males} : ♀ ${sp.ratio.females}</div>` : ''}
+      <div class="sp-meta-row">
+        ${sp.gestation ? `<span class="sp-meta-chip">Gestation: ${sp.gestation}d</span>` : ''}
+        ${sp.lifespan  ? `<span class="sp-meta-chip">Lifespan: ${sp.lifespan}d</span>` : ''}
+        ${sp.ratio     ? `<span class="sp-meta-chip">Ratio: ♂${sp.ratio.males}:♀${sp.ratio.females}</span>` : ''}
+      </div>
     </div>`;
   }
   el.innerHTML = html;
@@ -2163,6 +2223,8 @@ function speciesModal(existing) {
         <input id="f-ratio-f" type="number" min="1" value="${sp.ratio?.females??1}" style="width:70px;text-align:center" />
       </div>
     </label>
+    <label class="field"><span>Gestation period (days)</span>
+      <input id="f-gestation" type="number" min="1" value="${sp.gestation||''}" placeholder="e.g. 21" /></label>
     <label class="field"><span>Natural lifespan (days)</span>
       <input id="f-lifespan" type="number" min="1" value="${sp.lifespan||''}" placeholder="e.g. 730 = 2 years" /></label>
     <p class="small muted" style="margin:-8px 0 10px">Used to show a natural death curve on the forecast and to prioritise oldest animals in harvest search.</p>
@@ -2193,6 +2255,7 @@ function speciesModal(existing) {
       const ratioM   = parseInt($('#f-ratio-m', root).value, 10) || 1;
       const ratioF   = parseInt($('#f-ratio-f', root).value, 10) || 1;
       const ratio    = { males: ratioM, females: ratioF };
+      const gestation = parseInt($('#f-gestation', root).value, 10) || null;
       const lifespan = parseInt($('#f-lifespan', root).value, 10) || null;
       let stages = collect().filter(s => s.name);
       if (!name) return toast('Enter a species name', true);
@@ -2200,7 +2263,7 @@ function speciesModal(existing) {
       stages.sort((a,b)=>a.startDay-b.startDay);
       if (existing) {
         const oldId = existing.id;
-        existing.name = name; existing.stages = stages; existing.lifespan = lifespan; existing.ratio = ratio;
+        existing.name = name; existing.stages = stages; existing.gestation = gestation; existing.lifespan = lifespan; existing.ratio = ratio;
         if (newId !== oldId) {
           existing.id = newId;
           // Update all tray and cohort references to the new ID
@@ -2209,7 +2272,7 @@ function speciesModal(existing) {
         }
         touch('species', existing);
       } else {
-        const r = rec('species', {id: newId, name, stages, lifespan, ratio});
+        const r = rec('species', {id: newId, name, stages, gestation, lifespan, ratio});
         upsertLocal('species', r); touch('species', r);
       }
       closeModal(); render();
@@ -2253,6 +2316,7 @@ function onClick(e) {
     case 'add-intake':   return intakeModal(id);
     case 'edit-cohort':  return editCohortModal(id, el.dataset.trayid);
     case 'remove-stage': return openRemoveByStage(el.dataset.stage, Number(el.dataset.sidx));
+    case 'use-frozen':  return useFrozenModal(el.dataset.spid);
     case 'add-species': return speciesModal();
     case 'edit-species':return speciesModal(byId('species',id));
     case 'del-species': return confirmDelete('species', () => { removeRecord('species',id); render(); });
