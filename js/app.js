@@ -44,6 +44,35 @@ function fmtTimestamp(ms) {
   const hm  = String(d.getHours()).padStart(2,'0') + '-' + String(d.getMinutes()).padStart(2,'0');
   return ymd + ': ' + hm;
 }
+
+// Returns { males, females } net adult counts for a tray, or null if no sex data tracked
+function trayAdultSex(trayId, sp) {
+  if (!sp?.ratio) return null;
+  const lastStage = sp.stages?.length
+    ? [...sp.stages].sort((a,b) => (b.startDay||0)-(a.startDay||0))[0]?.name : null;
+  if (!lastStage) return null;
+  const today = new Date();
+  let males = 0, females = 0, tracked = false;
+  for (const c of live('cohorts')) {
+    if (c.trayId !== trayId || cohortNet(c, today) <= 0) continue;
+    if (stageIndexAt(c, today).name !== lastStage) continue;
+    const rems = live('removals').filter(r => r.cohortId === c.id);
+    const remM = rems.reduce((s,r) => s + (Number(r.males)||0), 0);
+    const remF = rems.reduce((s,r) => s + (Number(r.females)||0), 0);
+    if (c.males != null) { males   += Math.max(0, (Number(c.males)||0)   - remM); tracked = true; }
+    if (c.females != null) { females += Math.max(0, (Number(c.females)||0) - remF); tracked = true; }
+  }
+  return tracked ? { males, females } : null;
+}
+
+// null = no data, true = on target (±15%), false = off ratio
+function ratioStatus(males, females, ratio) {
+  const total = males + females;
+  if (!total || !ratio) return null;
+  const targetFrac = ratio.males / (ratio.males + ratio.females);
+  const actualFrac = males / total;
+  return Math.abs(actualFrac - targetFrac) <= 0.15;
+}
 function stageColor(i) { return `var(${STAGE_COLORS[i % STAGE_COLORS.length]})`; }
 
 /* ------------------------------------------------------------------ *
@@ -1297,13 +1326,21 @@ function renderTrays() {
         const v = stageCounts.get(nm) || 0;
         if (v > 0) barSegs += `<span style="flex:${v};background:${stageColor(i)}"></span>`;
       });
+      const sex = trayAdultSex(tray.id, sp);
+      const ratioChip = sex ? (() => {
+        const ok = ratioStatus(sex.males, sex.females, sp.ratio);
+        if (ok === null) return '';
+        return ok
+          ? `<span class="tray-ratio-chip ok">✓ ♂${sex.males}:♀${sex.females}</span>`
+          : `<span class="tray-ratio-chip warn">⚠ ♂${sex.males}:♀${sex.females}</span>`;
+      })() : '';
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
           <span class="tray-name">${esc(tray.name)}</span>
           <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
           <span class="tray-chevron">›</span>
         </div>
-        <div class="tray-total">${total} <small>alive</small></div>
+        <div class="tray-total">${total} <small>alive</small>${ratioChip}</div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
       </div>`;
     }
@@ -1453,6 +1490,7 @@ function renderSpecies() {
         </div>
       </div>
       <table class="tbl mt"><thead><tr><th>Stage</th><th class="num">Age range</th></tr></thead><tbody>${rows}</tbody></table>
+      ${sp.ratio ? `<div class="ratio-display">Target sex ratio: ♂ ${sp.ratio.males} : ♀ ${sp.ratio.females}</div>` : ''}
     </div>`;
   }
   el.innerHTML = html;
@@ -1744,6 +1782,22 @@ function trayDetailModal(trayId) {
       ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest (${gravid} gravid, ${lactating} lactating)</div>` : ''}
     </div>` : '';
 
+  const sex = trayAdultSex(trayId, sp);
+  const ratioSection = sp?.ratio && sex !== null ? (() => {
+    const ok = ratioStatus(sex.males, sex.females, sp.ratio);
+    const total = sex.males + sex.females;
+    if (!total) return '';
+    const idealM = Math.round(total * sp.ratio.males / (sp.ratio.males + sp.ratio.females));
+    const idealF = total - idealM;
+    const statusHtml = ok === null ? '' : ok
+      ? `<span class="ratio-status-ok">✓ on target</span>`
+      : `<span class="ratio-status-warn">⚠ off target — ideal ♂${idealM} : ♀${idealF}</span>`;
+    return `<div class="ratio-section">
+      <span class="ratio-label">Sex ratio target ♂${sp.ratio.males}:♀${sp.ratio.females}</span>
+      <span class="ratio-current">Current adults: ♂${sex.males} ♀${sex.females} ${statusHtml}</span>
+    </div>`;
+  })() : '';
+
   const mismatchBanner = speciesMismatch ? `
     <div class="species-mismatch-warn">
       ⚠ Species ID <code>${esc(tray.speciesId)}</code> not found.
@@ -1757,6 +1811,7 @@ function trayDetailModal(trayId) {
       <button class="btn primary" data-act="add-intake" data-id="${trayId}" style="flex:1">+ Add by stage</button>
     </div>
     <div class="mt">${cohorts.length ? rows : '<p class="muted small">No litters yet.</p>'}</div>
+    ${ratioSection}
     ${gravidSection}
     <hr class="hr" />
     <div class="gap">
@@ -1989,6 +2044,15 @@ function speciesModal(existing) {
       <input id="f-name" value="${esc(sp.name)}" placeholder="e.g. Mouse, Rat, Quail" /></label>
     <label class="field"><span>Species ID <span class="muted" style="font-weight:400;font-size:11px">(used to link trays — edit only to fix a mismatch)</span></span>
       <input id="f-species-id" value="${esc(sp.id||'')}" placeholder="auto" style="font-family:monospace;font-size:13px" /></label>
+    <label class="field"><span>Target sex ratio (adults) <span class="muted" style="font-weight:400;font-size:11px">♂ : ♀ per breeding group</span></span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="small">♂</span>
+        <input id="f-ratio-m" type="number" min="1" value="${sp.ratio?.males??1}" style="width:70px;text-align:center" />
+        <span class="small muted">:</span>
+        <span class="small">♀</span>
+        <input id="f-ratio-f" type="number" min="1" value="${sp.ratio?.females??1}" style="width:70px;text-align:center" />
+      </div>
+    </label>
     <label class="field"><span>Natural lifespan (days)</span>
       <input id="f-lifespan" type="number" min="1" value="${sp.lifespan||''}" placeholder="e.g. 730 = 2 years" /></label>
     <p class="small muted" style="margin:-8px 0 10px">Used to show a natural death curve on the forecast and to prioritise oldest animals in harvest search.</p>
@@ -2016,6 +2080,9 @@ function speciesModal(existing) {
     $('[data-save]', root).onclick = () => {
       const name     = $('#f-name', root).value.trim();
       const newId    = $('#f-species-id', root).value.trim() || genSpeciesId(name);
+      const ratioM   = parseInt($('#f-ratio-m', root).value, 10) || 1;
+      const ratioF   = parseInt($('#f-ratio-f', root).value, 10) || 1;
+      const ratio    = { males: ratioM, females: ratioF };
       const lifespan = parseInt($('#f-lifespan', root).value, 10) || null;
       let stages = collect().filter(s => s.name);
       if (!name) return toast('Enter a species name', true);
@@ -2023,7 +2090,7 @@ function speciesModal(existing) {
       stages.sort((a,b)=>a.startDay-b.startDay);
       if (existing) {
         const oldId = existing.id;
-        existing.name = name; existing.stages = stages; existing.lifespan = lifespan;
+        existing.name = name; existing.stages = stages; existing.lifespan = lifespan; existing.ratio = ratio;
         if (newId !== oldId) {
           existing.id = newId;
           // Update all tray and cohort references to the new ID
@@ -2032,7 +2099,7 @@ function speciesModal(existing) {
         }
         touch('species', existing);
       } else {
-        const r = rec('species', {id: newId, name, stages, lifespan});
+        const r = rec('species', {id: newId, name, stages, lifespan, ratio});
         upsertLocal('species', r); touch('species', r);
       }
       closeModal(); render();

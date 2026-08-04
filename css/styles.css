@@ -796,6 +796,59 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   user-select: all;
 }
 
+/* Ratio display in species card */
+.ratio-display {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Ratio chip on tray cards */
+.tray-ratio-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.tray-ratio-chip.ok {
+  background: #1a3a1a;
+  color: #6fcf97;
+}
+.tray-ratio-chip.warn {
+  background: #3a1a1a;
+  color: #eb5757;
+}
+
+/* Ratio section inside tray detail */
+.ratio-section {
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--card-bg, #1e1e1e);
+  border: 1px solid var(--border, #2a2a2a);
+}
+.ratio-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.ratio-current {
+  font-size: 14px;
+  font-weight: 600;
+}
+.ratio-status-ok {
+  color: #6fcf97;
+  font-size: 12px;
+  margin-top: 3px;
+}
+.ratio-status-warn {
+  color: #eb5757;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
 /* ---------- Tray detail species mismatch warning ---------- */
 .species-mismatch-warn {
   background: #7c2d12;
