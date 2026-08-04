@@ -47,22 +47,35 @@ function fmtTimestamp(ms) {
   return ymd + ': ' + hm;
 }
 
-// Returns { males, females } from tray's directly-stored adult sex counts, or null if not set
-function trayAdultSex(trayId) {
-  const tray = byId('trays', trayId);
-  if (!tray) return null;
-  const m = tray.adultMales, f = tray.adultFemales;
-  if (m == null && f == null) return null;
-  return { males: Number(m) || 0, females: Number(f) || 0 };
+// Returns { males, females } from adult-stage cohort sex data (net of removals), or null if no sex data
+function trayAdultSex(trayId, sp) {
+  if (!sp?.stages?.length) return null;
+  const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
+  if (!lastStage) return null;
+  const today = new Date();
+  let males = 0, females = 0, tracked = false;
+  for (const c of live('cohorts')) {
+    if (c.trayId !== trayId || cohortNet(c, today) <= 0) continue;
+    if (stageIndexAt(c, today).name !== lastStage) continue;
+    if (c.males == null && c.females == null) continue;
+    tracked = true;
+    const rems = live('removals').filter(r => r.cohortId === c.id);
+    const remM = rems.reduce((s, r) => s + (Number(r.males) || 0), 0);
+    const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
+    males   += Math.max(0, (Number(c.males) || 0) - remM);
+    females += Math.max(0, (Number(c.females) || 0) - remF);
+  }
+  return tracked ? { males, females } : null;
 }
 
-// null = no data, true = on target (±15%), false = off ratio
+// Red = 0 males or >1 male; Yellow = 1 male but females off ratio; Green = 1 male + females on ratio
 function ratioStatus(males, females, ratio) {
-  if (!ratio || (!males && !females)) return null;
-  if (!males) return 'off';
-  const targetR = ratio.females / ratio.males;
-  const actualR = females / males;
-  const dev = Math.abs(targetR - actualR) / targetR;
+  if (males === 0) return 'off';
+  if (males > 1)  return 'off';
+  if (!ratio) return 'ok';
+  const targetF = ratio.females / ratio.males;
+  if (!females) return 'close';
+  const dev = Math.abs(targetF - females) / targetF;
   if (dev <= 0.15) return 'ok';
   if (dev <= 0.40) return 'close';
   return 'off';
@@ -1320,7 +1333,7 @@ function renderTrays() {
         const v = stageCounts.get(nm) || 0;
         if (v > 0) barSegs += `<span style="flex:${v};background:${stageColor(i)}"></span>`;
       });
-      const sex = trayAdultSex(tray.id);
+      const sex = trayAdultSex(tray.id, sp);
       const ratioDot = (() => {
         if (!sp || !sp.ratio) return '';
         const st = sex ? ratioStatus(sex.males, sex.females, sp.ratio) : null;
@@ -1747,9 +1760,6 @@ function trayDetailModal(trayId) {
   }
   const gravid      = tray.gravidFemales    || 0;
   const lactating   = tray.lactatingFemales || 0;
-  const adultMales   = tray.adultMales   != null ? tray.adultMales   : '';
-  const adultFemales = tray.adultFemales != null ? tray.adultFemales : '';
-
   const rows = cohorts.map(c => {
     const net = cohortNet(c);
     const { name, age } = stageIndexAt(c);
@@ -1771,34 +1781,25 @@ function trayDetailModal(trayId) {
     </div>`;
   }).join('');
 
+  const sex = trayAdultSex(trayId, sp);
+  const maxFemales = sex ? sex.females : adultCount;
   const gravidSection = adultCount > 0 ? `
     <div class="gravid-section">
-      <div class="gravid-title">Adult counts <span class="gravid-sub">(${adultCount} adults in tray)</span></div>
+      <div class="gravid-title">Reproductive status <span class="gravid-sub">(${adultCount} adults · ${sex ? `♂${sex.males} ♀${sex.females}` : 'sex not tracked'})</span></div>
       <div class="gravid-row">
         <label class="gravid-field">
-          <span>♂ Males</span>
-          <input type="number" id="f-adult-m" min="0" value="${adultMales}" placeholder="—" />
-        </label>
-        <label class="gravid-field">
-          <span>♀ Females</span>
-          <input type="number" id="f-adult-f" min="0" value="${adultFemales}" placeholder="—" />
-        </label>
-      </div>
-      <div class="gravid-row" style="margin-top:8px">
-        <label class="gravid-field">
           <span>Gravid ♀</span>
-          <input type="number" id="f-gravid" min="0" max="${adultCount}" value="${gravid}" placeholder="0" />
+          <input type="number" id="f-gravid" min="0" max="${maxFemales}" value="${gravid}" placeholder="0" />
         </label>
         <label class="gravid-field">
           <span>Lactating ♀</span>
-          <input type="number" id="f-lact" min="0" max="${adultCount}" value="${lactating}" placeholder="0" />
+          <input type="number" id="f-lact" min="0" max="${maxFemales}" value="${lactating}" placeholder="0" />
         </label>
         <button class="btn sm" id="save-status">Save</button>
       </div>
       ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest (${gravid} gravid, ${lactating} lactating)</div>` : ''}
     </div>` : '';
 
-  const sex = trayAdultSex(trayId);
   const ratioSection = sp?.ratio && sex !== null ? (() => {
     const st = ratioStatus(sex.males, sex.females, sp.ratio);
     const total = sex.males + sex.females;
@@ -1888,12 +1889,13 @@ function trayDetailModal(trayId) {
     const saveStatusBtn = $('#save-status', root);
     if (saveStatusBtn) {
       saveStatusBtn.onclick = () => {
-        const mVal = $('#f-adult-m', root).value.trim();
-        const fVal = $('#f-adult-f', root).value.trim();
-        tray.adultMales    = mVal === '' ? null : Number(mVal);
-        tray.adultFemales  = fVal === '' ? null : Number(fVal);
-        tray.gravidFemales   = Number($('#f-gravid', root).value) || 0;
-        tray.lactatingFemales = Number($('#f-lact',   root).value) || 0;
+        const g = Number($('#f-gravid', root).value) || 0;
+        const l = Number($('#f-lact',   root).value) || 0;
+        const sexNow = trayAdultSex(trayId, sp);
+        const femalesMax = sexNow ? sexNow.females : adultCount;
+        if (g + l > femalesMax) return toast(`Gravid + Lactating (${g+l}) exceeds females (${femalesMax})`, true);
+        tray.gravidFemales    = g;
+        tray.lactatingFemales = l;
         touch('trays', tray);
         toast('Status saved');
         closeModal(); trayDetailModal(trayId); render();
@@ -1939,19 +1941,25 @@ function intakeModal(trayId) {
 
   const stages = [...sp.stages].sort((a, b) => a.startDay - b.startDay);
 
+  const lastStageIdx = stages.length - 1;
   const rows = stages.map((st, i) => {
     const hex = STAGE_HEX[i % STAGE_HEX.length];
+    const isAdult = i === lastStageIdx;
     return `<div class="intake-row">
       <span class="intake-dot" style="background:${hex}"></span>
       <span class="intake-name">${esc(st.name)}</span>
       <span class="intake-day small muted">day ${st.startDay}+</span>
       <input type="number" class="intake-input" min="0" placeholder="0"
-        data-startday="${st.startDay}" data-stage="${esc(st.name)}" data-row="${i}" />
+        data-startday="${st.startDay}" data-stage="${esc(st.name)}" data-row="${i}" data-adult="${isAdult?'1':'0'}" />
     </div>
     <div class="sex-sub" id="isex-${i}" style="display:none">
       <label class="sex-label">♂ <input type="number" class="sex-male" min="0" placeholder="—" data-row="${i}" /></label>
       <label class="sex-label">♀ <input type="number" class="sex-female" min="0" placeholder="—" data-row="${i}" /></label>
-    </div>`;
+    </div>
+    ${isAdult ? `<div class="sex-sub gravid-sub-intake" id="igrv-${i}" style="display:none">
+      <label class="sex-label">Gravid ♀ <input type="number" class="grv-gravid" min="0" placeholder="0" /></label>
+      <label class="sex-label">Lactating ♀ <input type="number" class="grv-lact" min="0" placeholder="0" /></label>
+    </div>` : ''}`;
   }).join('');
 
   openModal(`Add to ${esc(tray.name)}`, `
@@ -1961,8 +1969,13 @@ function intakeModal(trayId) {
   `, root => {
     $$('.intake-input', root).forEach(inp => {
       inp.addEventListener('input', () => {
+        const hasCount = Number(inp.value) > 0;
         const sub = $(`#isex-${inp.dataset.row}`, root);
-        if (sub) sub.style.display = Number(inp.value) > 0 ? 'flex' : 'none';
+        if (sub) sub.style.display = hasCount ? 'flex' : 'none';
+        if (inp.dataset.adult === '1') {
+          const grv = $(`#igrv-${inp.dataset.row}`, root);
+          if (grv) grv.style.display = hasCount ? 'flex' : 'none';
+        }
       });
     });
 
@@ -1980,6 +1993,16 @@ function intakeModal(trayId) {
         const fVal = $(`#isex-${ri} .sex-female`, root)?.value;
         const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
         const females = fVal !== '' && fVal != null ? Number(fVal) : null;
+        if (inp.dataset.adult === '1' && females !== null) {
+          const gravidVal = $(`#igrv-${ri} .grv-gravid`, root)?.value;
+          const lactVal   = $(`#igrv-${ri} .grv-lact`, root)?.value;
+          const g = Number(gravidVal) || 0;
+          const l = Number(lactVal) || 0;
+          if (g + l > females) return toast(`Gravid + Lactating (${g+l}) exceeds females (${females})`, true);
+          tray.gravidFemales    = g;
+          tray.lactatingFemales = l;
+          touch('trays', tray);
+        }
         const r = rec('cohorts', {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,

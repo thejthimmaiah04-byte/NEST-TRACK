@@ -39,7 +39,8 @@ var COL_LABELS = {
   shelfId: '_SHELF ID', speciesId: '_SPECIES ID', trayId: '_TRAY ID', cohortId: '_COHORT ID',
   birthDate: 'DATE', initialCount: 'COUNT', notes: 'NOTES',
   males: '♂', females: '♀', date: 'DATE', stage: 'STAGE', count: 'REMOVED',
-  gravidFemales: 'GRAVID ♀', lactatingFemales: 'LACTATING ♀'
+  gravidFemales: 'GRAVID ♀', lactatingFemales: 'LACTATING ♀',
+  adultMales: '♂ ADULTS', adultFemales: '♀ ADULTS'
 };
 
 // ── Extra human-readable columns (appended after schema cols) ─────────────────
@@ -59,13 +60,13 @@ var EXTRA = {
 // ── Which columns to HIDE (1-based) ──────────────────────────────────────────
 // Species  cols: _ID(1) NAME(2) _JSON(3) LIFESPAN(4) _UPD(5) _DEL(6) _SYN(7) | STAGES(8)
 // Shelves  cols: _ID(1) NAME(2) _ORD(3) _UPD(4) _DEL(5) _SYN(6)               | TRAYS(7)
-// Trays    cols: _ID(1) _SHF(2) NAME(3) _SPID(4) GRAVID(5) LACT(6) _UPD(7) _DEL(8) _SYN(9) | SPECIES(10) stage_cols(11+)
+// Trays    cols: _ID(1) _SHF(2) NAME(3) _SPID(4) GRAVID(5) LACT(6) _UPD(7) _DEL(8) _SYN(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stage_cols(13+)
 // Birth    cols: _ID(1) _TRAY(2) _SP(3) DATE(4) COUNT(5) NOTES(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
 // Removal  cols: _ID(1) _COH(2) _TRAY(3) DATE(4) STAGE(5) REMOVED(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
 var HIDE = {
   species:  [1, 3, 5, 6, 7],       // show: NAME | LIFESPAN | STAGES
   shelves:  [1, 3, 4, 5, 6],       // show: NAME | TRAYS
-  trays:    [1, 2, 4, 7, 8, 9],    // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | [stage cols]
+  trays:    [1, 2, 4, 7, 8, 9],    // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
   cohorts:  [1, 2, 3, 9, 10, 11],  // show: DATE | COUNT | NOTES | ♂ | ♀ | TRAY
   removals: [1, 2, 3, 9, 10, 11]   // show: DATE | STAGE | REMOVED | ♂ | ♀ | TRAY
 };
@@ -315,15 +316,17 @@ function updateTrayStageStats() {
   });
   if (!allStages.length) return;
 
-  // Sum removals per cohort
-  var remByCohort = {};
+  // Sum removals per cohort (count, males, females)
+  var remByCohort = {}, remMaleByCohort = {}, remFemByCohort = {};
   readAll('removals').rows.forEach(function(r) {
     if (r.deleted) return;
-    remByCohort[r.cohortId] = (remByCohort[r.cohortId] || 0) + (Number(r.count) || 0);
+    remByCohort[r.cohortId]    = (remByCohort[r.cohortId]    || 0) + (Number(r.count)   || 0);
+    remMaleByCohort[r.cohortId] = (remMaleByCohort[r.cohortId] || 0) + (Number(r.males)  || 0);
+    remFemByCohort[r.cohortId]  = (remFemByCohort[r.cohortId]  || 0) + (Number(r.females)|| 0);
   });
 
-  // Compute live stage counts per tray
-  var trayStats = {};
+  // Compute live stage counts and adult sex counts per tray
+  var trayStats = {}, trayAdultM = {}, trayAdultF = {};
   readAll('cohorts').rows.forEach(function(c) {
     if (c.deleted) return;
     var net = (Number(c.initialCount) || 0) - (remByCohort[c.id] || 0);
@@ -334,10 +337,19 @@ function updateTrayStageStats() {
     var ageDays   = Math.floor((now - new Date(c.birthDate)) / 86400000);
     var stageName = stages[0].name;
     for (var i = stages.length - 1; i >= 0; i--) {
-      if (ageDays >= (Number(stages[i].days) || 0)) { stageName = stages[i].name; break; }
+      if (ageDays >= (Number(stages[i].days) || stages[i].startDay || 0)) { stageName = stages[i].name; break; }
     }
     if (!trayStats[c.trayId]) trayStats[c.trayId] = {};
     trayStats[c.trayId][stageName] = (trayStats[c.trayId][stageName] || 0) + net;
+
+    // Adult sex tracking (only last stage, only if sex was entered)
+    var lastStageName = stages[stages.length - 1].name;
+    if (stageName === lastStageName && (c.males !== '' && c.males != null || c.females !== '' && c.females != null)) {
+      var m = Math.max(0, (Number(c.males) || 0) - (remMaleByCohort[c.id] || 0));
+      var f = Math.max(0, (Number(c.females) || 0) - (remFemByCohort[c.id] || 0));
+      trayAdultM[c.trayId] = (trayAdultM[c.trayId] || 0) + m;
+      trayAdultF[c.trayId] = (trayAdultF[c.trayId] || 0) + f;
+    }
   });
 
   // Stage cols start at fixedCols + 1  (schema=9, EXTRA=['SPECIES']=1 → fixed=10, stages at 11+)
@@ -362,6 +374,27 @@ function updateTrayStageStats() {
     }
   });
 
+  // ♂ ADULTS and ♀ ADULTS cols — find by header or create after stage cols
+  var lastColNow = sh.getLastColumn();
+  var mAdultsCol = 0, fAdultsCol = 0;
+  if (lastColNow > 0) {
+    var allHdrs = sh.getRange(1, 1, 1, lastColNow).getValues()[0];
+    allHdrs.forEach(function(h, i) {
+      if (String(h) === '♂ ADULTS') mAdultsCol = i + 1;
+      if (String(h) === '♀ ADULTS') fAdultsCol = i + 1;
+    });
+  }
+  if (!mAdultsCol) {
+    mAdultsCol = sh.getLastColumn() + 1;
+    sh.getRange(1, mAdultsCol).setValue('♂ ADULTS')
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+  }
+  if (!fAdultsCol) {
+    fAdultsCol = sh.getLastColumn() + 1;
+    sh.getRange(1, fAdultsCol).setValue('♀ ADULTS')
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+  }
+
   var traysData = readAll('trays');
   traysData.rows.forEach(function(tray, i) {
     var rowNum = i + 2;
@@ -370,6 +403,8 @@ function updateTrayStageStats() {
       var col = stageColMap[stageName];
       if (col) sh.getRange(rowNum, col).setValue(counts[stageName] || 0);
     });
+    sh.getRange(rowNum, mAdultsCol).setValue(tray.deleted ? '' : (trayAdultM[tray.id] != null ? trayAdultM[tray.id] : ''));
+    sh.getRange(rowNum, fAdultsCol).setValue(tray.deleted ? '' : (trayAdultF[tray.id] != null ? trayAdultF[tray.id] : ''));
   });
 }
 
