@@ -803,23 +803,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   color: var(--muted);
 }
 
-/* Ratio chip on tray cards */
-.tray-ratio-chip {
+/* Ratio dot on tray cards */
+.ratio-dot {
   display: inline-block;
-  padding: 2px 7px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  margin-top: 4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  margin-left: 8px;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
-.tray-ratio-chip.ok {
-  background: #1a3a1a;
-  color: #6fcf97;
-}
-.tray-ratio-chip.warn {
-  background: #3a1a1a;
-  color: #eb5757;
-}
+.ratio-dot.ok  { background: #27ae60; box-shadow: 0 0 4px #27ae6099; }
+.ratio-dot.warn { background: #e74c3c; box-shadow: 0 0 4px #e74c3c99; }
 
 /* Ratio section inside tray detail */
 .ratio-section {

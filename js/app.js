@@ -1327,20 +1327,22 @@ function renderTrays() {
         if (v > 0) barSegs += `<span style="flex:${v};background:${stageColor(i)}"></span>`;
       });
       const sex = trayAdultSex(tray.id, sp);
-      const ratioChip = sex ? (() => {
+      const ratioDot = (() => {
+        if (!sp || !sp.ratio) return '';
+        if (!sex) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
         const ok = ratioStatus(sex.males, sex.females, sp.ratio);
-        if (ok === null) return '';
+        if (ok === null) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
         return ok
-          ? `<span class="tray-ratio-chip ok">✓ ♂${sex.males}:♀${sex.females}</span>`
-          : `<span class="tray-ratio-chip warn">⚠ ♂${sex.males}:♀${sex.females}</span>`;
-      })() : '';
+          ? `<span class="ratio-dot ok" title="Sex ratio OK ♂${sex.males}:♀${sex.females}"></span>`
+          : `<span class="ratio-dot warn" title="Sex ratio off ♂${sex.males}:♀${sex.females}"></span>`;
+      })();
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
           <span class="tray-name">${esc(tray.name)}</span>
           <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
           <span class="tray-chevron">›</span>
         </div>
-        <div class="tray-total">${total} <small>alive</small>${ratioChip}</div>
+        <div class="tray-total">${total} <small>alive</small>${ratioDot}</div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
       </div>`;
     }
