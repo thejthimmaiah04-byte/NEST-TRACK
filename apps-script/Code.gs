@@ -49,13 +49,14 @@ var COL_LABELS = {
 };
 
 // ── Extra human-readable columns (appended after schema cols) ─────────────────
-// Species  : STAGES  = "Pinky 10d · Fuzzy 12d · Hopper 5d · Adult"
+// Species  : STAGES  = "Pinky 0d · Fuzzy 5d · Hopper 10d · Adult 21d"
+//            SEX RATIO = "1♂ : 3♀"   PINKY / FUZZY / HOPPER / ADULT = start day
 // Shelves  : TRAYS   = count of live trays on this shelf (computed)
 // Trays    : SPECIES = 3-letter code e.g. MOU  (then dynamic stage cols follow)
 // Birth    : TRAY    = tray name e.g. A-3 | SPECIES = 3-letter code
 // Removal  : TRAY    = tray name
 var EXTRA = {
-  species:  ['STAGES'],
+  species:  ['STAGES', 'SEX RATIO', 'PINKY', 'FUZZY', 'HOPPER', 'ADULT'],
   shelves:  ['TRAYS'],
   trays:    ['SPECIES'],
   cohorts:  ['TRAY', 'SPECIES'],
@@ -63,13 +64,13 @@ var EXTRA = {
 };
 
 // ── Which columns to HIDE (1-based) ──────────────────────────────────────────
-// Species  cols: _ID(1) NAME(2) _JSON(3) LIFESPAN(4) _UPD(5) _DEL(6) _SYN(7) | STAGES(8)
+// Species  cols: _ID(1) NAME(2) _JSON(3) LIFESPAN(4) _UPD(5) _DEL(6) _SYN(7) | STAGES(8) SEX RATIO(9) PINKY(10) FUZZY(11) HOPPER(12) ADULT(13)
 // Shelves  cols: _ID(1) NAME(2) _ORD(3) _UPD(4) _DEL(5) _SYN(6)               | TRAYS(7)
 // Trays    cols: _ID(1) _SHF(2) NAME(3) _SPID(4) GRAVID(5) LACT(6) _UPD(7) _DEL(8) _SYN(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stage_cols(13+)
 // Birth    cols: _ID(1) _TRAY(2) _SP(3) DATE(4) COUNT(5) NOTES(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12) SPECIES(13)
 // Removal  cols: _ID(1) _COH(2) _TRAY(3) DATE(4) STAGE(5) REMOVED(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
 var HIDE = {
-  species:  [1, 3, 5, 6, 7],           // show: NAME | LIFESPAN | STAGES
+  species:  [1, 3, 5, 6, 7],           // show: NAME | LIFESPAN | STAGES | SEX RATIO | PINKY | FUZZY | HOPPER | ADULT
   shelves:  [1, 3, 4, 5, 6],           // show: NAME | TRAYS
   trays:    [1, 2, 4, 7, 8, 9],        // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
   cohorts:  [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES (♂/♀ hidden — tracked in Trays sheet)
@@ -201,15 +202,25 @@ function buildNameMaps() {
   };
 }
 
-// "Pinky 10d · Fuzzy 12d · Hopper 5d · Adult"
+// "Pinky 0d · Fuzzy 5d · Hopper 10d · Adult 21d"
 function formatStages(stages) {
   var arr;
   if (Array.isArray(stages)) { arr = stages; }
   else { try { arr = JSON.parse(stages || '[]'); } catch(e) { arr = []; } }
   if (!arr || !arr.length) return '';
   return arr.map(function(s) {
-    return (s.name || '') + ' ' + (s.days || 0) + 'd';
+    return (s.name || '') + ' ' + (Number(s.startDay || s.days || 0)) + 'd';
   }).join(' · ');
+}
+
+// Extract per-stage start day value from a stages array, by stage name (case-insensitive)
+function stageStartDay(stages, stageName) {
+  for (var i = 0; i < stages.length; i++) {
+    if ((stages[i].name || '').toLowerCase() === stageName.toLowerCase()) {
+      return Number(stages[i].startDay || stages[i].days || 0);
+    }
+  }
+  return null;
 }
 
 function upsertRecords(entity, incoming, serverNow) {
@@ -235,7 +246,19 @@ function upsertRecords(entity, incoming, serverNow) {
     });
 
     if (ctx) {
-      if (entity === 'species')  rowValues.push(formatStages(r.stages));
+      if (entity === 'species') {
+        var stagesArr = [];
+        try { stagesArr = Array.isArray(r.stages) ? r.stages : JSON.parse(r.stages || '[]'); } catch(e) {}
+        rowValues.push(formatStages(stagesArr)); // STAGES summary
+        // SEX RATIO: "1♂ : 3♀"
+        rowValues.push(r.ratio ? (r.ratio.males + '♂ : ' + r.ratio.females + '♀') : '');
+        // Individual stage start-day cols
+        var sd = function(name) { var d = stageStartDay(stagesArr, name); return d !== null ? d + 'd+' : ''; };
+        rowValues.push(sd('Pinky'));
+        rowValues.push(sd('Fuzzy'));
+        rowValues.push(sd('Hopper'));
+        rowValues.push(sd('Adult'));
+      }
       if (entity === 'shelves')  rowValues.push('');  // computed by updateShelfStats
       if (entity === 'trays')    rowValues.push(ctx.speciesName(r.speciesId));
       if (entity === 'cohorts')  { rowValues.push(ctx.trayName(r.trayId)); rowValues.push(ctx.speciesName(r.speciesId)); }
@@ -500,6 +523,51 @@ function reformatSheets() {
       readAll('cohorts').rows.forEach(function(c, i) {
         birthSh.getRange(i + 2, birthTrayCol).setValue(ctx2.trayName(c.trayId));
         birthSh.getRange(i + 2, birthSpeciesCol).setValue(ctx2.speciesName(c.speciesId));
+      });
+    }
+  }
+
+  // 3a. Ensure Species sheet has new extra columns (SEX RATIO, PINKY, FUZZY, HOPPER, ADULT)
+  var speciesSh = ss.getSheetByName(SHEET_NAMES.species);
+  if (speciesSh) {
+    var spSchemaCols = SCHEMAS.species.length; // 7
+    var spLastCol = speciesSh.getLastColumn();
+    var spHdrs = spLastCol > 0 ? speciesSh.getRange(1, 1, 1, spLastCol).getValues()[0] : [];
+    function ensureSpeciesCol(label) {
+      for (var hi = 0; hi < spHdrs.length; hi++) {
+        if (String(spHdrs[hi]) === label) return hi + 1; // 1-based
+      }
+      var nc = speciesSh.getLastColumn() + 1;
+      speciesSh.getRange(1, nc).setValue(label)
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      spHdrs.push(label);
+      return nc;
+    }
+    ensureSpeciesCol('STAGES');
+    var ratioCol   = ensureSpeciesCol('SEX RATIO');
+    var pinkyCol   = ensureSpeciesCol('PINKY');
+    var fuzzyCol   = ensureSpeciesCol('FUZZY');
+    var hopperCol  = ensureSpeciesCol('HOPPER');
+    var adultCol   = ensureSpeciesCol('ADULT');
+
+    // Backfill existing rows from stored stages JSON (col 3) — ratio remains blank until app sync
+    if (speciesSh.getLastRow() > 1) {
+      var spRows = speciesSh.getRange(2, 1, speciesSh.getLastRow() - 1, spSchemaCols).getValues();
+      spRows.forEach(function(row, idx) {
+        var rowNum = idx + 2;
+        var deleted = (row[5] === true || row[5] === 'true' || row[5] === 'TRUE');
+        if (deleted) return;
+        var stagesJson = String(row[2] || '[]');
+        var stagesArr = [];
+        try { stagesArr = JSON.parse(stagesJson); } catch(e) {}
+        var stagesSummary = formatStages(stagesArr);
+        var stageSummaryCol = spHdrs.indexOf('STAGES') + 1;
+        if (stageSummaryCol > 0) speciesSh.getRange(rowNum, stageSummaryCol).setValue(stagesSummary);
+        var sd = function(name) { var d = stageStartDay(stagesArr, name); return d !== null ? d + 'd+' : ''; };
+        speciesSh.getRange(rowNum, pinkyCol).setValue(sd('Pinky'));
+        speciesSh.getRange(rowNum, fuzzyCol).setValue(sd('Fuzzy'));
+        speciesSh.getRange(rowNum, hopperCol).setValue(sd('Hopper'));
+        speciesSh.getRange(rowNum, adultCol).setValue(sd('Adult'));
       });
     }
   }
