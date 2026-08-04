@@ -37,7 +37,9 @@ function daysBetween(fromDateStr, toDate = new Date()) {
   return Math.floor((b - a) / 86400000);
 }
 function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n); return d; }
-function fmtDate(d) { return d.toLocaleDateString(undefined, { month:'short', day:'numeric' }); }
+function fmtDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
 function fmtTimestamp(ms) {
   const d = new Date(ms);
   const ymd = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -931,7 +933,7 @@ function wireForeCastHover() {
     // Build tooltip
     const label   = day === 0 ? 'Today' : `+${day}d`;
     const dateObj = new Date(); dateObj.setDate(dateObj.getDate() + day);
-    const dateStr = dateObj.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    const dateStr = fmtDate(dateObj);
     let html = `<div class="fc-tt-date">${label} · ${dateStr}</div>`;
     for (const st of stages) {
       const v = st.values[j] || 0;
@@ -1439,9 +1441,7 @@ function renderCalendar() {
 
   // Selected day detail
   const selEvs = evMap[calSelected] || [];
-  const fmtSel = new Date(calSelected + 'T00:00:00').toLocaleDateString(undefined, {
-    weekday:'long', month:'long', day:'numeric'
-  });
+  const fmtSel = calSelected; // already yyyy-mm-dd
   const evItems = selEvs.length
     ? selEvs.map(e => `
         <div class="cal-ev-item">
