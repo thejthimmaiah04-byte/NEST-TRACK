@@ -67,11 +67,14 @@ function trayAdultSex(trayId, sp) {
 
 // null = no data, true = on target (±15%), false = off ratio
 function ratioStatus(males, females, ratio) {
-  const total = males + females;
-  if (!total || !ratio) return null;
-  const targetFrac = ratio.males / (ratio.males + ratio.females);
-  const actualFrac = males / total;
-  return Math.abs(actualFrac - targetFrac) <= 0.15;
+  if (!ratio || (!males && !females)) return null;
+  if (!males) return 'off';
+  const targetR = ratio.females / ratio.males;
+  const actualR = females / males;
+  const dev = Math.abs(targetR - actualR) / targetR;
+  if (dev <= 0.15) return 'ok';
+  if (dev <= 0.40) return 'close';
+  return 'off';
 }
 function stageColor(i) { return `var(${STAGE_COLORS[i % STAGE_COLORS.length]})`; }
 
@@ -1329,20 +1332,20 @@ function renderTrays() {
       const sex = trayAdultSex(tray.id, sp);
       const ratioDot = (() => {
         if (!sp || !sp.ratio) return '';
-        if (!sex) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
-        const ok = ratioStatus(sex.males, sex.females, sp.ratio);
-        if (ok === null) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
-        return ok
-          ? `<span class="ratio-dot ok" title="Sex ratio OK ♂${sex.males}:♀${sex.females}"></span>`
-          : `<span class="ratio-dot warn" title="Sex ratio off ♂${sex.males}:♀${sex.females}"></span>`;
+        const st = sex ? ratioStatus(sex.males, sex.females, sp.ratio) : null;
+        if (st === null) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
+        if (st === 'ok')    return `<span class="ratio-dot ok"    title="Sex ratio OK ♂${sex.males}:♀${sex.females}"></span>`;
+        if (st === 'close') return `<span class="ratio-dot close" title="Sex ratio close ♂${sex.males}:♀${sex.females}"></span>`;
+        return `<span class="ratio-dot off" title="Sex ratio off ♂${sex.males}:♀${sex.females}"></span>`;
       })();
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
           <span class="tray-name">${esc(tray.name)}</span>
           <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
+          ${ratioDot}
           <span class="tray-chevron">›</span>
         </div>
-        <div class="tray-total">${total} <small>alive</small>${ratioDot}</div>
+        <div class="tray-total">${total} <small>alive</small></div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
       </div>`;
     }
@@ -1786,14 +1789,18 @@ function trayDetailModal(trayId) {
 
   const sex = trayAdultSex(trayId, sp);
   const ratioSection = sp?.ratio && sex !== null ? (() => {
-    const ok = ratioStatus(sex.males, sex.females, sp.ratio);
+    const st = ratioStatus(sex.males, sex.females, sp.ratio);
     const total = sex.males + sex.females;
     if (!total) return '';
     const idealM = Math.round(total * sp.ratio.males / (sp.ratio.males + sp.ratio.females));
     const idealF = total - idealM;
-    const statusHtml = ok === null ? '' : ok
+    const statusHtml = st === 'ok'
       ? `<span class="ratio-status-ok">✓ on target</span>`
-      : `<span class="ratio-status-warn">⚠ off target — ideal ♂${idealM} : ♀${idealF}</span>`;
+      : st === 'close'
+        ? `<span class="ratio-status-close">~ close — ideal ♂${idealM} : ♀${idealF}</span>`
+        : st === 'off'
+          ? `<span class="ratio-status-warn">⚠ off target — ideal ♂${idealM} : ♀${idealF}</span>`
+          : '';
     return `<div class="ratio-section">
       <span class="ratio-label">Sex ratio target ♂${sp.ratio.males}:♀${sp.ratio.females}</span>
       <span class="ratio-current">Current adults: ♂${sex.males} ♀${sex.females} ${statusHtml}</span>

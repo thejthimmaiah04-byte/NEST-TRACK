@@ -806,15 +806,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 /* Ratio dot on tray cards */
 .ratio-dot {
   display: inline-block;
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  margin-left: 8px;
-  vertical-align: middle;
   flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 6px;
 }
-.ratio-dot.ok  { background: #27ae60; box-shadow: 0 0 4px #27ae6099; }
-.ratio-dot.warn { background: #e74c3c; box-shadow: 0 0 4px #e74c3c99; }
+.ratio-dot.ok    { background: #27ae60; box-shadow: 0 0 5px #27ae6099; }
+.ratio-dot.close { background: #f1c40f; box-shadow: 0 0 5px #f1c40f99; }
+.ratio-dot.off   { background: #e74c3c; box-shadow: 0 0 5px #e74c3c99; }
 
 /* Ratio section inside tray detail */
 .ratio-section {
@@ -835,6 +836,11 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 }
 .ratio-status-ok {
   color: #6fcf97;
+  font-size: 12px;
+  margin-top: 3px;
+}
+.ratio-status-close {
+  color: #f1c40f;
   font-size: 12px;
   margin-top: 3px;
 }
