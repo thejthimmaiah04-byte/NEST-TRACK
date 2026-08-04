@@ -47,13 +47,13 @@ var COL_LABELS = {
 // Species  : STAGES  = "Pinky 10d · Fuzzy 12d · Hopper 5d · Adult"
 // Shelves  : TRAYS   = count of live trays on this shelf (computed)
 // Trays    : SPECIES = 3-letter code e.g. MOU  (then dynamic stage cols follow)
-// Birth    : TRAY    = tray name e.g. A-3
+// Birth    : TRAY    = tray name e.g. A-3 | SPECIES = 3-letter code
 // Removal  : TRAY    = tray name
 var EXTRA = {
   species:  ['STAGES'],
   shelves:  ['TRAYS'],
   trays:    ['SPECIES'],
-  cohorts:  ['TRAY'],
+  cohorts:  ['TRAY', 'SPECIES'],
   removals: ['TRAY']
 };
 
@@ -61,14 +61,14 @@ var EXTRA = {
 // Species  cols: _ID(1) NAME(2) _JSON(3) LIFESPAN(4) _UPD(5) _DEL(6) _SYN(7) | STAGES(8)
 // Shelves  cols: _ID(1) NAME(2) _ORD(3) _UPD(4) _DEL(5) _SYN(6)               | TRAYS(7)
 // Trays    cols: _ID(1) _SHF(2) NAME(3) _SPID(4) GRAVID(5) LACT(6) _UPD(7) _DEL(8) _SYN(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stage_cols(13+)
-// Birth    cols: _ID(1) _TRAY(2) _SP(3) DATE(4) COUNT(5) NOTES(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
+// Birth    cols: _ID(1) _TRAY(2) _SP(3) DATE(4) COUNT(5) NOTES(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12) SPECIES(13)
 // Removal  cols: _ID(1) _COH(2) _TRAY(3) DATE(4) STAGE(5) REMOVED(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
 var HIDE = {
-  species:  [1, 3, 5, 6, 7],       // show: NAME | LIFESPAN | STAGES
-  shelves:  [1, 3, 4, 5, 6],       // show: NAME | TRAYS
-  trays:    [1, 2, 4, 7, 8, 9],    // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
-  cohorts:  [1, 2, 3, 9, 10, 11],  // show: DATE | COUNT | NOTES | ♂ | ♀ | TRAY
-  removals: [1, 2, 3, 9, 10, 11]   // show: DATE | STAGE | REMOVED | ♂ | ♀ | TRAY
+  species:  [1, 3, 5, 6, 7],           // show: NAME | LIFESPAN | STAGES
+  shelves:  [1, 3, 4, 5, 6],           // show: NAME | TRAYS
+  trays:    [1, 2, 4, 7, 8, 9],        // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
+  cohorts:  [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES (♂/♀ hidden — tracked in Trays sheet)
+  removals: [1, 2, 3, 9, 10, 11]       // show: DATE | STAGE | REMOVED | ♂ | ♀ | TRAY
 };
 
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ function upsertRecords(entity, incoming, serverNow) {
       if (entity === 'species')  rowValues.push(formatStages(r.stages));
       if (entity === 'shelves')  rowValues.push('');  // computed by updateShelfStats
       if (entity === 'trays')    rowValues.push(ctx.speciesName(r.speciesId));
-      if (entity === 'cohorts')  rowValues.push(ctx.trayName(r.trayId));
+      if (entity === 'cohorts')  { rowValues.push(ctx.trayName(r.trayId)); rowValues.push(ctx.speciesName(r.speciesId)); }
       if (entity === 'removals') rowValues.push(ctx.trayName(r.trayId));
     }
 
@@ -465,15 +465,36 @@ function reformatSheets() {
     if (h10 === 'SHELF') traysSh.deleteColumn(10); // SPECIES shifts 11→10, stages shift 12+→11+
   }
 
-  // 3. Refresh SPECIES code in col 10 for all tray rows
+  // 3. Refresh extra resolved columns: SPECIES in Trays (col 10) and TRAY+SPECIES in Birth
+  var ctx2 = buildNameMaps();
   var traysSh2 = ss.getSheetByName('Trays');
   if (traysSh2 && traysSh2.getLastRow() > 1) {
-    var ctx = buildNameMaps();
-    var speciesColIdx = SCHEMAS.trays.length + 1; // col 10
+    var traySpeciesCol = SCHEMAS.trays.length + 1; // col 10
     readAll('trays').rows.forEach(function(tray, i) {
-      var code = ctx.speciesName(tray.speciesId);
-      traysSh2.getRange(i + 2, speciesColIdx).setValue(code);
+      traysSh2.getRange(i + 2, traySpeciesCol).setValue(ctx2.speciesName(tray.speciesId));
     });
+  }
+  // Ensure Birth sheet has TRAY + SPECIES extra header cols and fill them
+  var birthSh = ss.getSheetByName(SHEET_NAMES.cohorts);
+  if (birthSh) {
+    var birthFixedCols = SCHEMAS.cohorts.length; // 11
+    var birthTrayCol    = birthFixedCols + 1;    // 12
+    var birthSpeciesCol = birthFixedCols + 2;    // 13
+    var birthLastCol = birthSh.getLastColumn();
+    if (birthLastCol < birthTrayCol) {
+      birthSh.getRange(1, birthTrayCol).setValue('TRAY')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    }
+    if (birthLastCol < birthSpeciesCol) {
+      birthSh.getRange(1, birthSpeciesCol).setValue('SPECIES')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    }
+    if (birthSh.getLastRow() > 1) {
+      readAll('cohorts').rows.forEach(function(c, i) {
+        birthSh.getRange(i + 2, birthTrayCol).setValue(ctx2.trayName(c.trayId));
+        birthSh.getRange(i + 2, birthSpeciesCol).setValue(ctx2.speciesName(c.speciesId));
+      });
+    }
   }
 
   // 4. Re-apply HIDE on all sheets
