@@ -398,6 +398,7 @@ input:focus, select:focus, textarea:focus {
 .harvest-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .harvest-row select, .harvest-row input { flex: 1; min-width: 0; }
 .harvest-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.fz-sex-row { margin-bottom: 10px; }
 .fz-search-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .fz-search-row select, .fz-search-row input { flex: 1; min-width: 0; }
 .harvest-btn {

@@ -1322,20 +1322,69 @@ function useFrozenModal(stage) {
 function addToFreezerModal() {
   const today = new Date();
 
-  function getMatches(stage) {
+  // Sex counts for a specific stage in a tray (like trayAdultSex but stage-generic)
+  function stageSex(trayId, stage) {
+    let males = 0, females = 0, tracked = false;
+    for (const c of live('cohorts')) {
+      if (c.trayId !== trayId || cohortNet(c) <= 0) continue;
+      if (stageIndexAt(c, today).name !== stage) continue;
+      if (c.males == null && c.females == null) continue;
+      tracked = true;
+      const rems = live('removals').filter(r => r.cohortId === c.id);
+      const remM = rems.reduce((s, r) => s + (Number(r.males) || 0), 0);
+      const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
+      males   += Math.max(0, (Number(c.males) || 0) - remM);
+      females += Math.max(0, (Number(c.females) || 0) - remF);
+    }
+    return tracked ? { males, females } : null;
+  }
+
+  // Is this the last (adult) stage for the species in this tray?
+  function isAdultStage(trayId, stage) {
+    const c = live('cohorts').find(t => t.trayId === trayId && cohortNet(t) > 0);
+    if (!c) return false;
+    const sp = byId('species', c.speciesId);
+    if (!sp?.stages?.length) return false;
+    const last = [...sp.stages].sort((a, b) => (b.startDay || 0) - (a.startDay || 0))[0];
+    return last?.name === stage;
+  }
+
+  function getMatches(stage, sex) {
     const map = new Map();
     live('cohorts').filter(c => cohortNet(c) > 0).forEach(c => {
       const tray = live('trays').find(t => t.id === c.trayId);
       if (!tray) return;
       if (stageIndexAt(c, today).name !== stage) return;
       const net = cohortNet(c);
-      const bd = parseYMD(c.birthDate);
+      const bd  = parseYMD(c.birthDate);
       if (!map.has(tray.id)) map.set(tray.id, { tray, count: 0, oldestDate: null });
       const entry = map.get(tray.id);
       entry.count += net;
       if (!entry.oldestDate || bd < entry.oldestDate) entry.oldestDate = bd;
     });
-    return [...map.values()].sort((a, b) => (a.oldestDate || 0) - (b.oldestDate || 0));
+
+    const results = [];
+    for (const [trayId, entry] of map) {
+      const adult     = isAdultStage(trayId, stage);
+      const gravid    = adult ? (entry.tray.gravidFemales    || 0) : 0;
+      const lactating = adult ? (entry.tray.lactatingFemales || 0) : 0;
+      const sexData   = stageSex(trayId, stage);
+
+      let available;
+      if (sex === 'Male') {
+        available = sexData ? sexData.males : entry.count;
+      } else if (sex === 'Female') {
+        const femTotal = sexData ? sexData.females : entry.count;
+        available = Math.max(0, femTotal - gravid - lactating);
+      } else {
+        available = Math.max(0, entry.count - gravid - lactating);
+      }
+
+      if (available <= 0) continue;
+      results.push({ tray: entry.tray, count: available, totalCount: entry.count,
+                     oldestDate: entry.oldestDate, gravid, lactating, sexData });
+    }
+    return results.sort((a, b) => (a.oldestDate || 0) - (b.oldestDate || 0));
   }
 
   const allStages = orderedStageNames().filter(s =>
@@ -1346,24 +1395,41 @@ function addToFreezerModal() {
   const stageOpts = allStages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
 
   openModal('Freeze from Tray', `
+    <div class="reason-btns fz-sex-row">
+      <button class="reason-btn" data-sex="Male">♂ Male</button>
+      <button class="reason-btn active" data-sex="Both">Both</button>
+      <button class="reason-btn" data-sex="Female">♀ Female</button>
+    </div>
     <div class="fz-search-row">
       <select id="fz-stage">${stageOpts}</select>
       <input id="fz-count" type="number" min="1" placeholder="How many?" />
     </div>
     <div id="fz-results"></div>
   `, root => {
+    let selectedSex = 'Both';
+
+    root.querySelectorAll('[data-sex]').forEach(btn => {
+      btn.onclick = () => {
+        root.querySelectorAll('[data-sex]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedSex = btn.dataset.sex;
+        refresh();
+      };
+    });
+
     function refresh() {
       const stage   = $('#fz-stage', root).value;
       const needed  = parseInt($('#fz-count', root).value, 10);
       const outEl   = $('#fz-results', root);
-      const matches = getMatches(stage);
+      const matches = getMatches(stage, selectedSex);
 
       if (!matches.length) {
-        outEl.innerHTML = `<p class="harvest-none">No ${esc(stage)} available in any tray.</p>`;
+        const sexNote = selectedSex !== 'Both' ? ` (${selectedSex})` : '';
+        outEl.innerHTML = `<p class="harvest-none">No ${esc(stage)}${sexNote} available to freeze.</p>`;
         return;
       }
 
-      const total = matches.reduce((s, m) => s + m.count, 0);
+      const total    = matches.reduce((s, m) => s + m.count, 0);
       const countSet = !isNaN(needed) && needed >= 1;
 
       const suggested = new Set();
@@ -1377,18 +1443,22 @@ function addToFreezerModal() {
       }
 
       const btns = matches.map(m => {
-        const cls = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
-        const ageDays = m.oldestDate ? Math.floor((today - m.oldestDate) / 86400000) : null;
+        const cls       = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
+        const ageDays   = m.oldestDate ? Math.floor((today - m.oldestDate) / 86400000) : null;
+        const gravidNote  = m.gravid    > 0 ? `<span class="hb-status gravid">${m.gravid} gravid</span>`      : '';
+        const lactNote    = m.lactating > 0 ? `<span class="hb-status lact">${m.lactating} lactating</span>` : '';
+        const sexIcon   = selectedSex === 'Male' ? '♂ ' : selectedSex === 'Female' ? '♀ ' : '';
         return `<button class="${cls}" data-tray-id="${m.tray.id}">
           <span class="hb-name">${esc(m.tray.name)}</span>
           ${ageDays != null ? `<span class="hb-age">${ageDays}d old</span>` : ''}
-          <span class="hb-count">${m.count}<span class="hb-total-sm"> alive</span></span>
+          ${gravidNote}${lactNote}
+          <span class="hb-count">${sexIcon}${m.count}<span class="hb-total-sm"> alive</span></span>
         </button>`;
       }).join('');
 
       let statusHtml = '';
       if (countSet) {
-        const canFill = total >= needed;
+        const canFill   = total >= needed;
         const statusCls = canFill ? 'harvest-status ok' : 'harvest-status warn';
         const statusMsg = canFill
           ? `✓ Can freeze ${needed} from ${suggested.size} tray${suggested.size !== 1 ? 's' : ''} (${total} total available)`
@@ -1405,13 +1475,16 @@ function addToFreezerModal() {
           const trayId = btn.dataset.trayId;
           const match  = matches.find(m => m.tray.id === trayId);
           if (!match) return;
-          if (n > match.count) return toast(`Only ${match.count} ${stage} alive in ${match.tray.name}`, true);
+          if (n > match.count) return toast(`Only ${match.count} available in ${match.tray.name}`, true);
           const matchCohort = live('cohorts')
             .filter(c => c.trayId === trayId && cohortNet(c) > 0 && stageIndexAt(c, today).name === stage)[0];
+          const males   = selectedSex === 'Male'   ? n : selectedSex === 'Female' ? 0   : null;
+          const females = selectedSex === 'Female' ? n : selectedSex === 'Male'   ? 0   : null;
           const r = rec('removals', { cohortId: matchCohort?.id || '', trayId, date: todayISO(),
-            stage, count: n, males: null, females: null, reason: 'Frozen' });
+            stage, count: n, males, females, reason: 'Frozen' });
           upsertLocal('removals', r); touch('removals', r);
-          toast(`❄ Frozen ${n} ${stage} from ${match.tray.name}`);
+          const sexStr = selectedSex !== 'Both' ? ` ${selectedSex}` : '';
+          toast(`❄ Frozen ${n}${sexStr} ${stage} from ${match.tray.name}`);
           closeModal(); render();
         };
       });
