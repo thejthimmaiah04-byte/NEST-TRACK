@@ -9,10 +9,10 @@
   "theme_color": "#0f0f0f",
   "icons": [
     {
-      "src": "RODENT APP LOGO.jpg",
-      "sizes": "any",
-      "type": "image/jpeg",
-      "purpose": "any"
+      "src": "icons/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ]
 }
