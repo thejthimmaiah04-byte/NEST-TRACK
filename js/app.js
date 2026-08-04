@@ -1322,73 +1322,104 @@ function useFrozenModal(stage) {
 function addToFreezerModal() {
   const today = new Date();
 
-  // Build stage → [{ tray, count }] map across all live cohorts
-  function stageToTrays() {
+  function getMatches(stage) {
     const map = new Map();
     live('cohorts').filter(c => cohortNet(c) > 0).forEach(c => {
       const tray = live('trays').find(t => t.id === c.trayId);
       if (!tray) return;
-      const { name: stage } = stageIndexAt(c, today);
+      if (stageIndexAt(c, today).name !== stage) return;
       const net = cohortNet(c);
-      if (!map.has(stage)) map.set(stage, new Map());
-      const tm = map.get(stage);
-      tm.set(tray.id, { tray, count: (tm.get(tray.id)?.count || 0) + net });
+      const bd = parseYMD(c.birthDate);
+      if (!map.has(tray.id)) map.set(tray.id, { tray, count: 0, oldestDate: null });
+      const entry = map.get(tray.id);
+      entry.count += net;
+      if (!entry.oldestDate || bd < entry.oldestDate) entry.oldestDate = bd;
     });
-    return map;
+    return [...map.values()].sort((a, b) => (a.oldestDate || 0) - (b.oldestDate || 0));
   }
 
-  const stageMap = stageToTrays();
-  if (!stageMap.size) return toast('No trays with live animals', true);
+  const allStages = orderedStageNames().filter(s =>
+    live('cohorts').some(c => cohortNet(c) > 0 && stageIndexAt(c, today).name === s)
+  );
+  if (!allStages.length) return toast('No trays with live animals', true);
 
-  // Order stages using the app's stage order
-  const orderedStages = orderedStageNames().filter(s => stageMap.has(s));
-
-  const stageOpts = orderedStages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  const stageOpts = allStages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
 
   openModal('Freeze from Tray', `
-    <label class="field"><span>Stage</span>
-      <select id="fz-stage">${stageOpts}</select></label>
-    <div id="fz-tray-wrap"></div>
-    <button class="btn primary block" style="margin-top:14px" data-save>Freeze</button>
+    <div class="fz-search-row">
+      <select id="fz-stage">${stageOpts}</select>
+      <input id="fz-count" type="number" min="1" placeholder="How many?" />
+    </div>
+    <div id="fz-results"></div>
   `, root => {
-    function refreshTrays() {
-      const stage = $('#fz-stage', root).value;
-      const trays = stageMap.get(stage);
-      if (!trays || !trays.size) {
-        $('#fz-tray-wrap', root).innerHTML = '<p class="small muted" style="margin:8px 0">No trays with this stage.</p>';
+    function refresh() {
+      const stage   = $('#fz-stage', root).value;
+      const needed  = parseInt($('#fz-count', root).value, 10);
+      const outEl   = $('#fz-results', root);
+      const matches = getMatches(stage);
+
+      if (!matches.length) {
+        outEl.innerHTML = `<p class="harvest-none">No ${esc(stage)} available in any tray.</p>`;
         return;
       }
-      const sorted = [...trays.values()].sort((a, b) =>
-        a.tray.name.localeCompare(b.tray.name, undefined, { numeric: true }));
-      const sp = speciesOf(sorted[0].tray);
-      const trayOpts = sorted.map(({ tray, count }) => {
-        const s = speciesOf(tray);
-        return `<option value="${tray.id}">${esc(tray.name)}${s ? ' · ' + esc(s.name) : ''} — ${count} alive</option>`;
-      }).join('');
-      $('#fz-tray-wrap', root).innerHTML = `
-        <label class="field"><span>Tray</span>
-          <select id="fz-tray">${trayOpts}</select></label>
-        <label class="field"><span>Count to freeze</span>
-          <input id="fz-count" type="number" min="1" placeholder="0" /></label>`;
-    }
-    $('#fz-stage', root).onchange = refreshTrays;
-    refreshTrays();
 
-    $('[data-save]', root).onclick = () => {
-      const stage  = $('#fz-stage', root).value;
-      const trayId = $('#fz-tray', root)?.value;
-      const n      = Number($('#fz-count', root)?.value);
-      if (!trayId) return toast('No tray selected', true);
-      if (!n || n < 1) return toast('Enter a count', true);
-      const matchCohort = live('cohorts')
-        .filter(c => c.trayId === trayId && cohortNet(c) > 0 && stageIndexAt(c, today).name === stage)
-        [0];
-      const r = rec('removals', { cohortId: matchCohort?.id || '', trayId, date: todayISO(),
-        stage, count: n, males: null, females: null, reason: 'Frozen' });
-      upsertLocal('removals', r); touch('removals', r);
-      toast(`Frozen ${n} ${stage} from tray`);
-      closeModal(); render();
-    };
+      const total = matches.reduce((s, m) => s + m.count, 0);
+      const countSet = !isNaN(needed) && needed >= 1;
+
+      const suggested = new Set();
+      if (countSet) {
+        let rem = needed;
+        for (const m of matches) {
+          if (rem <= 0) break;
+          suggested.add(m.tray.id);
+          rem -= m.count;
+        }
+      }
+
+      const btns = matches.map(m => {
+        const cls = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
+        const ageDays = m.oldestDate ? Math.floor((today - m.oldestDate) / 86400000) : null;
+        return `<button class="${cls}" data-tray-id="${m.tray.id}">
+          <span class="hb-name">${esc(m.tray.name)}</span>
+          ${ageDays != null ? `<span class="hb-age">${ageDays}d old</span>` : ''}
+          <span class="hb-count">${m.count}<span class="hb-total-sm"> alive</span></span>
+        </button>`;
+      }).join('');
+
+      let statusHtml = '';
+      if (countSet) {
+        const canFill = total >= needed;
+        const statusCls = canFill ? 'harvest-status ok' : 'harvest-status warn';
+        const statusMsg = canFill
+          ? `✓ Can freeze ${needed} from ${suggested.size} tray${suggested.size !== 1 ? 's' : ''} (${total} total available)`
+          : `⚠ Only ${total} of ${needed} available across all trays`;
+        statusHtml = `<div class="${statusCls}" style="margin-top:8px">${statusMsg}</div>`;
+      }
+
+      outEl.innerHTML = `<div class="harvest-btns">${btns}</div>${statusHtml}`;
+
+      outEl.querySelectorAll('[data-tray-id]').forEach(btn => {
+        btn.onclick = () => {
+          const n = parseInt($('#fz-count', root).value, 10);
+          if (!n || n < 1) return toast('Enter a count first', true);
+          const trayId = btn.dataset.trayId;
+          const match  = matches.find(m => m.tray.id === trayId);
+          if (!match) return;
+          if (n > match.count) return toast(`Only ${match.count} ${stage} alive in ${match.tray.name}`, true);
+          const matchCohort = live('cohorts')
+            .filter(c => c.trayId === trayId && cohortNet(c) > 0 && stageIndexAt(c, today).name === stage)[0];
+          const r = rec('removals', { cohortId: matchCohort?.id || '', trayId, date: todayISO(),
+            stage, count: n, males: null, females: null, reason: 'Frozen' });
+          upsertLocal('removals', r); touch('removals', r);
+          toast(`❄ Frozen ${n} ${stage} from ${match.tray.name}`);
+          closeModal(); render();
+        };
+      });
+    }
+
+    $('#fz-stage', root).onchange = refresh;
+    $('#fz-count', root).oninput  = refresh;
+    refresh();
   });
 }
 
