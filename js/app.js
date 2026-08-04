@@ -1367,10 +1367,14 @@ function renderTrays() {
         : '';
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
-          <span class="tray-name">${esc(tray.name)}</span>
-          <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
-          ${ratioDot}
-          <span class="tray-chevron">›</span>
+          <div class="tray-top-left">
+            <span class="tray-name">${esc(tray.name)}</span>
+            <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
+          </div>
+          <div class="tray-top-right">
+            ${ratioDot}
+            <span class="tray-chevron">›</span>
+          </div>
         </div>
         <div class="tray-body-row">
           <div class="tray-total">${total} <small>alive</small></div>

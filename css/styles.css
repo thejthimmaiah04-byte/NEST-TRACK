@@ -490,8 +490,10 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer; transition: all .15s;
 }
 .tray:hover { border-color: var(--accent); box-shadow: 0 3px 16px rgba(249,115,22,.20), var(--shadow-sm); transform: translateY(-1px); }
-.tray-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; }
-.tray-name { font-size: 13.5px; font-weight: 700; }
+.tray-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
+.tray-top-left { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tray-top-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.tray-name { font-size: 13.5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tray-species { font-size: 11.5px; color: var(--muted); font-weight: 500; }
 .tray-total { font-size: 30px; font-weight: 800; letter-spacing: -1px; margin: 8px 0 10px; }
 .tray-total small { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: 0; }
@@ -500,8 +502,7 @@ input:focus, select:focus, textarea:focus {
 .stagebar > span { display: block; height: 100%; border-radius: 999px; }
 
 /* Tray card chevron */
-.tray-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; }
-.tray-chevron { font-size: 16px; color: var(--muted); align-self: center; margin-left: 6px; transition: transform .15s; }
+.tray-chevron { font-size: 16px; color: var(--muted); transition: transform .15s; }
 .tray:hover .tray-chevron { color: var(--accent); transform: translateX(3px); }
 
 /* Floating action button */
@@ -860,16 +861,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 /* Ratio dot on tray cards */
 .ratio-dot {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
-  margin-left: auto;
-  margin-right: 6px;
 }
-.ratio-dot.ok    { background: #27ae60; box-shadow: 0 0 5px #27ae6099; }
-.ratio-dot.close { background: #f1c40f; box-shadow: 0 0 5px #f1c40f99; }
-.ratio-dot.off   { background: #e74c3c; box-shadow: 0 0 5px #e74c3c99; }
+.ratio-dot.ok    { background: #27ae60; box-shadow: 0 0 6px #27ae60cc; }
+.ratio-dot.close { background: #f1c40f; box-shadow: 0 0 6px #f1c40fcc; }
+.ratio-dot.off   { background: #e74c3c; box-shadow: 0 0 6px #e74c3ccc; }
 
 /* Ratio section inside tray detail */
 .ratio-section {
