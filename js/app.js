@@ -1103,9 +1103,9 @@ function openRemoveByStage(stageName, stageIdx) {
     <div class="field" style="margin-bottom:14px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
       <div class="reason-btns">
-        <button class="reason-btn active" data-reason="Feeding">🐍 Feeding</button>
-        <button class="reason-btn" data-reason="Dead">💀 Dead</button>
-        <button class="reason-btn" data-reason="Other">📋 Other</button>
+        <button class="reason-btn active" data-reason="Feeding">Feeding</button>
+        <button class="reason-btn" data-reason="Dead">Dead</button>
+        <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
     <div class="rs-list">${rows}</div>
@@ -1884,9 +1884,9 @@ function trayDetailModal(trayId) {
             <div class="field" style="margin-bottom:16px">
               <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
               <div class="reason-btns">
-                <button class="reason-btn active" data-reason="Feeding">🐍 Feeding</button>
-                <button class="reason-btn" data-reason="Dead">💀 Dead</button>
-                <button class="reason-btn" data-reason="Other">📋 Other</button>
+                <button class="reason-btn active" data-reason="Feeding">Feeding</button>
+                <button class="reason-btn" data-reason="Dead">Dead</button>
+                <button class="reason-btn" data-reason="Other">Other</button>
               </div>
             </div>
             <button class="btn primary block" data-save>Confirm removal</button>
@@ -1916,9 +1916,9 @@ function trayDetailModal(trayId) {
             <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — select a reason.</p>
             <div class="field" style="margin-bottom:16px">
               <div class="reason-btns">
-                <button class="reason-btn active" data-reason="Feeding">🐍 Feeding</button>
-                <button class="reason-btn" data-reason="Dead">💀 Dead</button>
-                <button class="reason-btn" data-reason="Other">📋 Other</button>
+                <button class="reason-btn active" data-reason="Feeding">Feeding</button>
+                <button class="reason-btn" data-reason="Dead">Dead</button>
+                <button class="reason-btn" data-reason="Other">Other</button>
               </div>
             </div>
             <button class="btn primary block" data-save>Confirm removal</button>
