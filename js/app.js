@@ -1318,30 +1318,63 @@ function useFrozenModal(stage) {
   });
 }
 
-/* ---------- Add to freezer modal (from Freezer tab) ---------- */
+/* ---------- Add to freezer modal (from Freezer tab — picks tray + stage) ---------- */
 function addToFreezerModal() {
-  const names = orderedStageNames();
-  if (!names.length) return toast('No stages defined — add a species first', true);
-  const stageOpts = names.map(nm => `<option value="${esc(nm)}">${esc(nm)}</option>`).join('');
-  openModal('Add to Freezer', `
-    <label class="field"><span>Stage</span>
-      <select id="fz-stage">${stageOpts}</select></label>
-    <label class="field"><span>Count</span>
-      <input id="fz-count" type="number" min="1" placeholder="0" /></label>
-    <p class="small muted" style="margin:-6px 0 12px">
-      This records animals as frozen without removing from a specific tray.<br>
-      To freeze from a tray, use Remove → Frozen inside the tray.</p>
-    <button class="btn primary block" data-save>Add to freezer</button>
+  const today = new Date();
+  const traysWithAnimals = live('trays').filter(t =>
+    live('cohorts').some(c => c.trayId === t.id && cohortNet(c) > 0)
+  ).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  if (!traysWithAnimals.length) return toast('No trays with live animals', true);
+
+  const trayOpts = traysWithAnimals.map(t => {
+    const sp = speciesOf(t);
+    return `<option value="${t.id}">${esc(t.name)}${sp ? ' · ' + esc(sp.name) : ''}</option>`;
+  }).join('');
+
+  openModal('Freeze from Tray', `
+    <label class="field"><span>Tray</span>
+      <select id="fz-tray">${trayOpts}</select></label>
+    <div id="fz-stage-wrap"></div>
+    <button class="btn primary block" style="margin-top:14px" data-save>Freeze</button>
   `, root => {
-    $('#fz-count', root).focus();
+    function refreshStages() {
+      const trayId = $('#fz-tray', root).value;
+      const cohorts = live('cohorts').filter(c => c.trayId === trayId && cohortNet(c) > 0);
+      const stageCounts = new Map();
+      for (const c of cohorts) {
+        const net = cohortNet(c);
+        const { name } = stageIndexAt(c, today);
+        stageCounts.set(name, (stageCounts.get(name) || 0) + net);
+      }
+      if (!stageCounts.size) {
+        $('#fz-stage-wrap', root).innerHTML = '<p class="small muted" style="margin:8px 0">No live animals in this tray.</p>';
+        return;
+      }
+      const stageOpts = [...stageCounts.entries()].map(([nm, cnt]) =>
+        `<option value="${esc(nm)}">${esc(nm)} — ${cnt} alive</option>`).join('');
+      $('#fz-stage-wrap', root).innerHTML = `
+        <label class="field"><span>Stage</span>
+          <select id="fz-stage">${stageOpts}</select></label>
+        <label class="field"><span>Count to freeze</span>
+          <input id="fz-count" type="number" min="1" placeholder="0" /></label>`;
+    }
+    $('#fz-tray', root).onchange = refreshStages;
+    refreshStages();
+
     $('[data-save]', root).onclick = () => {
-      const stage = $('#fz-stage', root).value;
-      const n = Number($('#fz-count', root).value);
+      const trayId = $('#fz-tray', root).value;
+      const stage  = $('#fz-stage', root)?.value;
+      const n      = Number($('#fz-count', root)?.value);
+      if (!stage) return toast('No stage selected', true);
       if (!n || n < 1) return toast('Enter a count', true);
-      // Create a synthetic removal record with reason Frozen (no cohort/tray)
-      const r = rec('removals', { cohortId: '', trayId: '', date: todayISO(), stage, count: n, males: null, females: null, reason: 'Frozen' });
+      const matchCohort = live('cohorts')
+        .filter(c => c.trayId === trayId && cohortNet(c) > 0 && stageIndexAt(c, today).name === stage)
+        [0];
+      const r = rec('removals', { cohortId: matchCohort?.id || '', trayId, date: todayISO(),
+        stage, count: n, males: null, females: null, reason: 'Frozen' });
       upsertLocal('removals', r); touch('removals', r);
-      toast(`Added ${n} frozen ${stage}`);
+      toast(`Frozen ${n} ${stage} from tray`);
       closeModal(); render();
     };
   });
@@ -1531,6 +1564,15 @@ function renderTrays() {
       const sexBadge = sex
         ? `<span class="sex-badge" title="Adult sex breakdown">♂${sex.males} ♀${sex.females}</span>`
         : '';
+      const birthBadge = (() => {
+        if (!tray.gravidSince || !sp?.gestation || !tray.gravidFemales) return '';
+        const d = new Date(tray.gravidSince);
+        d.setDate(d.getDate() + sp.gestation);
+        const dl = Math.round((d - new Date()) / 86400000);
+        if (dl > 14) return '';
+        if (dl > 0)  return `<span class="birth-tile-badge">🐣 in ${dl}d</span>`;
+        return `<span class="birth-tile-badge birth-tile-due">🐣 due!</span>`;
+      })();
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
           <div class="tray-top-left">
@@ -1538,6 +1580,7 @@ function renderTrays() {
             <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
           </div>
           <div class="tray-top-right">
+            ${birthBadge}
             ${ratioDot}
             <span class="tray-chevron">›</span>
           </div>
@@ -1586,6 +1629,20 @@ function getCalEvents() {
       color: 'var(--ok)'
     });
   }
+  for (const tray of live('trays')) {
+    if (!tray.gravidSince || !tray.gravidFemales) continue;
+    const sp = speciesOf(tray);
+    if (!sp?.gestation) continue;
+    const d = new Date(tray.gravidSince);
+    d.setDate(d.getDate() + sp.gestation);
+    add(toYMD(d), {
+      type: 'predicted-birth',
+      label: `${tray.gravidFemales} expected pinkies`,
+      sub:   `${tray.name} · ${sp.name} · gestation ${sp.gestation}d`,
+      color: '#a78bfa'
+    });
+  }
+
   for (const r of live('removals')) {
     const tray = byId('trays', r.trayId);
     const sexStr = (r.males != null || r.females != null)
@@ -1650,8 +1707,9 @@ function renderCalendar() {
     : `<p class="muted small" style="margin:0;padding:6px 0">No events on this day.</p>`;
 
   // Legend
-  const totalBirths   = Object.values(evMap).flat().filter(e=>e.type==='birth').length;
-  const totalRemovals = Object.values(evMap).flat().filter(e=>e.type==='removal').length;
+  const totalBirths    = Object.values(evMap).flat().filter(e=>e.type==='birth').length;
+  const totalRemovals  = Object.values(evMap).flat().filter(e=>e.type==='removal').length;
+  const totalPredicted = Object.values(evMap).flat().filter(e=>e.type==='predicted-birth').length;
 
   el.innerHTML = `
     <div class="cal-nav">
@@ -1671,8 +1729,9 @@ function renderCalendar() {
     </div>
 
     <div class="legend" style="margin-top:14px">
-      <span class="lg"><span class="sw" style="background:var(--ok)"></span>Birth (${totalBirths} total)</span>
-      <span class="lg"><span class="sw" style="background:var(--danger)"></span>Removed (${totalRemovals} total)</span>
+      <span class="lg"><span class="sw" style="background:var(--ok)"></span>Birth (${totalBirths})</span>
+      <span class="lg"><span class="sw" style="background:var(--danger)"></span>Removed (${totalRemovals})</span>
+      ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>Expected birth (${totalPredicted})</span>` : ''}
     </div>`;
 }
 
@@ -1981,6 +2040,17 @@ function trayDetailModal(trayId) {
 
   const sex = trayAdultSex(trayId, sp);
   const maxFemales = sex ? sex.females : adultCount;
+  const gravidSince = tray.gravidSince || '';
+  const expectedBirthStr = (() => {
+    if (!gravidSince || !sp?.gestation) return '';
+    const d = new Date(gravidSince);
+    d.setDate(d.getDate() + sp.gestation);
+    const daysLeft = Math.round((d - new Date()) / 86400000);
+    const label = d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    if (daysLeft > 0)   return `<div class="birth-prediction">🐣 Expected pinkies: <b>${label}</b> (in ${daysLeft}d)</div>`;
+    if (daysLeft >= -3) return `<div class="birth-prediction birth-due">🐣 Birth due now! (${label})</div>`;
+    return `<div class="birth-prediction birth-overdue">🐣 Birth overdue by ${Math.abs(daysLeft)}d — check tray</div>`;
+  })();
   const gravidSection = adultCount > 0 ? `
     <div class="gravid-section">
       <div class="gravid-title">Reproductive status <span class="gravid-sub">(${adultCount} adults · ${sex ? `♂${sex.males} ♀${sex.females}` : 'sex not tracked'})</span></div>
@@ -1995,7 +2065,13 @@ function trayDetailModal(trayId) {
         </label>
         <button class="btn sm" id="save-status">Save</button>
       </div>
-      ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest (${gravid} gravid, ${lactating} lactating)</div>` : ''}
+      ${gravid > 0 ? `<label class="gravid-field" style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+        <span>Mated / gravid since</span>
+        <input type="date" id="f-gravid-since" value="${gravidSince}" style="max-width:160px" />
+      </label>` : ''}
+      ${sp?.gestation && gravid > 0 && !gravidSince ? `<div class="gravid-gestation">Gestation: ${sp.gestation}d — set date above to predict birth</div>` : ''}
+      ${expectedBirthStr}
+      ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest</div>` : ''}
     </div>` : '';
 
   const ratioSection = sp?.ratio && sex !== null ? (() => {
@@ -2127,6 +2203,8 @@ function trayDetailModal(trayId) {
         if (g + l > femalesMax) return toast(`Gravid + Lactating (${g+l}) exceeds females (${femalesMax})`, true);
         tray.gravidFemales    = g;
         tray.lactatingFemales = l;
+        const sinceVal = $('#f-gravid-since', root)?.value || '';
+        tray.gravidSince = g > 0 ? sinceVal : '';
         touch('trays', tray);
         toast('Status saved');
         closeModal(); trayDetailModal(trayId); render();

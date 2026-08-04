@@ -843,6 +843,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .stage-frozen-badge { font-size: 11px; font-weight: 600; color: #60a5fa;
   margin-top: 4px; letter-spacing: 0.2px; }
 
+/* Birth prediction — tray detail */
+.birth-prediction { margin-top: 8px; font-size: 13px; color: #a78bfa; font-weight: 600; }
+.birth-prediction.birth-due { color: #f59e0b; }
+.birth-prediction.birth-overdue { color: #ef4444; }
+.gravid-gestation { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+/* Birth prediction — tray tile badge */
+.birth-tile-badge { font-size: 11px; font-weight: 700; color: #a78bfa;
+  background: rgba(167,139,250,.12); border-radius: 6px; padding: 2px 6px;
+  white-space: nowrap; }
+.birth-tile-badge.birth-tile-due { color: #f59e0b; background: rgba(245,158,11,.12); }
+
 /* Freezer tab */
 .freezer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 480px) { .freezer-grid { grid-template-columns: 1fr 1fr; } }
