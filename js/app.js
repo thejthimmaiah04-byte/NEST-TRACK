@@ -1349,13 +1349,13 @@ function renderTrays() {
         <div class="tray-top">
           <span class="tray-name">${esc(tray.name)}</span>
           <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
-          <div class="tray-indicator-col">
-            ${ratioDot}
-            ${reproRow}
-          </div>
+          ${ratioDot}
           <span class="tray-chevron">›</span>
         </div>
-        <div class="tray-total">${total} <small>alive</small></div>
+        <div class="tray-body-row">
+          <div class="tray-total">${total} <small>alive</small></div>
+          ${reproRow}
+        </div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
       </div>`;
     }
