@@ -323,15 +323,13 @@ function updateTrayStageStats() {
       if (st.name && !seenSt[st.name]) { seenSt[st.name] = true; allStages.push(st.name); }
     });
   });
-  if (!allStages.length) return;
-
   // Sum removals per cohort (count, males, females)
   var remByCohort = {}, remMaleByCohort = {}, remFemByCohort = {};
   readAll('removals').rows.forEach(function(r) {
     if (r.deleted) return;
-    remByCohort[r.cohortId]    = (remByCohort[r.cohortId]    || 0) + (Number(r.count)   || 0);
-    remMaleByCohort[r.cohortId] = (remMaleByCohort[r.cohortId] || 0) + (Number(r.males)  || 0);
-    remFemByCohort[r.cohortId]  = (remFemByCohort[r.cohortId]  || 0) + (Number(r.females)|| 0);
+    remByCohort[r.cohortId]     = (remByCohort[r.cohortId]     || 0) + (Number(r.count)   || 0);
+    remMaleByCohort[r.cohortId] = (remMaleByCohort[r.cohortId] || 0) + (Number(r.males)   || 0);
+    remFemByCohort[r.cohortId]  = (remFemByCohort[r.cohortId]  || 0) + (Number(r.females) || 0);
   });
 
   // Compute live stage counts and adult sex counts per tray
@@ -351,7 +349,6 @@ function updateTrayStageStats() {
     if (!trayStats[c.trayId]) trayStats[c.trayId] = {};
     trayStats[c.trayId][stageName] = (trayStats[c.trayId][stageName] || 0) + net;
 
-    // Adult sex tracking (only last stage, only if sex was entered)
     var lastStageName = stages[stages.length - 1].name;
     if (stageName === lastStageName && (c.males !== '' && c.males != null || c.females !== '' && c.females != null)) {
       var m = Math.max(0, (Number(c.males) || 0) - (remMaleByCohort[c.id] || 0));
@@ -361,59 +358,60 @@ function updateTrayStageStats() {
     }
   });
 
-  // Stage cols start at fixedCols + 1  (schema=9, EXTRA=['SPECIES']=1 → fixed=10, stages at 11+)
-  var fixedCols   = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 10
-  var lastCol     = sh.getLastColumn();
-  var headerVals  = lastCol > fixedCols
-    ? sh.getRange(1, fixedCols + 1, 1, lastCol - fixedCols).getValues()[0]
-    : [];
-
-  var stageColMap = {};
-  headerVals.forEach(function(h, i) {
-    if (h) stageColMap[String(h)] = fixedCols + 1 + i;
-  });
-
-  allStages.forEach(function(stageName) {
-    if (!stageColMap[stageName]) {
-      var newCol = sh.getLastColumn() + 1;
-      var cell   = sh.getRange(1, newCol);
-      cell.setValue(stageName);
-      cell.setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
-      stageColMap[stageName] = newCol;
+  // ── Always create ♂ ADULTS / ♀ ADULTS columns ──
+  var fixedCols = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 10
+  function findOrCreateCol(label) {
+    var lc = sh.getLastColumn();
+    if (lc > 0) {
+      var hdrs = sh.getRange(1, 1, 1, lc).getValues()[0];
+      for (var hi = 0; hi < hdrs.length; hi++) {
+        if (String(hdrs[hi]) === label) return hi + 1;
+      }
     }
-  });
+    var nc = sh.getLastColumn() + 1;
+    sh.getRange(1, nc).setValue(label)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    return nc;
+  }
+  var mAdultsCol = findOrCreateCol('♂ ADULTS');
+  var fAdultsCol = findOrCreateCol('♀ ADULTS');
 
-  // ♂ ADULTS and ♀ ADULTS cols — find by header or create after stage cols
-  var lastColNow = sh.getLastColumn();
-  var mAdultsCol = 0, fAdultsCol = 0;
-  if (lastColNow > 0) {
-    var allHdrs = sh.getRange(1, 1, 1, lastColNow).getValues()[0];
-    allHdrs.forEach(function(h, i) {
-      if (String(h) === '♂ ADULTS') mAdultsCol = i + 1;
-      if (String(h) === '♀ ADULTS') fAdultsCol = i + 1;
+  // ── Stage columns (only if species have stages defined) ──
+  var stageColMap = {};
+  if (allStages.length) {
+    var lastCol    = sh.getLastColumn();
+    var headerVals = lastCol > fixedCols
+      ? sh.getRange(1, fixedCols + 1, 1, lastCol - fixedCols).getValues()[0]
+      : [];
+    headerVals.forEach(function(h, i) {
+      if (h) stageColMap[String(h)] = fixedCols + 1 + i;
+    });
+    allStages.forEach(function(sn) {
+      if (!stageColMap[sn]) {
+        var newCol = sh.getLastColumn() + 1;
+        sh.getRange(1, newCol).setValue(sn)
+          .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+        stageColMap[sn] = newCol;
+      }
     });
   }
-  if (!mAdultsCol) {
-    mAdultsCol = sh.getLastColumn() + 1;
-    sh.getRange(1, mAdultsCol).setValue('♂ ADULTS')
-      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
-  }
-  if (!fAdultsCol) {
-    fAdultsCol = sh.getLastColumn() + 1;
-    sh.getRange(1, fAdultsCol).setValue('♀ ADULTS')
-      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
-  }
 
+  // ── Write all data rows ──
   var traysData = readAll('trays');
   traysData.rows.forEach(function(tray, i) {
     var rowNum = i + 2;
-    var counts = tray.deleted ? {} : (trayStats[tray.id] || {});
-    allStages.forEach(function(stageName) {
-      var col = stageColMap[stageName];
-      if (col) sh.getRange(rowNum, col).setValue(counts[stageName] || 0);
+    if (tray.deleted) {
+      sh.getRange(rowNum, mAdultsCol).setValue('');
+      sh.getRange(rowNum, fAdultsCol).setValue('');
+      return;
+    }
+    sh.getRange(rowNum, mAdultsCol).setValue(trayAdultM[tray.id] != null ? trayAdultM[tray.id] : 0);
+    sh.getRange(rowNum, fAdultsCol).setValue(trayAdultF[tray.id] != null ? trayAdultF[tray.id] : 0);
+    var counts = trayStats[tray.id] || {};
+    allStages.forEach(function(sn) {
+      var col = stageColMap[sn];
+      if (col) sh.getRange(rowNum, col).setValue(counts[sn] || 0);
     });
-    sh.getRange(rowNum, mAdultsCol).setValue(tray.deleted ? '' : (trayAdultM[tray.id] != null ? trayAdultM[tray.id] : ''));
-    sh.getRange(rowNum, fAdultsCol).setValue(tray.deleted ? '' : (trayAdultF[tray.id] != null ? trayAdultF[tray.id] : ''));
   });
 }
 
