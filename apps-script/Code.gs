@@ -246,11 +246,12 @@ function upsertRecords(entity, incoming, serverNow) {
 
 function pullChanges(since) {
   var out = {};
+  var fullPull = (since === 0);
   ENTITIES.forEach(function(entity) {
     var data    = readAll(entity);
     var changed = [];
     data.rows.forEach(function(row) {
-      if (Number(row.syncedAt) > since) changed.push(hydrate(entity, row));
+      if (fullPull || Number(row.syncedAt) > since) changed.push(hydrate(entity, row));
     });
     if (changed.length) out[entity] = changed;
   });

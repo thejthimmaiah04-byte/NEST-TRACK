@@ -2269,11 +2269,14 @@ async function syncNow(manual = false) {
   const ctrl = new AbortController();
   const timeoutId = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
 
+  // Manual sync: full pull (since=0) so direct Sheet edits are always picked up
+  const pullSince = manual ? 0 : (state.meta.lastSync || 0);
+
   try {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: state.meta.lastSync || 0, changes }),
+      body: JSON.stringify({ since: pullSince, changes }),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -2281,11 +2284,11 @@ async function syncNow(manual = false) {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    // Merge remote changes (last-write-wins)
+    // Merge remote changes — full pull always wins (sheet is truth on manual sync)
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
         const local = byId(e, remote.id);
-        if (!local || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, remote);
+        if (!local || manual || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, remote);
       }
     }
     // Clear pending for all records we successfully sent
