@@ -803,6 +803,38 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   color: var(--muted);
 }
 
+/* Indicator column (ratio dot + repro badges) */
+.tray-indicator-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 6px;
+}
+.tray-indicator-col .ratio-dot {
+  margin: 0;
+}
+
+/* Gravid / lactating badge row */
+.tray-repro-row {
+  display: flex;
+  gap: 4px;
+}
+.repro-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.repro-badge.gravid    { background: #f48fb1; color: #1a0010; }
+.repro-badge.lactating { background: #f0f0f0; color: #111; }
+
 /* Ratio dot on tray cards */
 .ratio-dot {
   display: inline-block;
@@ -810,8 +842,6 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
-  margin-left: auto;
-  margin-right: 6px;
 }
 .ratio-dot.ok    { background: #27ae60; box-shadow: 0 0 5px #27ae6099; }
 .ratio-dot.close { background: #f1c40f; box-shadow: 0 0 5px #f1c40f99; }

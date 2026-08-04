@@ -1338,11 +1338,21 @@ function renderTrays() {
         if (st === 'close') return `<span class="ratio-dot close" title="Sex ratio close ♂${sex.males}:♀${sex.females}"></span>`;
         return `<span class="ratio-dot off" title="Sex ratio off ♂${sex.males}:♀${sex.females}"></span>`;
       })();
+      const gravid    = tray.gravidFemales    || 0;
+      const lactating = tray.lactatingFemales || 0;
+      const reproRow  = (gravid || lactating) ? `
+        <div class="tray-repro-row">
+          ${gravid    ? `<span class="repro-badge gravid"    title="Gravid females">${gravid}</span>`    : ''}
+          ${lactating ? `<span class="repro-badge lactating" title="Lactating females">${lactating}</span>` : ''}
+        </div>` : '';
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
           <span class="tray-name">${esc(tray.name)}</span>
           <span class="tray-species">${sp ? esc(sp.name) : '—'}</span>
-          ${ratioDot}
+          <div class="tray-indicator-col">
+            ${ratioDot}
+            ${reproRow}
+          </div>
           <span class="tray-chevron">›</span>
         </div>
         <div class="tray-total">${total} <small>alive</small></div>
