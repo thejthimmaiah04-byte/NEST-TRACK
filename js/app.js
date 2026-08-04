@@ -47,24 +47,13 @@ function fmtTimestamp(ms) {
   return ymd + ': ' + hm;
 }
 
-// Returns { males, females } net adult counts for a tray, or null if no sex data tracked
-function trayAdultSex(trayId, sp) {
-  if (!sp?.ratio) return null;
-  const lastStage = sp.stages?.length
-    ? [...sp.stages].sort((a,b) => (b.startDay||0)-(a.startDay||0))[0]?.name : null;
-  if (!lastStage) return null;
-  const today = new Date();
-  let males = 0, females = 0, tracked = false;
-  for (const c of live('cohorts')) {
-    if (c.trayId !== trayId || cohortNet(c, today) <= 0) continue;
-    if (stageIndexAt(c, today).name !== lastStage) continue;
-    const rems = live('removals').filter(r => r.cohortId === c.id);
-    const remM = rems.reduce((s,r) => s + (Number(r.males)||0), 0);
-    const remF = rems.reduce((s,r) => s + (Number(r.females)||0), 0);
-    if (c.males != null) { males   += Math.max(0, (Number(c.males)||0)   - remM); tracked = true; }
-    if (c.females != null) { females += Math.max(0, (Number(c.females)||0) - remF); tracked = true; }
-  }
-  return tracked ? { males, females } : null;
+// Returns { males, females } from tray's directly-stored adult sex counts, or null if not set
+function trayAdultSex(trayId) {
+  const tray = byId('trays', trayId);
+  if (!tray) return null;
+  const m = tray.adultMales, f = tray.adultFemales;
+  if (m == null && f == null) return null;
+  return { males: Number(m) || 0, females: Number(f) || 0 };
 }
 
 // null = no data, true = on target (±15%), false = off ratio
@@ -1331,7 +1320,7 @@ function renderTrays() {
         const v = stageCounts.get(nm) || 0;
         if (v > 0) barSegs += `<span style="flex:${v};background:${stageColor(i)}"></span>`;
       });
-      const sex = trayAdultSex(tray.id, sp);
+      const sex = trayAdultSex(tray.id);
       const ratioDot = (() => {
         if (!sp || !sp.ratio) return '';
         const st = sex ? ratioStatus(sex.males, sex.females, sp.ratio) : null;
@@ -1756,8 +1745,10 @@ function trayDetailModal(trayId) {
       if (cohortNet(c) > 0 && stageIndexAt(c, today).name === lastStageName) adultCount += cohortNet(c);
     }
   }
-  const gravid    = tray.gravidFemales   || 0;
-  const lactating = tray.lactatingFemales || 0;
+  const gravid      = tray.gravidFemales    || 0;
+  const lactating   = tray.lactatingFemales || 0;
+  const adultMales   = tray.adultMales   != null ? tray.adultMales   : '';
+  const adultFemales = tray.adultFemales != null ? tray.adultFemales : '';
 
   const rows = cohorts.map(c => {
     const net = cohortNet(c);
@@ -1782,14 +1773,24 @@ function trayDetailModal(trayId) {
 
   const gravidSection = adultCount > 0 ? `
     <div class="gravid-section">
-      <div class="gravid-title">♀ Female adult status <span class="gravid-sub">(${adultCount} adults in tray)</span></div>
+      <div class="gravid-title">Adult counts <span class="gravid-sub">(${adultCount} adults in tray)</span></div>
       <div class="gravid-row">
         <label class="gravid-field">
-          <span>Gravid</span>
+          <span>♂ Males</span>
+          <input type="number" id="f-adult-m" min="0" value="${adultMales}" placeholder="—" />
+        </label>
+        <label class="gravid-field">
+          <span>♀ Females</span>
+          <input type="number" id="f-adult-f" min="0" value="${adultFemales}" placeholder="—" />
+        </label>
+      </div>
+      <div class="gravid-row" style="margin-top:8px">
+        <label class="gravid-field">
+          <span>Gravid ♀</span>
           <input type="number" id="f-gravid" min="0" max="${adultCount}" value="${gravid}" placeholder="0" />
         </label>
         <label class="gravid-field">
-          <span>Lactating</span>
+          <span>Lactating ♀</span>
           <input type="number" id="f-lact" min="0" max="${adultCount}" value="${lactating}" placeholder="0" />
         </label>
         <button class="btn sm" id="save-status">Save</button>
@@ -1797,7 +1798,7 @@ function trayDetailModal(trayId) {
       ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest (${gravid} gravid, ${lactating} lactating)</div>` : ''}
     </div>` : '';
 
-  const sex = trayAdultSex(trayId, sp);
+  const sex = trayAdultSex(trayId);
   const ratioSection = sp?.ratio && sex !== null ? (() => {
     const st = ratioStatus(sex.males, sex.females, sp.ratio);
     const total = sex.males + sex.females;
@@ -1887,11 +1888,15 @@ function trayDetailModal(trayId) {
     const saveStatusBtn = $('#save-status', root);
     if (saveStatusBtn) {
       saveStatusBtn.onclick = () => {
+        const mVal = $('#f-adult-m', root).value.trim();
+        const fVal = $('#f-adult-f', root).value.trim();
+        tray.adultMales    = mVal === '' ? null : Number(mVal);
+        tray.adultFemales  = fVal === '' ? null : Number(fVal);
         tray.gravidFemales   = Number($('#f-gravid', root).value) || 0;
         tray.lactatingFemales = Number($('#f-lact',   root).value) || 0;
         touch('trays', tray);
         toast('Status saved');
-        closeModal(); trayDetailModal(trayId);
+        closeModal(); trayDetailModal(trayId); render();
       };
     }
   });
