@@ -28,7 +28,7 @@ var SCHEMAS = {
   trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:     ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
   removals:    ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'updatedAt', 'deleted', 'syncedAt'],
-  frozen_uses: ['id', 'speciesId', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']
+  frozen_uses: ['id', 'speciesId', 'stage', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals', 'frozen_uses'];
 var JSON_FIELDS = { stages: true };
@@ -73,14 +73,14 @@ var EXTRA = {
 // Trays        : id(1) shelfId(2) name(3) speciesId(4) gravid(5) lact(6) updated(7) deleted(8) synced(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stages(13+)
 // Birth        : id(1) trayId(2) speciesId(3) date(4) count(5) notes(6) ♂(7) ♀(8) updated(9) deleted(10) synced(11) | TRAY(12) SPECIES(13)
 // Removal      : id(1) cohortId(2) trayId(3) date(4) stage(5) count(6) ♂(7) ♀(8) reason(9) updated(10) deleted(11) synced(12) | TRAY(13)
-// Frozen       : id(1) speciesId(2) date(3) count(4) updated(5) deleted(6) synced(7) | SPECIES(8)
+// Frozen       : id(1) speciesId(2) stage(3) date(4) count(5) updated(6) deleted(7) synced(8) | SPECIES(9)
 var HIDE = {
   species:     [1, 3, 6, 7, 8],             // show: NAME | LIFESPAN | GESTATION | STAGES | SEX RATIO | PINKY | FUZZY | HOPPER | ADULT
   shelves:     [1, 3, 4, 5, 6],             // show: NAME | TRAYS
   trays:       [1, 2, 4, 7, 8, 9],          // show: TRAY ID | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
   cohorts:     [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES
   removals:    [1, 2, 3, 10, 11, 12],       // show: DATE | STAGE | REMOVED | ♂ | ♀ | REASON | TRAY
-  frozen_uses: [1, 2, 5, 6, 7]             // show: DATE | COUNT | SPECIES
+  frozen_uses: [1, 2, 6, 7, 8]             // show: STAGE | DATE | COUNT | SPECIES
 };
 
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
