@@ -104,7 +104,6 @@ function loadState() {
       state.pending = state.pending || {};
     }
   } catch(e) { console.warn('load failed', e); }
-  if (state.species.length === 0 && state.shelves.length === 0) seedExample();
 }
 
 function saveState() {
@@ -1993,6 +1992,8 @@ function intakeModal(trayId) {
         const fVal = $(`#isex-${ri} .sex-female`, root)?.value;
         const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
         const females = fVal !== '' && fVal != null ? Number(fVal) : null;
+        if (males !== null && females !== null && males + females > n)
+          return toast(`♂ + ♀ (${males + females}) exceeds count (${n})`, true);
         if (inp.dataset.adult === '1' && females !== null) {
           const gravidVal = $(`#igrv-${ri} .grv-gravid`, root)?.value;
           const lactVal   = $(`#igrv-${ri} .grv-lact`, root)?.value;
