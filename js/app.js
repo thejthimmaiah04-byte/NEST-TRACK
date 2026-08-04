@@ -1362,6 +1362,9 @@ function renderTrays() {
           ${gravid    ? `<span class="repro-badge gravid"    title="Gravid females">${gravid}</span>`    : ''}
           ${lactating ? `<span class="repro-badge lactating" title="Lactating females">${lactating}</span>` : ''}
         </div>` : '';
+      const sexBadge = sex
+        ? `<span class="sex-badge" title="Adult sex breakdown">♂${sex.males} ♀${sex.females}</span>`
+        : '';
       html += `<div class="tray" data-act="open-tray" data-id="${tray.id}">
         <div class="tray-top">
           <span class="tray-name">${esc(tray.name)}</span>
@@ -1371,6 +1374,7 @@ function renderTrays() {
         </div>
         <div class="tray-body-row">
           <div class="tray-total">${total} <small>alive</small></div>
+          ${sexBadge}
           ${reproRow}
         </div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
