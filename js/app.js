@@ -1321,52 +1321,64 @@ function useFrozenModal(stage) {
 /* ---------- Add to freezer modal (from Freezer tab — picks tray + stage) ---------- */
 function addToFreezerModal() {
   const today = new Date();
-  const traysWithAnimals = live('trays').filter(t =>
-    live('cohorts').some(c => c.trayId === t.id && cohortNet(c) > 0)
-  ).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
-  if (!traysWithAnimals.length) return toast('No trays with live animals', true);
+  // Build stage → [{ tray, count }] map across all live cohorts
+  function stageToTrays() {
+    const map = new Map();
+    live('cohorts').filter(c => cohortNet(c) > 0).forEach(c => {
+      const tray = live('trays').find(t => t.id === c.trayId);
+      if (!tray) return;
+      const { name: stage } = stageIndexAt(c, today);
+      const net = cohortNet(c);
+      if (!map.has(stage)) map.set(stage, new Map());
+      const tm = map.get(stage);
+      tm.set(tray.id, { tray, count: (tm.get(tray.id)?.count || 0) + net });
+    });
+    return map;
+  }
 
-  const trayOpts = traysWithAnimals.map(t => {
-    const sp = speciesOf(t);
-    return `<option value="${t.id}">${esc(t.name)}${sp ? ' · ' + esc(sp.name) : ''}</option>`;
-  }).join('');
+  const stageMap = stageToTrays();
+  if (!stageMap.size) return toast('No trays with live animals', true);
+
+  // Order stages using the app's stage order
+  const orderedStages = orderedStageNames().filter(s => stageMap.has(s));
+
+  const stageOpts = orderedStages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
 
   openModal('Freeze from Tray', `
-    <label class="field"><span>Tray</span>
-      <select id="fz-tray">${trayOpts}</select></label>
-    <div id="fz-stage-wrap"></div>
+    <label class="field"><span>Stage</span>
+      <select id="fz-stage">${stageOpts}</select></label>
+    <div id="fz-tray-wrap"></div>
     <button class="btn primary block" style="margin-top:14px" data-save>Freeze</button>
   `, root => {
-    function refreshStages() {
-      const trayId = $('#fz-tray', root).value;
-      const cohorts = live('cohorts').filter(c => c.trayId === trayId && cohortNet(c) > 0);
-      const stageCounts = new Map();
-      for (const c of cohorts) {
-        const net = cohortNet(c);
-        const { name } = stageIndexAt(c, today);
-        stageCounts.set(name, (stageCounts.get(name) || 0) + net);
-      }
-      if (!stageCounts.size) {
-        $('#fz-stage-wrap', root).innerHTML = '<p class="small muted" style="margin:8px 0">No live animals in this tray.</p>';
+    function refreshTrays() {
+      const stage = $('#fz-stage', root).value;
+      const trays = stageMap.get(stage);
+      if (!trays || !trays.size) {
+        $('#fz-tray-wrap', root).innerHTML = '<p class="small muted" style="margin:8px 0">No trays with this stage.</p>';
         return;
       }
-      const stageOpts = [...stageCounts.entries()].map(([nm, cnt]) =>
-        `<option value="${esc(nm)}">${esc(nm)} — ${cnt} alive</option>`).join('');
-      $('#fz-stage-wrap', root).innerHTML = `
-        <label class="field"><span>Stage</span>
-          <select id="fz-stage">${stageOpts}</select></label>
+      const sorted = [...trays.values()].sort((a, b) =>
+        a.tray.name.localeCompare(b.tray.name, undefined, { numeric: true }));
+      const sp = speciesOf(sorted[0].tray);
+      const trayOpts = sorted.map(({ tray, count }) => {
+        const s = speciesOf(tray);
+        return `<option value="${tray.id}">${esc(tray.name)}${s ? ' · ' + esc(s.name) : ''} — ${count} alive</option>`;
+      }).join('');
+      $('#fz-tray-wrap', root).innerHTML = `
+        <label class="field"><span>Tray</span>
+          <select id="fz-tray">${trayOpts}</select></label>
         <label class="field"><span>Count to freeze</span>
           <input id="fz-count" type="number" min="1" placeholder="0" /></label>`;
     }
-    $('#fz-tray', root).onchange = refreshStages;
-    refreshStages();
+    $('#fz-stage', root).onchange = refreshTrays;
+    refreshTrays();
 
     $('[data-save]', root).onclick = () => {
-      const trayId = $('#fz-tray', root).value;
-      const stage  = $('#fz-stage', root)?.value;
+      const stage  = $('#fz-stage', root).value;
+      const trayId = $('#fz-tray', root)?.value;
       const n      = Number($('#fz-count', root)?.value);
-      if (!stage) return toast('No stage selected', true);
+      if (!trayId) return toast('No tray selected', true);
       if (!n || n < 1) return toast('Enter a count', true);
       const matchCohort = live('cohorts')
         .filter(c => c.trayId === trayId && cohortNet(c) > 0 && stageIndexAt(c, today).name === stage)
