@@ -1017,6 +1017,11 @@ function openRemoveByStage(stageName, stageIdx) {
     if (cohortNet(c, today) <= 0) return false;
     return stageIndexAt(c, today).name === stageName;
   });
+  // Check if this is the last (adult) stage for any live species
+  const isAdultStage = live('species').some(sp => {
+    if (!sp.stages?.length) return false;
+    return [...sp.stages].sort((a,b) => (b.startDay||0)-(a.startDay||0))[0]?.name === stageName;
+  });
 
   if (!matches.length) return toast(`No active ${stageName} to remove`, true);
 
@@ -1043,7 +1048,7 @@ function openRemoveByStage(stageName, stageIdx) {
         <input type="number" class="rs-input" min="0" max="${net}" placeholder="0"
           data-cohort-id="${cohort.id}" data-tray-id="${cohort.trayId}" data-max="${net}" data-row="${ri}" />
       </div>
-      <div class="sex-sub" id="rssex-${ri}" style="display:none">
+      <div class="sex-sub" id="rssex-${ri}" style="${isAdultStage ? '' : 'display:none'}">
         <label class="sex-label">♂ <input type="number" class="rs-male" min="0" placeholder="—" /></label>
         <label class="sex-label">♀ <input type="number" class="rs-female" min="0" placeholder="—" /></label>
       </div>`;
@@ -1066,7 +1071,7 @@ function openRemoveByStage(stageName, stageIdx) {
     $$('.rs-input', root).forEach(inp => {
       inp.addEventListener('input', () => {
         const sub = $(`#rssex-${inp.dataset.row}`, root);
-        if (sub) sub.style.display = Number(inp.value) > 0 ? 'flex' : 'none';
+        if (sub && !isAdultStage) sub.style.display = Number(inp.value) > 0 ? 'flex' : 'none';
       });
     });
 
@@ -1769,10 +1774,39 @@ function trayDetailModal(trayId) {
         if (!n || n <= 0) return toast('Enter a count', true);
         if (n > net) return toast(`Only ${net} available`, true);
         const { name } = stageIndexAt(c);
-        const r = rec('removals',{ cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n });
-        upsertLocal('removals',r); touch('removals',r);
-        toast(`Removed ${n} ${name}`);
-        closeModal(); trayDetailModal(trayId); render();
+        const isAdult = lastStageName && name === lastStageName;
+        if (isAdult) {
+          closeModal();
+          setTimeout(() => openModal(`Sex of removed ${name}`, `
+            <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — how many of each sex?</p>
+            <div style="display:flex;gap:12px;margin-bottom:16px">
+              <label class="gravid-field" style="flex:1"><span>♂ Males</span>
+                <input id="rmv-m" type="number" min="0" max="${n}" placeholder="0" /></label>
+              <label class="gravid-field" style="flex:1"><span>♀ Females</span>
+                <input id="rmv-f" type="number" min="0" max="${n}" placeholder="0" /></label>
+            </div>
+            <button class="btn primary block" data-save>Confirm removal</button>
+          `, root2 => {
+            $('#rmv-m', root2).focus();
+            $('[data-save]', root2).onclick = () => {
+              const mRaw = $('#rmv-m', root2).value;
+              const fRaw = $('#rmv-f', root2).value;
+              const males   = mRaw !== '' ? Number(mRaw) : null;
+              const females = fRaw !== '' ? Number(fRaw) : null;
+              if (males !== null && females !== null && males + females > n)
+                return toast(`♂ + ♀ (${males+females}) exceeds count (${n})`, true);
+              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females });
+              upsertLocal('removals', r); touch('removals', r);
+              toast(`Removed ${n} ${name}`);
+              closeModal(); trayDetailModal(trayId); render();
+            };
+          }), 10);
+        } else {
+          const r = rec('removals',{ cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n });
+          upsertLocal('removals',r); touch('removals',r);
+          toast(`Removed ${n} ${name}`);
+          closeModal(); trayDetailModal(trayId); render();
+        }
       };
     });
 
