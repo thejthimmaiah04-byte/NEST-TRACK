@@ -2289,9 +2289,18 @@ async function syncNow(manual = false) {
   syncing = true; renderSync();
 
   const changes = {};
-  for (const e of ENTITIES) {
-    const ids = Object.keys(state.pending[e] || {});
-    if (ids.length) changes[e] = ids.map(id => byId(e,id)).filter(Boolean);
+  if (manual) {
+    // Full push on manual sync — every entity is sent so all Sheet tabs stay current.
+    // Birth sheet only grows when new births are added (upsertRecords is ID-based, no duplicates).
+    for (const e of ENTITIES) {
+      const recs = live(e);
+      if (recs.length) changes[e] = recs;
+    }
+  } else {
+    for (const e of ENTITIES) {
+      const ids = Object.keys(state.pending[e] || {});
+      if (ids.length) changes[e] = ids.map(id => byId(e, id)).filter(Boolean);
+    }
   }
 
   const ctrl = new AbortController();
