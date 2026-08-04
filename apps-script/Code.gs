@@ -27,7 +27,7 @@ var SCHEMAS = {
   shelves:  ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
   trays:    ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:  ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
-  removals: ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt']
+  removals: ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals'];
 var JSON_FIELDS = { stages: true };
@@ -43,7 +43,7 @@ var COL_LABELS = {
   sortOrder: '_ORDER', updatedAt: '_UPDATED', deleted: '_DELETED', syncedAt: '_SYNCED',
   shelfId: '_SHELF ID', speciesId: '_SPECIES ID', trayId: '_TRAY ID', cohortId: '_COHORT ID',
   birthDate: 'DATE', initialCount: 'COUNT', notes: 'NOTES',
-  males: '♂', females: '♀', date: 'DATE', stage: 'STAGE', count: 'REMOVED',
+  males: '♂', females: '♀', reason: 'REASON', date: 'DATE', stage: 'STAGE', count: 'REMOVED',
   gravidFemales: 'GRAVID ♀', lactatingFemales: 'LACTATING ♀',
   adultMales: '♂ ADULTS', adultFemales: '♀ ADULTS'
 };
@@ -68,13 +68,13 @@ var EXTRA = {
 // Shelves  cols: _ID(1) NAME(2) _ORD(3) _UPD(4) _DEL(5) _SYN(6)               | TRAYS(7)
 // Trays    cols: _ID(1) _SHF(2) NAME(3) _SPID(4) GRAVID(5) LACT(6) _UPD(7) _DEL(8) _SYN(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stage_cols(13+)
 // Birth    cols: _ID(1) _TRAY(2) _SP(3) DATE(4) COUNT(5) NOTES(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12) SPECIES(13)
-// Removal  cols: _ID(1) _COH(2) _TRAY(3) DATE(4) STAGE(5) REMOVED(6) ♂(7) ♀(8) _UPD(9) _DEL(10) _SYN(11) | TRAY(12)
+// Removal  cols: _ID(1) _COH(2) _TRAY(3) DATE(4) STAGE(5) REMOVED(6) ♂(7) ♀(8) REASON(9) _UPD(10) _DEL(11) _SYN(12) | TRAY(13)
 var HIDE = {
-  species:  [1, 3, 5, 6, 7],           // show: NAME | LIFESPAN | STAGES | SEX RATIO | PINKY | FUZZY | HOPPER | ADULT
-  shelves:  [1, 3, 4, 5, 6],           // show: NAME | TRAYS
-  trays:    [1, 2, 4, 7, 8, 9],        // show: NAME | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
-  cohorts:  [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES (♂/♀ hidden — tracked in Trays sheet)
-  removals: [1, 2, 3, 9, 10, 11]       // show: DATE | STAGE | REMOVED | ♂ | ♀ | TRAY
+  species:  [1, 3, 5, 6, 7],             // show: NAME | LIFESPAN | STAGES | SEX RATIO | PINKY | FUZZY | HOPPER | ADULT
+  shelves:  [1, 3, 4, 5, 6],             // show: NAME | TRAYS
+  trays:    [1, 2, 4, 7, 8, 9],          // show: TRAY ID | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
+  cohorts:  [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES (♂/♀ hidden)
+  removals: [1, 2, 3, 10, 11, 12]        // show: DATE | STAGE | REMOVED | ♂ | ♀ | REASON | TRAY
 };
 
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
@@ -602,6 +602,18 @@ function reformatSheets() {
     }
     ensureTrayCol('♂ ADULTS');
     ensureTrayCol('♀ ADULTS');
+  }
+
+  // 3d. Insert REASON column in Removal sheet if missing (schema grew from 11→12 cols)
+  var remSh = ss.getSheetByName(SHEET_NAMES.removals);
+  if (remSh && remSh.getLastColumn() >= 9) {
+    var col9Hdr = String(remSh.getRange(1, 9).getValue());
+    if (col9Hdr === '_UPDATED' || col9Hdr === 'UPDATED') {
+      // Old 11-col sheet — insert REASON at col 9 before _UPDATED
+      remSh.insertColumnBefore(9);
+      remSh.getRange(1, 9).setValue('REASON')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    }
   }
 
   // 4. Re-apply HIDE on all sheets

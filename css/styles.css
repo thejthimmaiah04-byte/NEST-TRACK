@@ -742,6 +742,31 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 }
 .sex-label input { width: 60px; text-align: right; }
 
+/* ---------- Reason picker ---------- */
+.reason-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reason-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1.5px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, color .15s;
+  white-space: nowrap;
+}
+.reason-btn.active {
+  border-color: var(--accent);
+  background: rgba(249,115,22,.12);
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* ---------- Gravid / lactating section ---------- */
 .gravid-section {
   background: rgba(239,68,68,.07);

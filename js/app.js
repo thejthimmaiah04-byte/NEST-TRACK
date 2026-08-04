@@ -1100,9 +1100,22 @@ function openRemoveByStage(stageName, stageIdx) {
 
   openModal(`Remove ${esc(stageName)}`, `
     <p class="small muted" style="margin-bottom:14px">Enter how many to remove from each tray.</p>
+    <div class="field" style="margin-bottom:14px">
+      <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
+      <div class="reason-btns">
+        <button class="reason-btn active" data-reason="Feeding">🐍 Feeding</button>
+        <button class="reason-btn" data-reason="Dead">💀 Dead</button>
+        <button class="reason-btn" data-reason="Other">📋 Other</button>
+      </div>
+    </div>
     <div class="rs-list">${rows}</div>
     <button class="btn primary block" id="rs-save" style="margin-top:16px">Record removals</button>
   `, root => {
+    $$('.reason-btn', root).forEach(b => b.onclick = () => {
+      $$('.reason-btn', root).forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+
     $$('.rs-input', root).forEach(inp => {
       inp.addEventListener('input', () => {
         const sub = $(`#rssex-${inp.dataset.row}`, root);
@@ -1111,6 +1124,7 @@ function openRemoveByStage(stageName, stageIdx) {
     });
 
     $('#rs-save', root).onclick = () => {
+      const reason = $('.reason-btn.active', root)?.dataset.reason || 'Feeding';
       const inputs = $$('.rs-input', root);
       let recorded = 0;
       for (const inp of inputs) {
@@ -1125,7 +1139,7 @@ function openRemoveByStage(stageName, stageIdx) {
         const fVal = $(`#rssex-${ri} .rs-female`, root)?.value;
         const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
         const females = fVal !== '' && fVal != null ? Number(fVal) : null;
-        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n, males, females });
+        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n, males, females, reason });
         upsertLocal('removals', r);
         touch('removals', r);
         recorded += n;
@@ -1388,19 +1402,26 @@ function getCalEvents() {
   for (const c of live('cohorts')) {
     const tray = byId('trays', c.trayId);
     const sp   = speciesOf(c);
+    const sexStr = (c.males != null && c.females != null)
+      ? ` · ♂${c.males} ♀${c.females}`
+      : c.males != null ? ` · ♂${c.males}` : c.females != null ? ` · ♀${c.females}` : '';
     add(c.birthDate, {
       type: 'birth',
       label: `${c.initialCount} born`,
-      sub:   `${tray?.name || '—'} · ${sp?.name || '—'}`,
+      sub:   `${tray?.name || '—'} · ${sp?.name || '—'}${sexStr}`,
       color: 'var(--ok)'
     });
   }
   for (const r of live('removals')) {
     const tray = byId('trays', r.trayId);
+    const sexStr = (r.males != null || r.females != null)
+      ? ` · ${r.males != null ? '♂'+r.males : ''}${r.females != null ? ' ♀'+r.females : ''}`.trim()
+      : '';
+    const reasonStr = r.reason ? ` · ${r.reason}` : '';
     add(r.date, {
       type: 'removal',
       label: `${r.count} removed`,
-      sub:   `${tray?.name || '—'} · ${r.stage}`,
+      sub:   `${tray?.name || '—'} · ${r.stage}${sexStr}${reasonStr}`,
       color: 'var(--danger)'
     });
   }
@@ -1852,17 +1873,29 @@ function trayDetailModal(trayId) {
         const isAdult = lastStageName && name === lastStageName;
         if (isAdult) {
           closeModal();
-          setTimeout(() => openModal(`Sex of removed ${name}`, `
-            <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — how many of each sex?</p>
+          setTimeout(() => openModal(`Remove ${esc(name)}`, `
+            <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — record sex and reason.</p>
             <div style="display:flex;gap:12px;margin-bottom:16px">
               <label class="gravid-field" style="flex:1"><span>♂ Males</span>
                 <input id="rmv-m" type="number" min="0" max="${n}" placeholder="0" /></label>
               <label class="gravid-field" style="flex:1"><span>♀ Females</span>
                 <input id="rmv-f" type="number" min="0" max="${n}" placeholder="0" /></label>
             </div>
+            <div class="field" style="margin-bottom:16px">
+              <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
+              <div class="reason-btns">
+                <button class="reason-btn active" data-reason="Feeding">🐍 Feeding</button>
+                <button class="reason-btn" data-reason="Dead">💀 Dead</button>
+                <button class="reason-btn" data-reason="Other">📋 Other</button>
+              </div>
+            </div>
             <button class="btn primary block" data-save>Confirm removal</button>
           `, root2 => {
             $('#rmv-m', root2).focus();
+            $$('.reason-btn', root2).forEach(b => b.onclick = () => {
+              $$('.reason-btn', root2).forEach(x => x.classList.remove('active'));
+              b.classList.add('active');
+            });
             $('[data-save]', root2).onclick = () => {
               const mRaw = $('#rmv-m', root2).value;
               const fRaw = $('#rmv-f', root2).value;
@@ -1870,17 +1903,38 @@ function trayDetailModal(trayId) {
               const females = fRaw !== '' ? Number(fRaw) : null;
               if (males !== null && females !== null && males + females > n)
                 return toast(`♂ + ♀ (${males+females}) exceeds count (${n})`, true);
-              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females });
+              const reason = $('.reason-btn.active', root2)?.dataset.reason || 'Feeding';
+              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females, reason });
               upsertLocal('removals', r); touch('removals', r);
-              toast(`Removed ${n} ${name}`);
+              toast(`Removed ${n} ${name} · ${reason}`);
               closeModal(); trayDetailModal(trayId); render();
             };
           }), 10);
         } else {
-          const r = rec('removals',{ cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n });
-          upsertLocal('removals',r); touch('removals',r);
-          toast(`Removed ${n} ${name}`);
-          closeModal(); trayDetailModal(trayId); render();
+          closeModal();
+          setTimeout(() => openModal(`Remove ${esc(name)}`, `
+            <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — select a reason.</p>
+            <div class="field" style="margin-bottom:16px">
+              <div class="reason-btns">
+                <button class="reason-btn active" data-reason="Feeding">🐍 Feeding</button>
+                <button class="reason-btn" data-reason="Dead">💀 Dead</button>
+                <button class="reason-btn" data-reason="Other">📋 Other</button>
+              </div>
+            </div>
+            <button class="btn primary block" data-save>Confirm removal</button>
+          `, root2 => {
+            $$('.reason-btn', root2).forEach(b => b.onclick = () => {
+              $$('.reason-btn', root2).forEach(x => x.classList.remove('active'));
+              b.classList.add('active');
+            });
+            $('[data-save]', root2).onclick = () => {
+              const reason = $('.reason-btn.active', root2)?.dataset.reason || 'Feeding';
+              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, reason });
+              upsertLocal('removals', r); touch('removals', r);
+              toast(`Removed ${n} ${name} · ${reason}`);
+              closeModal(); trayDetailModal(trayId); render();
+            };
+          }), 10);
         }
       };
     });
