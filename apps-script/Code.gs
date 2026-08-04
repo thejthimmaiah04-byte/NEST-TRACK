@@ -511,6 +511,28 @@ function reformatSheets() {
       var hdrCell = traysSh3.getRange(1, nameColIdx);
       if (String(hdrCell.getValue()) === 'NAME') hdrCell.setValue('TRAY ID');
     }
+
+    // 3c. Ensure SPECIES, ♂ ADULTS, ♀ ADULTS headers exist in Trays (created even before first sync)
+    var fixedTrayCols = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 10 (schema=9 + SPECIES=1)
+    var traysLastCol  = traysSh3.getLastColumn();
+    var traysHdrs     = traysLastCol > 0 ? traysSh3.getRange(1, 1, 1, traysLastCol).getValues()[0] : [];
+    function ensureTrayCol(label) {
+      for (var hi = 0; hi < traysHdrs.length; hi++) {
+        if (String(traysHdrs[hi]) === label) return;
+      }
+      var nc = traysSh3.getLastColumn() + 1;
+      traysSh3.getRange(1, nc).setValue(label)
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      traysHdrs.push(label); // keep local list in sync
+    }
+    // Make sure SPECIES col exists at position fixedTrayCols (col 10)
+    if (traysLastCol < fixedTrayCols) {
+      traysSh3.getRange(1, fixedTrayCols).setValue('SPECIES')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      traysHdrs = traysSh3.getRange(1, 1, 1, traysSh3.getLastColumn()).getValues()[0];
+    }
+    ensureTrayCol('♂ ADULTS');
+    ensureTrayCol('♀ ADULTS');
   }
 
   // 4. Re-apply HIDE on all sheets
