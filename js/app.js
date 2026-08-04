@@ -1348,7 +1348,7 @@ function renderTrays() {
       });
       const sex = trayAdultSex(tray.id, sp);
       const ratioDot = (() => {
-        if (!sp || !sp.ratio) return '';
+        if (!sp) return '';
         const st = sex ? ratioStatus(sex.males, sex.females, sp.ratio) : null;
         if (st === null) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
         if (st === 'ok')    return `<span class="ratio-dot ok"    title="Sex ratio OK ♂${sex.males}:♀${sex.females}"></span>`;
