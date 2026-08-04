@@ -33,6 +33,11 @@ var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals'];
 var JSON_FIELDS = { stages: true };
 
 // ── Column header labels  (_ prefix = will be hidden) ────────────────────────
+// Per-entity header overrides (applied on top of COL_LABELS for that entity only)
+var COL_LABEL_OVERRIDES = {
+  trays: { name: 'TRAY ID' }
+};
+
 var COL_LABELS = {
   id: '_ID', name: 'NAME', stages: '_STAGES_JSON', lifespan: 'LIFESPAN (DAYS)',
   sortOrder: '_ORDER', updatedAt: '_UPDATED', deleted: '_DELETED', syncedAt: '_SYNCED',
@@ -126,9 +131,10 @@ function sheetFor(entity) {
 }
 
 function setupSheet(sh, entity) {
-  var cols    = SCHEMAS[entity];
-  var extra   = EXTRA[entity] || [];
-  var headers = cols.map(function(c) { return COL_LABELS[c] || c.toUpperCase(); }).concat(extra);
+  var cols      = SCHEMAS[entity];
+  var extra     = EXTRA[entity] || [];
+  var overrides = COL_LABEL_OVERRIDES[entity] || {};
+  var headers   = cols.map(function(c) { return overrides[c] || COL_LABELS[c] || c.toUpperCase(); }).concat(extra);
   var total   = headers.length;
 
   sh.appendRow(headers);
@@ -494,6 +500,16 @@ function reformatSheets() {
         birthSh.getRange(i + 2, birthTrayCol).setValue(ctx2.trayName(c.trayId));
         birthSh.getRange(i + 2, birthSpeciesCol).setValue(ctx2.speciesName(c.speciesId));
       });
+    }
+  }
+
+  // 3b. Rename NAME → TRAY ID in Trays header
+  var traysSh3 = ss.getSheetByName(SHEET_NAMES.trays);
+  if (traysSh3) {
+    var nameColIdx = SCHEMAS.trays.indexOf('name') + 1; // col 3
+    if (nameColIdx > 0) {
+      var hdrCell = traysSh3.getRange(1, nameColIdx);
+      if (String(hdrCell.getValue()) === 'NAME') hdrCell.setValue('TRAY ID');
     }
   }
 
