@@ -94,7 +94,23 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   lock.waitLock(25000);
   try {
-    var body     = JSON.parse(e.postData.contents || '{}');
+    var body = JSON.parse(e.postData.contents || '{}');
+
+    // ── Email report action ───────────────────────────────────────────
+    if (body.action === 'sendReport') {
+      var toList = Array.isArray(body.to) ? body.to : String(body.to || '').split(',');
+      var to      = toList.map(function(a) { return a.trim(); }).filter(Boolean).join(',');
+      var subject = String(body.subject || 'NestTrak Colony Report');
+      var html    = String(body.html || '');
+      if (!to)   return json({ error: 'No recipients specified' });
+      if (!html) return json({ error: 'No report content' });
+      GmailApp.sendEmail(to, subject, 'This report requires an HTML-capable email client.', {
+        htmlBody: html,
+        name:     'NestTrak'
+      });
+      return json({ ok: true, sent: to });
+    }
+
     var since    = Number(body.since) || 0;
     var changes  = body.changes || {};
     var accepted = {};

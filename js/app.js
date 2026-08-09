@@ -599,6 +599,7 @@ function render() {
   else if (activeTab === 'calendar')  renderCalendar();
   else if (activeTab === 'species')   renderSpecies();
   else if (activeTab === 'settings')  renderSettings();
+  else if (activeTab === 'reports')   renderReports();
 }
 
 /* ---------- Dashboard ---------- */
@@ -1091,62 +1092,24 @@ function renderCharts() {
   };
 }
 
-/* ---------- Remove by stage modal ---------- */
+/* ---------- Remove by stage — 3-step flow ---------- */
+
+// Step 1: ask how many + pick reason
 function openRemoveByStage(stageName, stageIdx) {
   const today = new Date();
-  const matches = live('cohorts').filter(c => {
-    if (cohortNet(c, today) <= 0) return false;
-    return stageIndexAt(c, today).name === stageName;
-  });
-  // Check if this is the last (adult) stage for any live species
-  const isAdultStage = live('species').some(sp => {
-    if (!sp.stages?.length) return false;
-    return [...sp.stages].sort((a,b) => (b.startDay||0)-(a.startDay||0))[0]?.name === stageName;
-  });
+  const totalAvail = live('cohorts')
+    .filter(c => cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
+    .reduce((s, c) => s + cohortNet(c, today), 0);
 
-  if (!matches.length) return toast(`No active ${stageName} to remove`, true);
-
-  // Group cohorts by tray
-  const byTray = new Map();
-  for (const c of matches) {
-    const net = cohortNet(c, today);
-    if (!byTray.has(c.trayId)) {
-      byTray.set(c.trayId, { tray: byId('trays', c.trayId), entries: [] });
-    }
-    byTray.get(c.trayId).entries.push({ cohort: c, net });
-  }
-
-  const hex = STAGE_HEX[stageIdx % STAGE_HEX.length];
-
-  let rowIdx = 0;
-  const rows = [...byTray.values()].map(({ tray, entries }) => {
-    const trayTotal = entries.reduce((s, e) => s + e.net, 0);
-    const trayLabel = tray ? esc(tray.name) : '(unknown tray)';
-    const cohortRows = entries.map(({ cohort, net }) => {
-      const ri = rowIdx++;
-      return `<div class="rs-cohort">
-        <span class="rs-info">Born ${esc(cohort.birthDate)} · <b>${net}</b> available</span>
-        <input type="number" class="rs-input" min="0" max="${net}" placeholder="0"
-          data-cohort-id="${cohort.id}" data-tray-id="${cohort.trayId}" data-max="${net}" data-row="${ri}" />
-      </div>
-      <div class="sex-sub" id="rssex-${ri}" style="${isAdultStage ? '' : 'display:none'}">
-        <label class="sex-label">♂ <input type="number" class="rs-male" min="0" placeholder="—" /></label>
-        <label class="sex-label">♀ <input type="number" class="rs-female" min="0" placeholder="—" /></label>
-      </div>`;
-    }).join('');
-    return `<div class="rs-tray">
-      <div class="rs-tray-name">
-        <span class="rs-dot" style="background:${hex}"></span>
-        ${trayLabel}
-        <span class="rs-tray-total">${trayTotal} ${stageName}</span>
-      </div>
-      ${cohortRows}
-    </div>`;
-  }).join('');
+  if (totalAvail <= 0) return toast(`No active ${stageName} to remove`, true);
 
   openModal(`Remove ${esc(stageName)}`, `
-    <p class="small muted" style="margin-bottom:14px">Enter how many to remove from each tray.</p>
-    <div class="field" style="margin-bottom:14px">
+    <p class="small muted" style="margin-bottom:14px">${totalAvail} ${esc(stageName)} available across all trays.</p>
+    <label class="field" style="margin-bottom:14px">
+      <span>How many to remove?</span>
+      <input id="rbs-count" type="number" min="1" max="${totalAvail}" placeholder="e.g. 10" />
+    </label>
+    <div class="field" style="margin-bottom:16px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Feeding">Feeding</button>
@@ -1155,47 +1118,181 @@ function openRemoveByStage(stageName, stageIdx) {
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
-    <div class="rs-list">${rows}</div>
-    <button class="btn primary block" id="rs-save" style="margin-top:16px">Record removals</button>
+    <button class="btn primary block" id="rbs-next">Find trays ›</button>
   `, root => {
     $$('.reason-btn', root).forEach(b => b.onclick = () => {
       $$('.reason-btn', root).forEach(x => x.classList.remove('active'));
       b.classList.add('active');
     });
+    $('#rbs-count', root).focus();
 
-    $$('.rs-input', root).forEach(inp => {
-      inp.addEventListener('input', () => {
-        const sub = $(`#rssex-${inp.dataset.row}`, root);
-        if (sub && !isAdultStage) sub.style.display = Number(inp.value) > 0 ? 'flex' : 'none';
-      });
-    });
-
-    $('#rs-save', root).onclick = () => {
+    const go = () => {
+      const needed = parseInt($('#rbs-count', root).value, 10);
       const reason = $('.reason-btn.active', root)?.dataset.reason || 'Feeding';
-      const inputs = $$('.rs-input', root);
-      let recorded = 0;
-      for (const inp of inputs) {
-        const n = Number(inp.value);
-        if (!n || n <= 0) continue;
-        const cohortId = inp.dataset.cohortId;
-        const trayId   = inp.dataset.trayId;
-        const max      = Number(inp.dataset.max);
-        const ri       = inp.dataset.row;
-        if (n > max) return toast(`Max available is ${max}`, true);
-        const mVal = $(`#rssex-${ri} .rs-male`, root)?.value;
-        const fVal = $(`#rssex-${ri} .rs-female`, root)?.value;
-        const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
-        const females = fVal !== '' && fVal != null ? Number(fVal) : null;
-        const r = rec('removals', { cohortId, trayId, date: todayISO(), stage: stageName, count: n, males, females, reason });
+      if (!needed || needed < 1) return toast('Enter a count', true);
+      _rbsShowTrays(stageName, stageIdx, needed, reason);
+    };
+    $('#rbs-next', root).onclick = go;
+    $('#rbs-count', root).addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  });
+}
+
+// Step 2: harvest-search-style tray grid
+function _rbsShowTrays(stageName, stageIdx, needed, reason) {
+  const today = new Date();
+  const isAdult = live('species').some(sp => {
+    if (!sp.stages?.length) return false;
+    return [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name === stageName;
+  });
+
+  // Build tray list (same logic as refreshHarvestResults)
+  const matches = [];
+  for (const tray of live('trays')) {
+    let count = 0, oldestDate = null;
+    for (const c of live('cohorts')) {
+      if (c.trayId !== tray.id) continue;
+      const net = cohortNet(c, today);
+      if (net <= 0) continue;
+      if (stageIndexAt(c, today).name !== stageName) continue;
+      count += net;
+      const bd = parseYMD(c.birthDate);
+      if (!oldestDate || bd < oldestDate) oldestDate = bd;
+    }
+    if (count <= 0) continue;
+    const unavail  = isAdult ? ((tray.gravidFemales || 0) + (tray.lactatingFemales || 0)) : 0;
+    const available = Math.max(0, count - unavail);
+    matches.push({ tray, count, available, oldestDate });
+  }
+  matches.sort((a, b) => (a.oldestDate || 0) - (b.oldestDate || 0));
+
+  // Greedy suggestion — oldest trays first
+  let remaining = needed;
+  const suggested = new Set();
+  const takeMap   = new Map();
+  for (const m of matches) {
+    if (remaining <= 0) break;
+    if (m.available <= 0) continue;
+    suggested.add(m.tray.id);
+    takeMap.set(m.tray.id, Math.min(m.available, remaining));
+    remaining -= m.available;
+  }
+  const total   = matches.reduce((s, m) => s + m.available, 0);
+  const canFill = remaining <= 0;
+
+  const btns = matches.map(m => {
+    const cls      = suggested.has(m.tray.id) ? 'harvest-btn suggested' : 'harvest-btn';
+    const ageDays  = m.oldestDate ? Math.floor((today - m.oldestDate) / 86400000) : null;
+    const sp       = live('species').find(s => live('cohorts').some(c => c.trayId === m.tray.id && c.speciesId === s.id));
+    const urgent   = sp?.lifespan && ageDays != null && (sp.lifespan - ageDays) <= 30;
+    const gravidN  = isAdult && (m.tray.gravidFemales  || 0) > 0
+      ? `<span class="hb-status gravid">${m.tray.gravidFemales} gravid</span>` : '';
+    const lactN    = isAdult && (m.tray.lactatingFemales || 0) > 0
+      ? `<span class="hb-status lact">${m.tray.lactatingFemales} lactating</span>` : '';
+    return `<button class="${cls}${urgent ? ' urgent' : ''}"
+        data-rbs-tray="${esc(m.tray.id)}"
+        data-take="${takeMap.get(m.tray.id) || 0}"
+        data-avail="${m.available}" data-total="${m.count}">
+      <span class="hb-name">${esc(m.tray.name)}</span>
+      ${ageDays != null ? `<span class="hb-age${urgent ? ' hb-age-warn' : ''}">${ageDays}d old</span>` : ''}
+      ${gravidN}${lactN}
+      <span class="hb-count">${m.available}<span class="hb-total-sm">/${m.count}</span></span>
+    </button>`;
+  }).join('');
+
+  const statusCls = canFill ? 'harvest-status ok' : 'harvest-status warn';
+  const statusMsg = canFill
+    ? `&#10003; Can fill ${needed} from ${suggested.size} tray${suggested.size !== 1 ? 's' : ''} &middot; ${total} available`
+    : `&#9888; Only ${total} of ${needed} available across all trays`;
+
+  openModal(`Remove ${esc(stageName)} — pick a tray`, `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <span class="small muted">Removing <b>${needed} ${esc(stageName)}</b> &middot; reason: <b>${esc(reason)}</b></span>
+      <button class="btn sm" id="rbs-back" style="margin-left:auto">&#8592; Back</button>
+    </div>
+    <div class="harvest-btns">${btns}</div>
+    <div class="${statusCls}" style="margin-top:10px">${statusMsg}</div>
+  `, root => {
+    $('#rbs-back', root).onclick = () => openRemoveByStage(stageName, stageIdx);
+
+    $$('[data-rbs-tray]', root).forEach(btn => {
+      btn.onclick = () => _rbsFromTray(
+        stageName, stageIdx,
+        btn.dataset.rbsTray,
+        needed,
+        Number(btn.dataset.avail),
+        Number(btn.dataset.take),
+        reason,
+        isAdult
+      );
+    });
+  });
+}
+
+// Step 3: confirm count from one tray (+ optional sex split)
+function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, reason, isAdult) {
+  const tray      = byId('trays', trayId);
+  const trayName  = tray ? tray.name : trayId;
+  const today     = new Date();
+  const defCount  = Math.max(1, Math.min(suggestTake || needed, avail));
+
+  openModal(`Remove from ${esc(trayName)}`, `
+    <p class="small muted" style="margin-bottom:14px">
+      ${avail} ${esc(stageName)} available &middot; need ${needed} total &middot; <b>${esc(reason)}</b>
+    </p>
+    <label class="field" style="margin-bottom:${isAdult ? '10px' : '16px'}">
+      <span>How many from this tray?</span>
+      <input id="rbst-count" type="number" min="1" max="${avail}" value="${defCount}" />
+    </label>
+    ${isAdult ? `
+    <div class="gap" style="margin-bottom:16px">
+      <label class="field" style="flex:1"><span>&#9794; removed</span>
+        <input id="rbst-m" type="number" min="0" placeholder="—" /></label>
+      <label class="field" style="flex:1"><span>&#9792; removed</span>
+        <input id="rbst-f" type="number" min="0" placeholder="—" /></label>
+    </div>` : ''}
+    <div class="gap">
+      <button class="btn" id="rbst-back">&#8592; Pick another tray</button>
+      <button class="btn primary" id="rbst-save" style="flex:1">Confirm removal</button>
+    </div>
+  `, root => {
+    $('#rbst-count', root).focus();
+    $('#rbst-back', root).onclick = () => _rbsShowTrays(stageName, stageIdx, needed, reason);
+
+    $('#rbst-save', root).onclick = () => {
+      const n = parseInt($('#rbst-count', root).value, 10);
+      if (!n || n < 1)  return toast('Enter a count', true);
+      if (n > avail)    return toast(`Max ${avail} available in this tray`, true);
+
+      const mRaw = $('#rbst-m', root)?.value;
+      const fRaw = $('#rbst-f', root)?.value;
+      const males   = isAdult && mRaw !== '' && mRaw != null ? Number(mRaw) : null;
+      const females = isAdult && fRaw !== '' && fRaw != null ? Number(fRaw) : null;
+
+      // Distribute n across cohorts in this tray, oldest first
+      const cohorts = live('cohorts')
+        .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
+        .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
+
+      let left = n, first = true;
+      for (const c of cohorts) {
+        if (left <= 0) break;
+        const take = Math.min(left, cohortNet(c, today));
+        const r = rec('removals', {
+          cohortId: c.id, trayId,
+          date: todayISO(), stage: stageName, count: take,
+          males:   first ? males   : null,
+          females: first ? females : null,
+          reason
+        });
         upsertLocal('removals', r);
         touch('removals', r);
-        recorded += n;
+        left -= take;
+        first = false;
       }
-      if (!recorded) return toast('Enter at least one count', true);
-      saveState();
+
       closeModal();
       render();
-      toast(`${recorded} ${stageName} removed`);
+      toast(`${n} ${stageName} removed from ${trayName} · ${reason}`);
     };
   });
 }
@@ -2650,6 +2747,10 @@ function onClick(e) {
     case 'wipe':   return confirmDelete('ALL local data', () => {
       localStorage.removeItem(LS_KEY); location.reload();
     });
+
+    // Reports
+    case 'rpt-generate': return generateAndPreviewReport();
+    case 'rpt-send':     return sendReportEmail(el);
   }
 }
 
@@ -2808,6 +2909,512 @@ function renderSync() {
       bannerTxt.textContent = `⚠ ${pc} change${pc !== 1 ? 's' : ''} not yet uploaded to Google Sheet`;
     }
   }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Reports
+ * ------------------------------------------------------------------ */
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let _reportHTML = '';
+
+function renderReports() {
+  const el = $('#tab-reports');
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+
+  const years = [];
+  for (let y = curYear; y >= curYear - 4; y--) years.push(y);
+  const yearOpts   = years.map(y => `<option value="${y}" ${y===curYear?'selected':''}>${y}</option>`).join('');
+  const monthOpts  = MONTH_NAMES.map((m, i) =>
+    `<option value="${i+1}" ${i+1===curMonth?'selected':''}>${m}</option>`).join('');
+
+  el.innerHTML = `
+    <h2 class="section-title" style="margin:4px 0 20px">Colony Reports</h2>
+    <div class="card" style="margin-bottom:20px">
+      <div class="gap" style="flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+        <label class="field" style="min-width:160px;flex:1">
+          <span>Report type</span>
+          <select id="rpt-type">
+            <option value="monthly">Monthly Report</option>
+            <option value="annual">Annual Summary</option>
+          </select>
+        </label>
+        <div id="rpt-month-row" class="gap" style="flex:2;min-width:200px">
+          <label class="field" style="flex:1"><span>Month</span>
+            <select id="rpt-month">${monthOpts}</select></label>
+          <label class="field" style="flex:1"><span>Year</span>
+            <select id="rpt-year">${yearOpts}</select></label>
+        </div>
+        <label id="rpt-annual-row" class="field" style="flex:2;min-width:200px;display:none">
+          <span>Year</span>
+          <select id="rpt-year2">${yearOpts}</select>
+        </label>
+      </div>
+      <label class="field" style="margin-bottom:6px">
+        <span>Email recipients</span>
+        <input id="rpt-emails" type="text" placeholder="user@example.com, another@example.com" value="${esc(state.meta.reportEmails||'')}" />
+      </label>
+      <p class="small muted" style="margin:0 0 16px">Comma-separated. Emails are sent via the Apps Script URL configured in Settings.</p>
+      <div class="gap">
+        <button class="btn primary" data-act="rpt-generate">&#128202; Generate Report</button>
+        <button class="btn" id="rpt-send-btn" data-act="rpt-send" style="opacity:.45;pointer-events:none">&#9993; Send Report</button>
+      </div>
+    </div>
+    <div id="rpt-preview-wrap" style="display:none">
+      <h2 class="section-title" style="margin:0 0 12px">Preview</h2>
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="rpt-frame" style="width:100%;height:680px;border:none;display:block" title="Report preview"></iframe>
+      </div>
+    </div>`;
+
+  // Report type toggle — swap month/year vs year-only picker
+  $('#rpt-type').addEventListener('change', function() {
+    const monthly = this.value === 'monthly';
+    $('#rpt-month-row').style.display = monthly ? '' : 'none';
+    $('#rpt-annual-row').style.display = monthly ? 'none' : '';
+    $('#rpt-preview-wrap').style.display = 'none';
+    const sb = $('#rpt-send-btn');
+    sb.style.opacity = '.45'; sb.style.pointerEvents = 'none';
+    _reportHTML = '';
+  });
+}
+
+/* --- Data builders --- */
+
+function buildMonthlyData(year, month) {
+  const startDate = new Date(year, month - 1, 1);
+  const endDate   = new Date(year, month, 0, 23, 59, 59);
+  const startYMD  = toYMD(startDate);
+  const endYMD    = toYMD(endDate);
+
+  const { total: popStart } = stageTotalsAt(startDate);
+  const { total: popEnd, totals: distEnd } = stageTotalsAt(endDate);
+
+  // Births this month
+  const newCohorts = live('cohorts').filter(c => {
+    const d = normYMD(c.birthDate);
+    return d >= startYMD && d <= endYMD;
+  });
+  const births = newCohorts.reduce((s, c) => s + (Number(c.initialCount) || 0), 0);
+
+  // Removals this month
+  const monthRemovals = live('removals').filter(r => {
+    const d = normYMD(r.date);
+    return d >= startYMD && d <= endYMD;
+  });
+  const byReason = {};
+  let totalRemoved = 0;
+  for (const r of monthRemovals) {
+    const reason = r.reason || 'Other';
+    const cnt = Number(r.count) || 0;
+    byReason[reason] = (byReason[reason] || 0) + cnt;
+    totalRemoved += cnt;
+  }
+  const frozenCount  = byReason['Frozen'] || 0;
+  const harvestCount = byReason['Harvest'] || byReason['Harvested'] || 0;
+
+  // Stage distribution at end of month
+  const stageNames = orderedStageNames();
+  const stageData  = stageNames.map((nm, i) => ({
+    name:  nm,
+    count: distEnd.get(nm) || 0,
+    color: STAGE_HEX[i % STAGE_HEX.length]
+  })).filter(x => x.count > 0);
+
+  // Top 5 trays by removal count this month
+  const trayAct = {};
+  for (const r of monthRemovals) {
+    if (!r.trayId) continue;
+    const t = byId('trays', r.trayId);
+    const nm = t ? t.name : r.trayId;
+    if (!trayAct[r.trayId]) trayAct[r.trayId] = { name: nm, count: 0 };
+    trayAct[r.trayId].count += Number(r.count) || 0;
+  }
+  const topTrays = Object.values(trayAct).sort((a, b) => b.count - a.count).slice(0, 5);
+
+  // Species breakdown at end of month
+  const speciesBreakdown = live('species').map(sp => {
+    const { total } = stageTotalsAt(endDate, c => speciesOf(c)?.id === sp.id);
+    return { name: sp.name, count: total };
+  }).filter(x => x.count > 0).sort((a, b) => b.count - a.count);
+
+  const growth    = popEnd - popStart;
+  const growthPct = popStart > 0 ? Math.round((growth / popStart) * 100) : 0;
+
+  return {
+    type: 'monthly', year, month,
+    monthName: MONTH_NAMES[month - 1],
+    popStart, popEnd, births,
+    totalRemoved, byReason, frozenCount, harvestCount,
+    stageData, topTrays, speciesBreakdown,
+    growth, growthPct
+  };
+}
+
+function buildAnnualData(year) {
+  const now = new Date();
+  const lastMonth = (year === now.getFullYear()) ? now.getMonth() + 1 : 12;
+  const months = [];
+  let totalBirths = 0, totalRemoved = 0, totalFrozen = 0;
+
+  for (let m = 1; m <= lastMonth; m++) {
+    const d = buildMonthlyData(year, m);
+    months.push(d);
+    totalBirths   += d.births;
+    totalRemoved  += d.totalRemoved;
+    totalFrozen   += d.frozenCount;
+  }
+
+  const peakMonth       = months.reduce((a, b) => b.popEnd > a.popEnd ? b : a);
+  const mostActiveMonth = months.reduce((a, b) => b.totalRemoved > a.totalRemoved ? b : a);
+  const currentPop      = months[months.length - 1].popEnd;
+
+  return {
+    type: 'annual', year, months,
+    totalBirths, totalRemoved, totalFrozen,
+    peakMonth, mostActiveMonth, currentPop
+  };
+}
+
+/* --- HTML generators --- */
+
+function generateMonthlyReportHTML(d) {
+  const growth      = d.growth >= 0 ? `+${d.growth}` : `${d.growth}`;
+  const growthColor = d.growth > 0 ? '#22c55e' : d.growth < 0 ? '#ef4444' : '#94a3b8';
+  const maxCount    = Math.max(...d.stageData.map(s => s.count), 1);
+
+  const stageBars = d.stageData.map(s => {
+    const pct = Math.round((s.count / maxCount) * 100);
+    return `
+      <tr>
+        <td style="padding:5px 10px 5px 0;color:#94a3b8;font-size:12px;white-space:nowrap;width:72px">${s.name}</td>
+        <td style="padding:5px 0;width:100%">
+          <div style="background:#1e2035;border-radius:4px;overflow:hidden;height:18px">
+            <div style="background:${s.color};height:100%;width:${pct}%;min-width:3px"></div>
+          </div>
+        </td>
+        <td style="padding:5px 0 5px 12px;color:#e2e8f0;font-size:13px;font-weight:700;white-space:nowrap;text-align:right">${s.count.toLocaleString()}</td>
+      </tr>`;
+  }).join('');
+
+  const reasonRows = Object.entries(d.byReason)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `
+      <tr>
+        <td style="padding:9px 14px;color:#94a3b8;font-size:13px;border-bottom:1px solid #1e2035">${reason}</td>
+        <td style="padding:9px 14px;color:#e2e8f0;font-size:13px;font-weight:700;text-align:right;border-bottom:1px solid #1e2035">${count.toLocaleString()}</td>
+      </tr>`).join('');
+
+  const trayRows = d.topTrays.map((t, i) => `
+    <tr>
+      <td style="padding:9px 14px;color:#64748b;font-size:12px;border-bottom:1px solid #1e2035">#${i+1}</td>
+      <td style="padding:9px 14px;color:#e2e8f0;font-size:13px;font-weight:600;border-bottom:1px solid #1e2035">${t.name}</td>
+      <td style="padding:9px 14px;color:#a78bfa;font-size:13px;font-weight:700;text-align:right;border-bottom:1px solid #1e2035">${t.count.toLocaleString()}</td>
+    </tr>`).join('');
+
+  const insights = [];
+  if (d.growthPct > 10)       insights.push(`Your colony grew strongly by <b>${d.growthPct}%</b> — excellent breeding activity this month.`);
+  else if (d.growthPct < -10) insights.push(`Your colony contracted by <b>${Math.abs(d.growthPct)}%</b> — removals exceeded new births this month.`);
+  else                        insights.push(`Your colony held steady with a <b>${d.growthPct >= 0 ? '+' : ''}${d.growthPct}%</b> net population change.`);
+  if (d.births > 0)      insights.push(`<b>${d.births.toLocaleString()} animals</b> born across ${newCohortCount(d)} litter${newCohortCount(d)!==1?'s':''}.`);
+  if (d.frozenCount > 0) insights.push(`<b>${d.frozenCount.toLocaleString()} animals</b> frozen this month.`);
+  if (d.harvestCount > 0) insights.push(`<b>${d.harvestCount.toLocaleString()} animals</b> harvested for sale or use.`);
+
+  const insightItems = insights.map(i => `<li style="margin:7px 0;color:#cbd5e1;line-height:1.65;font-size:14px">${i}</li>`).join('');
+
+  const speciesSection = d.speciesBreakdown.length > 1 ? `
+    <tr><td style="background:#0f0f1e;padding:24px 28px 28px">
+      <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#128060; Species Breakdown</h2>
+      <table width="100%" cellpadding="0" cellspacing="0">
+        ${d.speciesBreakdown.map(s => `
+          <tr>
+            <td style="padding:4px 0;color:#94a3b8;font-size:13px">${s.name}</td>
+            <td style="padding:4px 0;color:#e2e8f0;font-size:13px;font-weight:700;text-align:right">${s.count.toLocaleString()}</td>
+          </tr>`).join('')}
+      </table>
+    </td></tr>` : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NestTrak Report &mdash; ${d.monthName} ${d.year}</title>
+</head>
+<body style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a14">
+  <tr><td align="center" style="padding:28px 16px">
+    <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#7c3aed 0%,#db2777 100%);border-radius:16px 16px 0 0;padding:44px 32px 36px;text-align:center">
+        <div style="font-size:52px;line-height:1;margin-bottom:12px">&#x1F400;</div>
+        <h1 style="margin:0 0 8px;color:#fff;font-size:26px;font-weight:800;letter-spacing:-0.5px">NestTrak Colony Report</h1>
+        <p style="margin:0;color:rgba(255,255,255,0.8);font-size:15px">${d.monthName} ${d.year} &middot; Monthly Summary</p>
+      </td></tr>
+
+      <!-- Key metrics -->
+      <tr><td style="background:#111127;padding:0">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
+              <div style="font-size:28px;font-weight:800;color:#a78bfa;font-variant-numeric:tabular-nums">${d.popEnd.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Live Animals</div>
+            </td>
+            <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
+              <div style="font-size:28px;font-weight:800;color:#34d399;font-variant-numeric:tabular-nums">${d.births.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Births</div>
+            </td>
+            <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
+              <div style="font-size:28px;font-weight:800;color:#fb923c;font-variant-numeric:tabular-nums">${d.totalRemoved.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Removed</div>
+            </td>
+            <td width="25%" style="padding:22px 10px;text-align:center">
+              <div style="font-size:28px;font-weight:800;color:${growthColor};font-variant-numeric:tabular-nums">${growth}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Net Change</div>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+
+      <!-- Insights -->
+      <tr><td style="background:#0f0f1e;padding:24px 28px">
+        <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#128161; Monthly Insights</h2>
+        <ul style="margin:0;padding-left:18px">${insightItems}</ul>
+      </td></tr>
+
+      ${d.stageData.length ? `
+      <!-- Stage distribution -->
+      <tr><td style="background:#111127;padding:24px 28px">
+        <h2 style="margin:0 0 14px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#128200; Stage Distribution</h2>
+        <table width="100%" cellpadding="0" cellspacing="0">${stageBars}</table>
+      </td></tr>` : ''}
+
+      ${d.totalRemoved > 0 ? `
+      <!-- Removal breakdown -->
+      <tr><td style="background:#0f0f1e;padding:24px 28px">
+        <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#9660; Removal Breakdown</h2>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #1e2035;border-radius:8px;overflow:hidden">${reasonRows}</table>
+      </td></tr>` : ''}
+
+      ${d.topTrays.length ? `
+      <!-- Top trays -->
+      <tr><td style="background:#111127;padding:24px 28px">
+        <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#127942; Most Active Trays</h2>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #1e2035;border-radius:8px;overflow:hidden">${trayRows}</table>
+      </td></tr>` : ''}
+
+      ${speciesSection}
+
+      <!-- Footer -->
+      <tr><td style="background:#060610;border-radius:0 0 16px 16px;padding:22px 28px;text-align:center">
+        <p style="margin:0 0 4px;color:#475569;font-size:12px">Generated by <b style="color:#7c3aed">NestTrak</b> &middot; ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</p>
+        <p style="margin:0;color:#334155;font-size:11px">Precision colony management for professional breeders</p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+}
+
+function newCohortCount(d) {
+  const startYMD = toYMD(new Date(d.year, d.month - 1, 1));
+  const endYMD   = toYMD(new Date(d.year, d.month, 0));
+  return live('cohorts').filter(c => { const dt = normYMD(c.birthDate); return dt >= startYMD && dt <= endYMD; }).length;
+}
+
+function generateAnnualReportHTML(d) {
+  const maxPop = Math.max(...d.months.map(m => m.popEnd), 1);
+
+  const barCells = d.months.map((m, i) => {
+    const h = Math.max(4, Math.round((m.popEnd / maxPop) * 80));
+    const isPeak = m.popEnd === d.peakMonth.popEnd;
+    return `
+      <td style="vertical-align:bottom;text-align:center;padding:0 2px">
+        <div style="background:${isPeak?'#a78bfa':'#312e81'};height:${h}px;border-radius:3px 3px 0 0;min-width:28px"></div>
+        <div style="color:#64748b;font-size:9px;margin-top:4px;white-space:nowrap">${MONTH_SHORT[i]}</div>
+        ${m.popEnd > 0 ? `<div style="color:${isPeak?'#a78bfa':'#475569'};font-size:9px;font-weight:700">${m.popEnd.toLocaleString()}</div>` : '<div style="font-size:9px">&nbsp;</div>'}
+      </td>`;
+  }).join('');
+
+  const monthRows = d.months.map(m => {
+    const netColor = m.growth > 0 ? '#22c55e' : m.growth < 0 ? '#ef4444' : '#94a3b8';
+    return `
+      <tr>
+        <td style="padding:8px 12px;color:#94a3b8;font-size:12px;border-bottom:1px solid #1e2035;white-space:nowrap">${m.monthName}</td>
+        <td style="padding:8px 12px;color:#34d399;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.births||'—'}</td>
+        <td style="padding:8px 12px;color:#fb923c;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.totalRemoved||'—'}</td>
+        <td style="padding:8px 12px;color:#2dd4bf;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.frozenCount||'—'}</td>
+        <td style="padding:8px 12px;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:700;color:${netColor}">${m.growth>=0?'+':''}${m.growth}</td>
+      </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NestTrak Annual Summary &mdash; ${d.year}</title>
+</head>
+<body style="margin:0;padding:0;background:#0a0a14;font-family:'Segoe UI',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a14">
+  <tr><td align="center" style="padding:28px 16px">
+    <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%">
+
+      <!-- Header -->
+      <tr><td style="background:linear-gradient(135deg,#1e40af 0%,#7c3aed 50%,#db2777 100%);border-radius:16px 16px 0 0;padding:44px 32px 36px;text-align:center">
+        <div style="font-size:52px;line-height:1;margin-bottom:12px">&#x1F4CA;</div>
+        <h1 style="margin:0 0 8px;color:#fff;font-size:26px;font-weight:800;letter-spacing:-0.5px">Annual Colony Summary</h1>
+        <p style="margin:0;color:rgba(255,255,255,0.85);font-size:15px">${d.year} &middot; Full Year Overview</p>
+      </td></tr>
+
+      <!-- Annual totals -->
+      <tr><td style="background:#111127;padding:0">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
+              <div style="font-size:28px;font-weight:800;color:#a78bfa;font-variant-numeric:tabular-nums">${d.currentPop.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Current Pop.</div>
+            </td>
+            <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
+              <div style="font-size:28px;font-weight:800;color:#34d399;font-variant-numeric:tabular-nums">${d.totalBirths.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Total Born</div>
+            </td>
+            <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
+              <div style="font-size:28px;font-weight:800;color:#fb923c;font-variant-numeric:tabular-nums">${d.totalRemoved.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Total Removed</div>
+            </td>
+            <td width="25%" style="padding:22px 10px;text-align:center">
+              <div style="font-size:28px;font-weight:800;color:#2dd4bf;font-variant-numeric:tabular-nums">${d.totalFrozen.toLocaleString()}</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Frozen</div>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+
+      <!-- Population chart -->
+      <tr><td style="background:#0f0f1e;padding:24px 28px">
+        <h2 style="margin:0 0 16px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#128200; Population by Month</h2>
+        <div style="overflow-x:auto">
+          <table cellpadding="0" cellspacing="0" style="min-width:100%">
+            <tr style="vertical-align:bottom;height:92px">${barCells}</tr>
+          </table>
+        </div>
+      </td></tr>
+
+      <!-- Year highlights -->
+      <tr><td style="background:#111127;padding:24px 28px">
+        <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#127942; Year Highlights</h2>
+        <ul style="margin:0;padding-left:18px">
+          <li style="margin:7px 0;color:#cbd5e1;line-height:1.65;font-size:14px">Peak population of <b style="color:#a78bfa">${d.peakMonth.popEnd.toLocaleString()}</b> in <b>${d.peakMonth.monthName}</b></li>
+          <li style="margin:7px 0;color:#cbd5e1;line-height:1.65;font-size:14px">Most active month: <b>${d.mostActiveMonth.monthName}</b> with <b style="color:#fb923c">${d.mostActiveMonth.totalRemoved.toLocaleString()}</b> removals</li>
+          <li style="margin:7px 0;color:#cbd5e1;line-height:1.65;font-size:14px">Total throughput — <b style="color:#34d399">${d.totalBirths.toLocaleString()} born</b> &middot; <b style="color:#fb923c">${d.totalRemoved.toLocaleString()} removed</b></li>
+          ${d.totalFrozen > 0 ? `<li style="margin:7px 0;color:#cbd5e1;line-height:1.65;font-size:14px"><b style="color:#2dd4bf">${d.totalFrozen.toLocaleString()}</b> animals added to freezer across the year</li>` : ''}
+        </ul>
+      </td></tr>
+
+      <!-- Month-by-month table -->
+      <tr><td style="background:#0f0f1e;padding:24px 28px">
+        <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#128197; Month-by-Month</h2>
+        <div style="overflow-x:auto">
+          <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #1e2035;border-radius:8px;overflow:hidden;min-width:420px">
+            <tr style="background:#1e2035">
+              <th style="padding:9px 12px;color:#64748b;font-size:10px;text-align:left;text-transform:uppercase;letter-spacing:.07em">Month</th>
+              <th style="padding:9px 12px;color:#64748b;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.07em">Born</th>
+              <th style="padding:9px 12px;color:#64748b;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.07em">Removed</th>
+              <th style="padding:9px 12px;color:#64748b;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.07em">Frozen</th>
+              <th style="padding:9px 12px;color:#64748b;font-size:10px;text-align:right;text-transform:uppercase;letter-spacing:.07em">Net</th>
+            </tr>
+            ${monthRows}
+          </table>
+        </div>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="background:#060610;border-radius:0 0 16px 16px;padding:22px 28px;text-align:center">
+        <p style="margin:0 0 4px;color:#475569;font-size:12px">Generated by <b style="color:#7c3aed">NestTrak</b> &middot; ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</p>
+        <p style="margin:0;color:#334155;font-size:11px">Precision colony management for professional breeders</p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+}
+
+/* --- Actions --- */
+
+function generateAndPreviewReport() {
+  const type  = $('#rpt-type')?.value || 'monthly';
+  const month = parseInt($('#rpt-month')?.value || new Date().getMonth() + 1, 10);
+  const year  = parseInt(
+    type === 'annual'
+      ? ($('#rpt-year2')?.value || new Date().getFullYear())
+      : ($('#rpt-year')?.value  || new Date().getFullYear()),
+    10
+  );
+
+  const emailsVal = $('#rpt-emails')?.value?.trim();
+  if (emailsVal) { state.meta.reportEmails = emailsVal; saveState(); }
+
+  const data = type === 'annual' ? buildAnnualData(year) : buildMonthlyData(year, month);
+  _reportHTML = type === 'annual' ? generateAnnualReportHTML(data) : generateMonthlyReportHTML(data);
+
+  const frame = $('#rpt-frame');
+  if (frame) {
+    frame.srcdoc = _reportHTML;
+  }
+  $('#rpt-preview-wrap').style.display = '';
+
+  const sb = $('#rpt-send-btn');
+  if (sb) { sb.style.opacity = '1'; sb.style.pointerEvents = ''; }
+  toast('Report generated');
+}
+
+function sendReportEmail(triggerEl) {
+  if (!_reportHTML) return toast('Generate a report first', true);
+  const emailsRaw = ($('#rpt-emails')?.value || '').trim();
+  if (!emailsRaw) return toast('Enter at least one email address', true);
+  const emails = emailsRaw.split(',').map(e => e.trim()).filter(Boolean);
+  if (!emails.length) return toast('Enter valid email addresses', true);
+
+  const type  = $('#rpt-type')?.value || 'monthly';
+  const month = parseInt($('#rpt-month')?.value || new Date().getMonth() + 1, 10);
+  const year  = parseInt(
+    type === 'annual'
+      ? ($('#rpt-year2')?.value || new Date().getFullYear())
+      : ($('#rpt-year')?.value  || new Date().getFullYear()),
+    10
+  );
+  const subject = type === 'annual'
+    ? `NestTrak Annual Summary — ${year}`
+    : `NestTrak Colony Report — ${MONTH_NAMES[month - 1]} ${year}`;
+
+  if (!state.meta.scriptUrl) {
+    const body = encodeURIComponent('This report is best viewed in HTML. Please use NestTrak to regenerate.');
+    window.open(`mailto:${emails.join(',')}?subject=${encodeURIComponent(subject)}&body=${body}`);
+    return toast('No Apps Script URL — opened mailto instead');
+  }
+
+  if (triggerEl) { triggerEl.textContent = 'Sending…'; triggerEl.style.pointerEvents = 'none'; }
+
+  fetch(state.meta.scriptUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body:    JSON.stringify({ action: 'sendReport', to: emails, subject, html: _reportHTML })
+  })
+  .then(r => r.json())
+  .then(resp => {
+    if (resp.ok) toast(`&#9993; Report sent to ${emails.join(', ')}`);
+    else throw new Error(resp.error || 'Unknown error');
+  })
+  .catch(err => toast(`Send failed: ${err.message}`, true))
+  .finally(() => {
+    if (triggerEl) { triggerEl.textContent = '✉ Send Report'; triggerEl.style.pointerEvents = ''; }
+  });
 }
 
 /* ------------------------------------------------------------------ *
