@@ -944,7 +944,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterO
             fill="transparent" style="cursor:crosshair"/>
         </svg>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;padding-left:${PL}px">${legend}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:8px;padding-left:${PL}px">${legend}</div>
     </div>`;
 }
 
