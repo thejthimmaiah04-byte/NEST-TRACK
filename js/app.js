@@ -797,7 +797,7 @@ function renderStageDistributionGrid(totals, names) {
   return `<div class="dist-grid">${cells}</div>`;
 }
 
-function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
+function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterOverride = null) {
   const DAYS = 90, STEP = 2; // sample every 2 days → 46 points
   const today = new Date(); today.setHours(0,0,0,0);
 
@@ -807,7 +807,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all') {
     if (shelfId !== 'all') return new Set(live('trays').filter(t => t.shelfId === shelfId).map(t => t.id));
     return null;
   })();
-  const cohortFilter = c => !trayIds || trayIds.has(c.trayId);
+  const cohortFilter = cohortFilterOverride || (c => !trayIds || trayIds.has(c.trayId));
 
   // Sample x-axis: day offsets
   const xDays = [];
@@ -3024,11 +3024,8 @@ function renderReports() {
         const c = byId('cohorts', r.cohortId); return speciesOf(c)?.id === sp.id;
       }).reduce((s, r) => s + (Number(r.count)||0), 0);
 
-    // Forecast chart for this species (reuse Charts-tab bar chart, all stages visible)
-    const _savedVis = fcVisibleStages;
-    fcVisibleStages = null;
-    const spFcChart = renderForecastChart(forecast(13, c => speciesOf(c)?.id === sp.id));
-    fcVisibleStages = _savedVis;
+    // Population forecast line chart for this species (same SVG chart as Charts tab)
+    const spFcChart = renderPopulationForecast('all', 'all', c => speciesOf(c)?.id === sp.id);
 
     return `<div class="card rpt-sp-card">
       <div class="rpt-sp-header">
