@@ -805,26 +805,32 @@ function renderDashboard() {
 
   const recs = computeShuffleRecommendations();
   const recsHtml = recs.length ? `
-    <h2 class="section-title" style="margin:20px 0 10px">&#128260; Recommendations</h2>
+    <div class="rec-section-head">
+      <h2 class="section-title" style="margin:0">Recommendations</h2>
+      <span class="rec-count-badge">${recs.length}</span>
+    </div>
+    <div class="rec-rows">
     ${recs.map((r, i) => {
       const urgency = r.sex === '♂' ? 'urgent' : 'moderate';
       const urgencyLabel = r.sex === '♂' ? 'Urgent' : 'Moderate';
       return `
-      <div class="rec-alert ${urgency}" data-rec-idx="${i}">
-        <label class="rec-chk-wrap" title="Mark as done — auto-updates tray">
-          <input type="checkbox" class="rec-chk" data-act="rec-done"
-            data-from="${esc(r.from.id)}" data-to="${esc(r.to.id)}"
-            data-count="${r.count}" data-sex="${esc(r.sex)}" data-idx="${i}" />
-        </label>
-        <div class="rec-alert-body">
-          <div class="rec-alert-top">
-            <span class="rec-alert-pill">${urgencyLabel}</span>
-            <span class="rec-alert-action">Move ${r.count}${r.sex} &nbsp;<b>${esc(r.from.name)}</b> &rarr; <b>${esc(r.to.name)}</b></span>
+      <label class="rec-row ${urgency}" title="Tick to apply — auto-updates tray data">
+        <input type="checkbox" class="rec-chk" data-act="rec-done"
+          data-from="${esc(r.from.id)}" data-to="${esc(r.to.id)}"
+          data-count="${r.count}" data-sex="${esc(r.sex)}" data-idx="${i}" />
+        <div class="rec-row-body">
+          <div class="rec-row-top">
+            <span class="rec-pill ${urgency}">${urgencyLabel}</span>
+            <span class="rec-row-action">Move ${r.count}${r.sex}</span>
+            <span class="rec-tray">${esc(r.from.name)}</span>
+            <span class="rec-arrow">→</span>
+            <span class="rec-tray">${esc(r.to.name)}</span>
           </div>
-          <div class="rec-alert-reason">${esc(r.detail)}</div>
+          <div class="rec-row-detail">${esc(r.detail)}</div>
         </div>
-      </div>`;
-    }).join('')}` : '';
+      </label>`;
+    }).join('')}
+    </div>` : '';
 
   el.innerHTML = `
     <div class="spread">

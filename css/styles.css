@@ -656,41 +656,51 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .cohort-remove input { width: 68px; }
 
 /* ---------- Shuffle Recommendations ---------- */
-.rec-list { padding: 4px 0; }
-.rec-card { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0;
-  border-bottom: 1px solid var(--border-2); }
-.rec-card:last-child { border-bottom: none; }
-.rec-badge { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-subtle, rgba(249,115,22,.12));
-  color: var(--accent); font-size: 16px; font-weight: 700; display: flex; align-items: center;
-  justify-content: center; flex-shrink: 0; }
-.rec-body { flex: 1; min-width: 0; }
-.rec-action { font-size: 14px; font-weight: 600; color: var(--text); }
-.rec-tray { display: inline-block; background: var(--surface-2, var(--surface)); border: 1px solid var(--border);
-  border-radius: 5px; padding: 1px 6px; font-size: 12px; font-weight: 700; color: var(--accent); }
-.rec-detail { margin-top: 3px; line-height: 1.4; }
+/* ---------- Recommendations ---------- */
+.rec-section-head {
+  display: flex; align-items: center; gap: 8px; margin: 20px 0 10px;
+}
+.rec-count-badge {
+  background: var(--accent); color: #fff; font-size: 11px; font-weight: 700;
+  padding: 1px 7px; border-radius: 99px; line-height: 1.8;
+}
+.rec-rows { display: flex; flex-direction: column; gap: 6px; }
 
-/* ---------- Recommendations — Option D alert banner ---------- */
-.rec-alert {
+.rec-row {
   display: flex; align-items: flex-start; gap: 12px;
-  border-left: 4px solid var(--border);
-  background: var(--surface); border-radius: 0 10px 10px 0;
-  padding: 12px 14px; margin-bottom: 8px;
-  transition: opacity .3s;
+  background: var(--surface); border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 12px 14px; cursor: pointer;
+  position: relative; overflow: hidden;
+  transition: opacity .3s, background .15s;
 }
-.rec-alert.urgent   { border-left-color: #ef4444; }
-.rec-alert.moderate { border-left-color: #f59e0b; }
-.rec-chk-wrap { display: flex; align-items: flex-start; padding-top: 2px; flex-shrink: 0; }
-.rec-chk { width: 18px; height: 18px; accent-color: #22c55e; cursor: pointer; margin: 0; }
-.rec-alert-body { flex: 1; min-width: 0; }
-.rec-alert-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-.rec-alert-pill {
+.rec-row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 3px 0 0 3px;
+}
+.rec-row.urgent::before   { background: #ef4444; }
+.rec-row.moderate::before { background: #f59e0b; }
+.rec-row:hover { background: var(--surface-2, var(--surface)); }
+.rec-row:has(input:checked) { opacity: 0.35; pointer-events: none; }
+
+.rec-chk { width: 17px; height: 17px; accent-color: #22c55e; cursor: pointer; margin: 2px 0 0; flex-shrink: 0; }
+.rec-row-body  { flex: 1; min-width: 0; }
+.rec-row-top   { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.rec-row-action { font-size: 14px; font-weight: 700; color: var(--text); }
+.rec-arrow      { color: var(--muted); font-size: 13px; }
+.rec-row-detail { font-size: 12px; color: var(--muted); line-height: 1.4; padding-left: 1px; }
+
+.rec-tray {
+  display: inline-block;
+  background: rgba(249,115,22,.12); border: 1px solid rgba(249,115,22,.35);
+  border-radius: 5px; padding: 1px 7px; font-size: 12px; font-weight: 700;
+  color: var(--accent);
+}
+.rec-pill {
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-  padding: 2px 7px; border-radius: 99px;
+  padding: 2px 7px; border-radius: 99px; flex-shrink: 0;
 }
-.urgent   .rec-alert-pill { background: rgba(239,68,68,.15); color: #ef4444; }
-.moderate .rec-alert-pill { background: rgba(245,158,11,.15); color: #f59e0b; }
-.rec-alert-action { font-size: 14px; font-weight: 600; color: var(--text); }
-.rec-alert-reason  { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.rec-pill.urgent   { background: rgba(239,68,68,.15); color: #ef4444; }
+.rec-pill.moderate { background: rgba(245,158,11,.15); color: #f59e0b; }
 
 /* Sex count inputs inside adult cohort rows */
 .cohort-sex-edit { display: flex; align-items: center; gap: 6px; }
