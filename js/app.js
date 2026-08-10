@@ -1870,7 +1870,6 @@ function renderTrays() {
           <div class="tray-top-right">
             ${birthBadge}
             ${ratioDot}
-            ${total > 0 ? `<button class="tray-rem-btn" data-act="quick-tray-remove" data-id="${tray.id}" title="Record removal or death">✕</button>` : ''}
             <span class="tray-chevron">›</span>
           </div>
         </div>
