@@ -1934,13 +1934,14 @@ function getCalEvents() {
   for (const r of live('removals')) {
     const tray = byId('trays', r.trayId);
     const stageStr = r.stage ? r.stage.toLowerCase() + (r.count !== 1 ? 's' : '') : 'animal' + (r.count !== 1 ? 's' : '');
-    const sexStr = (r.males != null || r.females != null)
-      ? ` · ${r.males != null ? '♂'+r.males : ''}${r.females != null ? ' ♀'+r.females : ''}`.trim()
-      : '';
+    const sexParts = [];
+    if (r.males != null && r.males !== '') sexParts.push('♂' + r.males);
+    if (r.females != null && r.females !== '') sexParts.push('♀' + r.females);
+    const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
     add(r.date, {
       type: 'removal',
-      label: `${r.count} ${stageStr} removed${r.reason ? ' · ' + r.reason : ''}`,
-      sub:   `${tray?.name || r.trayId || '—'}${sexStr}`,
+      label: `${r.count} ${stageStr} removed${r.reason ? ' · ' + r.reason : ''}${sexStr}`,
+      sub:   `${tray?.name || r.trayId || '—'}`,
       color: 'var(--danger)'
     });
   }
