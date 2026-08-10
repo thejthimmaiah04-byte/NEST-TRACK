@@ -904,18 +904,18 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterO
   // Legend
   const legend = active.map(nm => {
     const color = STAGE_HEX[stageNames.indexOf(nm) % STAGE_HEX.length];
-    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+    return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:20px">
+      <span style="font-size:11px;font-weight:600;color:var(--text)">${esc(nm)}</span>
       <svg width="22" height="10" viewBox="0 0 22 10" style="flex-shrink:0">
         <line x1="0" y1="5" x2="22" y2="5" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
-      <span style="font-size:11px;font-weight:600;color:var(--text)">${esc(nm)}</span>
     </span>`;
   }).join('') + (hasDeaths ? `
-    <span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+    <span style="display:inline-flex;align-items:center;gap:5px;margin-right:20px">
+      <span style="font-size:11px;font-weight:600;color:var(--text)">Natural deaths</span>
       <svg width="22" height="10" viewBox="0 0 22 10" style="flex-shrink:0">
         <line x1="0" y1="5" x2="22" y2="5" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3" stroke-linecap="round"/>
       </svg>
-      <span style="font-size:11px;font-weight:600;color:var(--text)">Natural deaths</span>
     </span>` : '');
 
   // Embed chart data for hover tooltip
@@ -1643,6 +1643,81 @@ function renderFreezer() {
     </p>`;
 }
 
+/* ---------- Quick removal from tray card ---------- */
+function quickTrayRemoval(trayId) {
+  const tray = byId('trays', trayId);
+  if (!tray) return;
+  const today = new Date();
+  const sp = speciesOf(tray);
+  const lastStageName = sp?.stages?.length
+    ? [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name : null;
+
+  const cohorts = live('cohorts').filter(c => c.trayId === trayId && cohortNet(c, today) > 0);
+  const stageMap = new Map();
+  for (const c of cohorts) {
+    const { name } = stageIndexAt(c, today);
+    stageMap.set(name, (stageMap.get(name) || 0) + cohortNet(c, today));
+  }
+  if (!stageMap.size) return toast('No live animals in this tray', true);
+
+  const stageOpts = [...stageMap.entries()]
+    .map(([nm, cnt]) => `<option value="${esc(nm)}">${esc(nm)} (${cnt} available)</option>`)
+    .join('');
+
+  openModal(`Record removal — ${esc(tray.name)}`, `
+    <label class="field" style="margin-bottom:14px">
+      <span>Stage</span>
+      <select id="qtr-stage">${stageOpts}</select>
+    </label>
+    <label class="field" style="margin-bottom:14px">
+      <span>How many?</span>
+      <input id="qtr-count" type="number" min="1" placeholder="e.g. 3" />
+    </label>
+    <div class="field" style="margin-bottom:16px">
+      <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
+      <div class="reason-btns">
+        <button class="reason-btn active" data-reason="Dead">Dead</button>
+        <button class="reason-btn" data-reason="Feeding">Feeding</button>
+        <button class="reason-btn" data-reason="Frozen">Frozen</button>
+        <button class="reason-btn" data-reason="Other">Other</button>
+      </div>
+    </div>
+    <button class="btn primary block" id="qtr-save">Confirm removal</button>
+  `, root => {
+    $$('.reason-btn', root).forEach(b => b.onclick = () => {
+      $$('.reason-btn', root).forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+    $('#qtr-count', root).focus();
+
+    $('#qtr-save', root).onclick = () => {
+      const stageName = $('#qtr-stage', root).value;
+      const n = parseInt($('#qtr-count', root).value, 10);
+      const reason = $('.reason-btn.active', root)?.dataset.reason || 'Dead';
+      const avail = stageMap.get(stageName) || 0;
+      if (!n || n < 1) return toast('Enter a count', true);
+      if (n > avail) return toast(`Only ${avail} available in this stage`, true);
+
+      const matchCohorts = live('cohorts')
+        .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
+        .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
+
+      let left = n;
+      for (const c of matchCohorts) {
+        if (left <= 0) break;
+        const take = Math.min(left, cohortNet(c, today));
+        const r = rec('removals', { cohortId: c.id, trayId, date: todayISO(), stage: stageName, count: take, reason });
+        upsertLocal('removals', r);
+        touch('removals', r);
+        left -= take;
+      }
+      closeModal();
+      render();
+      toast(`${n} ${stageName} removed from ${esc(tray.name)} · ${reason}`);
+    };
+  });
+}
+
 /* ---------- Trays ---------- */
 function renderTrays() {
   const el = $('#tab-trays');
@@ -1795,6 +1870,7 @@ function renderTrays() {
           <div class="tray-top-right">
             ${birthBadge}
             ${ratioDot}
+            ${total > 0 ? `<button class="tray-rem-btn" data-act="quick-tray-remove" data-id="${tray.id}" title="Record removal or death">✕</button>` : ''}
             <span class="tray-chevron">›</span>
           </div>
         </div>
@@ -2717,6 +2793,7 @@ function onClick(e) {
     case 'add-intake':   return intakeModal(id);
     case 'edit-cohort':  return editCohortModal(id, el.dataset.trayid);
     case 'remove-stage': return openRemoveByStage(el.dataset.stage, Number(el.dataset.sidx));
+    case 'quick-tray-remove': { e.stopPropagation(); return quickTrayRemoval(id); }
     case 'use-frozen':  return useFrozenModal(el.dataset.spid);  // legacy tray panel
     case 'fz-use':      return useFrozenModal(el.dataset.stage);
     case 'fz-add':      return addToFreezerModal();
@@ -2977,18 +3054,33 @@ function renderReports() {
     </div>`;
   }).filter(Boolean).join('');
 
-  /* ── 4-week forecast bars ─────────────────────────────────────── */
-  const fc    = forecast(4);
-  const maxFc = Math.max(1, ...fc.points.map(p => p.total));
-  const fcBars = fc.points.map((p, i) => {
-    const h   = Math.max(6, Math.round((p.total / maxFc) * 56));
-    const lbl = i === 0 ? 'Now' : `Wk ${i}`;
-    return `<div class="rpt-fc-col">
-      <div class="rpt-fc-val">${p.total.toLocaleString()}</div>
-      <div class="rpt-fc-bar" style="height:${h}px"></div>
-      <div class="rpt-fc-lbl">${lbl}</div>
-    </div>`;
+  /* ── Recent removals table ────────────────────────────────────── */
+  const allRems = live('removals')
+    .filter(r => r.count > 0)
+    .sort((a, b) => normYMD(b.date).localeCompare(normYMD(a.date)))
+    .slice(0, 20);
+
+  const remRows = allRems.map(r => {
+    const tray = byId('trays', r.trayId);
+    const reasonColor = r.reason === 'Dead' ? 'var(--danger)'
+      : r.reason === 'Feeding' ? 'var(--accent)'
+      : r.reason === 'Frozen'  ? '#2dd4bf'
+      : 'var(--text-2)';
+    return `<tr class="rpt-rem-row">
+      <td>${ymdToInput(r.date)}</td>
+      <td>${esc(tray?.name || r.trayId || '—')}</td>
+      <td>${esc(r.stage || '—')}</td>
+      <td class="rpt-rem-count">${r.count}</td>
+      <td style="color:${reasonColor};font-weight:600">${esc(r.reason || '—')}</td>
+    </tr>`;
   }).join('');
+
+  const remTable = allRems.length
+    ? `<div style="overflow-x:auto"><table class="rpt-rem-table">
+        <thead><tr><th>Date</th><th>Tray</th><th>Stage</th><th>Count</th><th>Reason</th></tr></thead>
+        <tbody>${remRows}</tbody>
+       </table></div>`
+    : `<p class="small muted" style="margin:0">No removals recorded yet. Use the Trays tab or Dashboard to record deaths and removals.</p>`;
 
   /* ── Per-species cards ────────────────────────────────────────── */
   const spCards = live('species').map(sp => {
@@ -3072,12 +3164,9 @@ function renderReports() {
       ${sexRatioLine ? `<hr class="hr" />${sexRatioLine}` : ''}
     </div>
 
-    <!-- ② Forecast -->
-    <h2 class="section-title" style="margin:0 0 12px">4-Week Population Forecast</h2>
-    <div class="card" style="margin-bottom:20px">
-      <p class="small muted" style="margin:0 0 14px">Based on current removal rate. Highlighted bar = now.</p>
-      <div class="rpt-fc-chart">${fcBars}</div>
-    </div>
+    <!-- ② Removals & Deaths -->
+    <h2 class="section-title" style="margin:0 0 12px">Removals &amp; Deaths</h2>
+    <div class="card" style="margin-bottom:20px">${remTable}</div>
 
     <!-- ③ Species Breakdown -->
     ${live('species').length ? `

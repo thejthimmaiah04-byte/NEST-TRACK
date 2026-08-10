@@ -508,6 +508,12 @@ input:focus, select:focus, textarea:focus {
 .tray-chevron { font-size: 16px; color: var(--muted); transition: transform .15s; }
 .tray:hover .tray-chevron { color: var(--accent); transform: translateX(3px); }
 
+/* Quick-remove button on tray card */
+.tray-rem-btn { background: none; border: 1px solid var(--danger); color: var(--danger);
+  border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 7px; cursor: pointer;
+  transition: background .15s, color .15s; line-height: 1.5; }
+.tray-rem-btn:hover { background: var(--danger); color: #fff; }
+
 /* Floating action button */
 .fab {
   position: fixed; bottom: 24px; right: 20px; z-index: 40;
@@ -1224,6 +1230,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   border-radius: 20px; white-space: nowrap; }
 .rpt-sp-meta  { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .rpt-sp-meta-item { font-size: 12.5px; }
+
+/* Removals & Deaths table */
+.rpt-rem-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rpt-rem-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em; padding: 0 10px 8px 0; border-bottom: 1px solid var(--border); }
+.rpt-rem-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.rpt-rem-table tbody tr:last-child td { border-bottom: none; }
+.rpt-rem-count { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
 
 /* Per-species forecast chart */
 .rpt-sp-fc { display: block; width: 100%; margin-top: 14px; }
