@@ -101,6 +101,27 @@ function migrateTraySexData() {
   if (dirty) saveState();
 }
 
+// Returns current adult count for a tray.
+// When sex is tracked (tray.adultMales/adultFemales set), sex sum IS the count.
+// Falls back to cohort-based count otherwise.
+function trayAdultCount(tray, sp) {
+  if (!tray) return 0;
+  if (tray.adultMales != null || tray.adultFemales != null) {
+    return (Number(tray.adultMales) || 0) + (Number(tray.adultFemales) || 0);
+  }
+  if (!sp?.stages?.length) return 0;
+  const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
+  if (!lastStage) return 0;
+  const today = new Date();
+  let count = 0;
+  for (const c of live('cohorts')) {
+    if (c.trayId !== tray.id || cohortNet(c, today) <= 0) continue;
+    if (stageIndexAt(c, today).name !== lastStage) continue;
+    count += cohortNet(c, today);
+  }
+  return count;
+}
+
 // Returns Map<stage, count> of animals currently in the freezer
 function frozenByStage() {
   const m = new Map();
@@ -1951,8 +1972,12 @@ function quickTrayRemoval(trayId) {
   const stageMap = new Map();
   for (const c of cohorts) {
     const { name } = stageIndexAt(c, today);
+    if (name === lastStageName) continue; // adult stage handled via sex tally
     stageMap.set(name, (stageMap.get(name) || 0) + cohortNet(c, today));
   }
+  // Adult count from sex tally (authoritative) or cohort fallback
+  const adultRemCount = trayAdultCount(tray, sp);
+  if (adultRemCount > 0 && lastStageName) stageMap.set(lastStageName, adultRemCount);
   if (!stageMap.size) return toast('No live animals in this tray', true);
 
   const stageOpts = [...stageMap.entries()]
@@ -2165,14 +2190,23 @@ function renderTrays() {
     for (const tray of trays) {
       const sp = speciesOf(tray);
       const cohorts = live('cohorts').filter(c => c.trayId === tray.id);
+      const lastStageName = sp?.stages?.length
+        ? [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name : null;
       let total = 0;
       const stageCounts = new Map();
       for (const c of cohorts) {
         const net = cohortNet(c);
         if (net <= 0) continue;
-        total += net;
         const { name } = stageIndexAt(c);
+        if (name === lastStageName) continue; // adult stage handled below via sex tally
+        total += net;
         stageCounts.set(name, (stageCounts.get(name)||0) + net);
+      }
+      // Adult count authoritative source: sex tally if set, else cohort fallback
+      const adultTileCount = trayAdultCount(tray, sp);
+      if (adultTileCount > 0 && lastStageName) {
+        total += adultTileCount;
+        stageCounts.set(lastStageName, adultTileCount);
       }
       let barSegs = '';
       names.forEach((nm,i) => {
@@ -2682,12 +2716,7 @@ function trayDetailModal(trayId) {
   const lastStageName = sp?.stages?.length
     ? [...sp.stages].sort((a,b) => (b.startDay||b.days||0)-(a.startDay||a.days||0))[0]?.name
     : null;
-  let adultCount = 0;
-  if (lastStageName) {
-    for (const c of cohorts) {
-      if (cohortNet(c) > 0 && stageIndexAt(c, today).name === lastStageName) adultCount += cohortNet(c);
-    }
-  }
+  const adultCount = trayAdultCount(tray, sp);
   const gravid      = tray.gravidFemales    || 0;
   const lactating   = tray.lactatingFemales || 0;
   const rows = cohorts.map(c => {
