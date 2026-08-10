@@ -2369,8 +2369,10 @@ function renderSettings() {
       <div class="gap">
         <button class="btn primary" data-act="save-url">Save URL</button>
         ${url ? `<button class="btn" data-act="sync-now">Sync now</button>` : ''}
+        ${url ? `<button class="btn" data-act="full-sync" title="Re-pulls every record from the Sheet — use after editing dates or data directly in Google Sheets">Full re-sync from Sheet</button>` : ''}
       </div>
       ${syncError ? `<p class="sync-error-msg">⚠ Last sync error: ${esc(syncError)}</p>` : ''}
+      <p class="small muted" style="margin:8px 0 0">Use <b>Full re-sync</b> after editing data directly in Google Sheets — the normal sync only picks up new changes.</p>
       <hr class="hr" />
       <div class="small muted">
         <div class="spread"><span>Sync status</span><span>${syncing?'Syncing…':syncError?'Error':pc>0?`${pc} queued`:url?'Up to date':'No URL set'}</span></div>
@@ -3146,6 +3148,12 @@ function onClick(e) {
     }
     case 'rec-done': return applyRecommendation(el);
     case 'sync-now': syncNow(true); return;
+    case 'full-sync':
+      state.meta.lastSync = 0;
+      saveState();
+      toast('Full re-sync started — pulling all records from Sheet…');
+      syncNow(true);
+      return;
     case 'export': return exportJSON();
     case 'import': return importJSON();
     case 'wipe':   return confirmDelete('ALL local data', () => {
