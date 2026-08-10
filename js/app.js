@@ -664,22 +664,10 @@ function computeShuffleRecommendations() {
   for (const tray of live('trays')) {
     const sp = speciesOf(tray);
     if (!sp?.stages?.length) continue;
-    const lastStage = [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name;
 
-    let males = 0, females = 0, hasData = false;
-    for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
-      if (cohortNet(c, now) <= 0) continue;
-      if (stageIndexAt(c, now).name !== lastStage) continue;
-      if (c.males == null && c.females == null) continue;
-      hasData = true;
-      const rems = live('removals').filter(r => r.cohortId === c.id);
-      const remM = rems.reduce((s, r) => s + (Number(r.males)   || 0), 0);
-      const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
-      males   += Math.max(0, (Number(c.males)   || 0) - remM);
-      females += Math.max(0, (Number(c.females) || 0) - remF);
-    }
-    if (!hasData || (males === 0 && females === 0)) continue;
-    trayData.push({ tray, sp, males, females });
+    const sex = trayAdultSex(tray.id, sp);
+    if (!sex || (sex.males === 0 && sex.females === 0)) continue;
+    trayData.push({ tray, sp, males: sex.males, females: sex.females });
   }
 
   const recs = [];
