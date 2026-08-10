@@ -25,7 +25,7 @@ var SHEET_NAMES = {
 var SCHEMAS = {
   species:     ['id', 'name', 'stages', 'lifespan', 'gestation', 'updatedAt', 'deleted', 'syncedAt'],
   shelves:     ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
-  trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'updatedAt', 'deleted', 'syncedAt'],
+  trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'adultMales', 'adultFemales', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:     ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
   removals:    ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'cause', 'updatedAt', 'deleted', 'syncedAt'],
   frozen_uses: ['id', 'speciesId', 'stage', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']

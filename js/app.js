@@ -49,8 +49,15 @@ function fmtTimestamp(ms) {
   return ymd + ': ' + hm;
 }
 
-// Returns { males, females } from adult-stage cohort sex data (net of removals), or null if no sex data
+// Returns { males, females } for the adult population of a tray.
+// Source of truth: tray.adultMales / tray.adultFemales (set via Save in modal or auto-updated on transfer).
+// Legacy fallback for trays not yet migrated: sum cohort males/females (no removal subtraction).
 function trayAdultSex(trayId, sp) {
+  const tray = byId('trays', trayId);
+  if (!tray) return null;
+  if (tray.adultMales != null || tray.adultFemales != null) {
+    return { males: Number(tray.adultMales) || 0, females: Number(tray.adultFemales) || 0 };
+  }
   if (!sp?.stages?.length) return null;
   const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
   if (!lastStage) return null;
@@ -61,13 +68,37 @@ function trayAdultSex(trayId, sp) {
     if (stageIndexAt(c, today).name !== lastStage) continue;
     if (c.males == null && c.females == null) continue;
     tracked = true;
-    const rems = live('removals').filter(r => r.cohortId === c.id);
-    const remM = rems.reduce((s, r) => s + (Number(r.males) || 0), 0);
-    const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
-    males   += Math.max(0, (Number(c.males) || 0) - remM);
-    females += Math.max(0, (Number(c.females) || 0) - remF);
+    males   += Number(c.males) || 0;
+    females += Number(c.females) || 0;
   }
   return tracked ? { males, females } : null;
+}
+
+// One-time migration: promote cohort-level sex data → tray.adultMales/adultFemales
+function migrateTraySexData() {
+  let dirty = false;
+  for (const tray of live('trays')) {
+    if (tray.adultMales != null || tray.adultFemales != null) continue;
+    const sp = byId('species', tray.speciesId);
+    if (!sp?.stages?.length) continue;
+    const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
+    if (!lastStage) continue;
+    const today = new Date();
+    let males = 0, females = 0, tracked = false;
+    for (const c of live('cohorts')) {
+      if (c.trayId !== tray.id || cohortNet(c, today) <= 0) continue;
+      if (stageIndexAt(c, today).name !== lastStage) continue;
+      if (c.males == null && c.females == null) continue;
+      tracked = true;
+      const rems = live('removals').filter(r => r.cohortId === c.id);
+      const remM = rems.reduce((s, r) => s + (Number(r.males) || 0), 0);
+      const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
+      males   += Math.max(0, (Number(c.males) || 0) - remM);
+      females += Math.max(0, (Number(c.females) || 0) - remF);
+    }
+    if (tracked) { tray.adultMales = males; tray.adultFemales = females; dirty = true; }
+  }
+  if (dirty) saveState();
 }
 
 // Returns Map<stage, count> of animals currently in the freezer
@@ -712,6 +743,15 @@ function applyRecommendation(el) {
     : '';
   const destAdult = destCohorts.find(c => stageIndexAt(c, now)?.name === lastStage);
 
+  // Update tray-level sex counts on source and destination
+  const fromTray = byId('trays', fromId);
+  if (fromTray && fromTray.adultMales != null) {
+    if (sex === '♂') fromTray.adultMales = Math.max(0, (Number(fromTray.adultMales) || 0) - count);
+    else             fromTray.adultFemales = Math.max(0, (Number(fromTray.adultFemales) || 0) - count);
+    touch('trays', fromTray);
+  }
+  const toTray = byId('trays', toId);
+
   if (destAdult) {
     if (sex === '♂') destAdult.males   = (Number(destAdult.males)   || 0) + count;
     else              destAdult.females = (Number(destAdult.females) || 0) + count;
@@ -729,6 +769,12 @@ function applyRecommendation(el) {
       type:         'intake'
     });
     upsertLocal('cohorts', newC); touch('cohorts', newC);
+  }
+  // Update destination tray-level sex counts
+  if (toTray) {
+    if (sex === '♂') toTray.adultMales = (Number(toTray.adultMales) || 0) + count;
+    else             toTray.adultFemales = (Number(toTray.adultFemales) || 0) + count;
+    touch('trays', toTray);
   }
   toast(`Transferred ${count}${sex} — tray data updated`);
 
@@ -2609,12 +2655,7 @@ function trayDetailModal(trayId) {
     const isAdultRow = !depleted && lastStageName && name === lastStageName;
     const si = orderedStageNames().indexOf(name);
     const infoLine = `started ${c.initialCount}${c.notes?' · '+esc(c.notes):''}`;
-    const sexInputs = isAdultRow ? `
-      <div class="cohort-sex-edit">
-        <label class="sex-lbl">♂<input type="number" min="0" max="${net}" value="${c.males??''}" placeholder="?" class="sex-inp" data-sex-cid="${c.id}" data-sex="m" /></label>
-        <label class="sex-lbl">♀<input type="number" min="0" max="${net}" value="${c.females??''}" placeholder="?" class="sex-inp" data-sex-cid="${c.id}" data-sex="f" /></label>
-        <button class="btn sm" data-save-sex="${c.id}">Save</button>
-      </div>` : '';
+    const sexInputs = ''; // sex tracked at tray level in Reproductive status section
     return `<div class="cohort-row" style="${depleted?'opacity:.45':''}">
       <div class="cohort-info">
         <div class="cn">${net}
@@ -2645,7 +2686,15 @@ function trayDetailModal(trayId) {
   })();
   const gravidSection = adultCount > 0 ? `
     <div class="gravid-section">
-      <div class="gravid-title">Reproductive status <span class="gravid-sub">(${adultCount} adults · ${sex ? `♂${sex.males} ♀${sex.females}` : 'sex not tracked'})</span></div>
+      <div class="gravid-title">Reproductive status <span class="gravid-sub">(${adultCount} adults)</span></div>
+      <div class="gravid-row" style="margin-bottom:8px;padding-bottom:10px;border-bottom:1px solid var(--border,#2a2a44)">
+        <label class="gravid-field"><span>♂ Males</span>
+          <input type="number" id="tray-sex-m" min="0" max="${adultCount}" value="${tray.adultMales??''}" placeholder="0" /></label>
+        <label class="gravid-field"><span>♀ Females</span>
+          <input type="number" id="tray-sex-f" min="0" max="${adultCount}" value="${tray.adultFemales??''}" placeholder="0" /></label>
+        <button class="btn sm" data-save-sex="${trayId}">Save</button>
+      </div>
+      <div class="small muted" style="margin-bottom:10px">♂ + ♀ must equal ${adultCount} adults${sex ? ` · current: ♂${sex.males} ♀${sex.females}` : ''}</div>
       <div class="gravid-row">
         <label class="gravid-field">
           <span>Gravid ♀</span>
@@ -3089,18 +3138,24 @@ function onClick(e) {
 
   const sexBtn = e.target.closest('[data-save-sex]');
   if (sexBtn) {
-    const cid = sexBtn.dataset.saveSex;
+    const id = sexBtn.dataset.saveSex;
     const root = sexBtn.closest('.modal-body') || document;
-    const mVal = root.querySelector(`[data-sex-cid="${cid}"][data-sex="m"]`)?.value;
-    const fVal = root.querySelector(`[data-sex-cid="${cid}"][data-sex="f"]`)?.value;
-    const cohort = byId('cohorts', cid);
-    if (!cohort) return;
-    const m = mVal !== '' && mVal != null ? Number(mVal) : undefined;
-    const f = fVal !== '' && fVal != null ? Number(fVal) : undefined;
-    if (m !== undefined) cohort.males = m;
-    if (f !== undefined) cohort.females = f;
-    saveState(); queueSync('cohorts', cohort.id);
-    toast('Sex counts saved'); return;
+    const tray = byId('trays', id);
+    if (tray) {
+      // New model: tray-level sex storage
+      const mVal = root.querySelector('#tray-sex-m')?.value;
+      const fVal = root.querySelector('#tray-sex-f')?.value;
+      const m = mVal !== '' && mVal != null ? Number(mVal) : null;
+      const f = fVal !== '' && fVal != null ? Number(fVal) : null;
+      if (m !== null) tray.adultMales = m;
+      if (f !== null) tray.adultFemales = f;
+      saveState(); touch('trays', tray);
+      toast('Sex counts saved');
+      renderTrays();
+      trayDetailModal(tray.id);
+      return;
+    }
+    return;
   }
 
   const el = e.target.closest('[data-act]');
@@ -4151,6 +4206,7 @@ function checkAutoReport() {
  * ------------------------------------------------------------------ */
 function init() {
   loadState();
+  migrateTraySexData();
   initHistory();
   $$('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
   document.addEventListener('click', onClick);
