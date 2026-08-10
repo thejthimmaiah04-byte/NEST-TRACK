@@ -2307,19 +2307,26 @@ function trayDetailModal(trayId) {
   const lactating   = tray.lactatingFemales || 0;
   const rows = cohorts.map(c => {
     const net = cohortNet(c);
-    const { name, age } = stageIndexAt(c);
+    const { name } = stageIndexAt(c);
     const depleted = net <= 0;
+    const isAdultRow = !depleted && lastStageName && name === lastStageName;
     const si = orderedStageNames().indexOf(name);
+    const infoLine = `started ${c.initialCount}${c.notes?' · '+esc(c.notes):''}`;
+    const sexInputs = isAdultRow ? `
+      <div class="cohort-sex-edit">
+        <label class="sex-lbl">♂<input type="number" min="0" max="${net}" value="${c.males??''}" placeholder="?" class="sex-inp" data-sex-cid="${c.id}" data-sex="m" /></label>
+        <label class="sex-lbl">♀<input type="number" min="0" max="${net}" value="${c.females??''}" placeholder="?" class="sex-inp" data-sex-cid="${c.id}" data-sex="f" /></label>
+        <button class="btn sm" data-save-sex="${c.id}">Save</button>
+      </div>` : '';
     return `<div class="cohort-row" style="${depleted?'opacity:.45':''}">
       <div class="cohort-info">
         <div class="cn">${net}
           <span class="pill" style="background:${stageColor(si)}">${esc(name)}</span>
         </div>
-        <div class="small muted">Born ${ymdToInput(c.birthDate)} · ${age}d old · started ${c.initialCount}${(c.males!=null||c.females!=null)?' · ♂ '+(c.males??'?')+' ♀ '+(c.females??'?'):''}${c.notes?' · '+esc(c.notes):''}</div>
+        <div class="small muted">${infoLine}</div>
       </div>
       <div class="cohort-remove">
-        ${depleted?'':`<input type="number" min="1" max="${net}" placeholder="0" data-remove="${c.id}" />
-        <button class="btn sm" data-act="do-remove" data-id="${c.id}">Remove</button>`}
+        ${sexInputs}
         <button class="icon-btn" data-act="edit-cohort" data-id="${c.id}" data-trayid="${trayId}" title="Edit">✎</button>
         <button class="icon-btn" data-act="del-cohort" data-id="${c.id}" title="Delete">🗑</button>
       </div>
@@ -2392,6 +2399,7 @@ function trayDetailModal(trayId) {
     <div class="gap" style="margin-bottom:4px">
       <button class="btn primary" data-act="add-litter" data-id="${trayId}" style="flex:1">+ Born today</button>
       <button class="btn primary" data-act="add-intake" data-id="${trayId}" style="flex:1">+ Add by stage</button>
+      <button class="btn danger" data-act="quick-tray-remove" data-id="${trayId}" style="flex:1">Remove</button>
     </div>
     <div class="mt">${cohorts.length ? rows : '<p class="muted small">No litters yet.</p>'}</div>
     ${ratioSection}
@@ -2762,6 +2770,22 @@ function speciesModal(existing) {
 function onClick(e) {
   if (e.target.closest('[data-close]')) return closeModal();
 
+  const sexBtn = e.target.closest('[data-save-sex]');
+  if (sexBtn) {
+    const cid = sexBtn.dataset.saveSex;
+    const root = sexBtn.closest('.modal-body') || document;
+    const mVal = root.querySelector(`[data-sex-cid="${cid}"][data-sex="m"]`)?.value;
+    const fVal = root.querySelector(`[data-sex-cid="${cid}"][data-sex="f"]`)?.value;
+    const cohort = byId('cohorts', cid);
+    if (!cohort) return;
+    const m = mVal !== '' && mVal != null ? Number(mVal) : undefined;
+    const f = fVal !== '' && fVal != null ? Number(fVal) : undefined;
+    if (m !== undefined) cohort.males = m;
+    if (f !== undefined) cohort.females = f;
+    saveState(); queueSync('cohorts', cohort.id);
+    toast('Sex counts saved'); return;
+  }
+
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const act = el.dataset.act;
@@ -2934,6 +2958,7 @@ async function syncNow(manual = false) {
     // Merge remote changes — full pull always wins (sheet is truth on manual sync)
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
+        if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
         const local = byId(e, remote.id);
         if (!local || manual || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
       }
@@ -3164,7 +3189,10 @@ function renderReports() {
     </div>
 
     <!-- ② Removals & Deaths -->
-    <h2 class="section-title" style="margin:0 0 12px">Removals &amp; Deaths</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 12px">
+      <h2 class="section-title" style="margin:0">Removals &amp; Deaths</h2>
+      ${state.meta.scriptUrl ? `<button class="btn sm" data-act="sync-now" style="flex-shrink:0">&#8635; Pull from sheet</button>` : ''}
+    </div>
     <div class="card" style="margin-bottom:20px">${remTable}</div>
 
     <!-- ③ Species Breakdown -->

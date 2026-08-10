@@ -655,6 +655,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .cohort-remove { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 .cohort-remove input { width: 68px; }
 
+/* Sex count inputs inside adult cohort rows */
+.cohort-sex-edit { display: flex; align-items: center; gap: 6px; }
+.sex-lbl { display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: var(--text); }
+.sex-inp { width: 52px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text); font-size: 13px; text-align: center; }
+
 /* ---------- Intake by stage modal ---------- */
 .intake-list { display: flex; flex-direction: column; gap: 2px; }
 .intake-row {
