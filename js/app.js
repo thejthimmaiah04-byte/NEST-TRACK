@@ -1959,6 +1959,18 @@ function quickTrayRemoval(trayId) {
     .map(([nm, cnt]) => `<option value="${esc(nm)}">${esc(nm)} (${cnt} available)</option>`)
     .join('');
 
+  const sexRowHtml = lastStageName ? `
+    <div id="qtr-sex-row" style="display:none;margin-bottom:14px">
+      <p class="small" style="margin:0 0 8px;font-weight:500;color:var(--accent)">Which sex are you removing? (adults only)</p>
+      <div style="display:flex;gap:12px">
+        <label class="gravid-field" style="flex:1"><span>♂ Males</span>
+          <input id="qtr-sex-m" type="number" min="0" placeholder="0" /></label>
+        <label class="gravid-field" style="flex:1"><span>♀ Females</span>
+          <input id="qtr-sex-f" type="number" min="0" placeholder="0" /></label>
+      </div>
+      <div class="small muted" style="margin-top:4px">♂ + ♀ must equal the count above</div>
+    </div>` : '';
+
   openModal(`Record removal — ${esc(tray.name)}`, `
     <div class="field-row" style="margin-bottom:14px">
       <label class="field" style="flex:1">
@@ -1974,6 +1986,7 @@ function quickTrayRemoval(trayId) {
       <span>How many?</span>
       <input id="qtr-count" type="number" min="1" placeholder="e.g. 3" />
     </label>
+    ${sexRowHtml}
     <div class="field" style="margin-bottom:12px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
       <div class="reason-btns">
@@ -1990,8 +2003,15 @@ function quickTrayRemoval(trayId) {
     wireCauseBtns(root);
     $('#qtr-count', root).focus();
 
+    const stageEl = $('#qtr-stage', root);
+    const sexRow  = $('#qtr-sex-row', root);
+    const toggleSexRow = () => {
+      if (sexRow) sexRow.style.display = stageEl.value === lastStageName ? '' : 'none';
+    };
+    if (stageEl) { stageEl.addEventListener('change', toggleSexRow); toggleSexRow(); }
+
     $('#qtr-save', root).onclick = () => {
-      const stageName = $('#qtr-stage', root).value;
+      const stageName = stageEl?.value || '';
       const n = parseInt($('#qtr-count', root).value, 10);
       const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Dead';
       const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
@@ -2001,6 +2021,17 @@ function quickTrayRemoval(trayId) {
       if (!n || n < 1) return toast('Enter a count', true);
       if (n > avail) return toast(`Only ${avail} available in this stage`, true);
 
+      const isAdultRem = stageName === lastStageName;
+      let sexMales = null, sexFemales = null;
+      if (isAdultRem && sexRow) {
+        const mVal = $('#qtr-sex-m', root)?.value;
+        const fVal = $('#qtr-sex-f', root)?.value;
+        sexMales   = mVal !== '' && mVal != null ? Number(mVal) : null;
+        sexFemales = fVal !== '' && fVal != null ? Number(fVal) : null;
+        if (sexMales !== null && sexFemales !== null && sexMales + sexFemales !== n)
+          return toast(`♂ + ♀ (${sexMales + sexFemales}) must equal count (${n})`, true);
+      }
+
       const matchCohorts = live('cohorts')
         .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
         .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
@@ -2009,11 +2040,22 @@ function quickTrayRemoval(trayId) {
       for (const c of matchCohorts) {
         if (left <= 0) break;
         const take = Math.min(left, cohortNet(c, today));
-        const r = rec('removals', { cohortId: c.id, trayId, date: qDate, stage: stageName, count: take, reason, cause });
+        const r = rec('removals', { cohortId: c.id, trayId, date: qDate, stage: stageName, count: take,
+          males: isAdultRem ? (sexMales ?? 0) : undefined,
+          females: isAdultRem ? (sexFemales ?? 0) : undefined,
+          reason, cause });
         upsertLocal('removals', r);
         touch('removals', r);
         left -= take;
       }
+
+      // Update tray sex counts for adult removals
+      if (isAdultRem && (sexMales !== null || sexFemales !== null)) {
+        if (sexMales !== null) tray.adultMales = Math.max(0, (Number(tray.adultMales) || 0) - sexMales);
+        if (sexFemales !== null) tray.adultFemales = Math.max(0, (Number(tray.adultFemales) || 0) - sexFemales);
+        touch('trays', tray);
+      }
+
       closeModal();
       render();
       if (photoFile) uploadDeathPhoto(photoFile, trayId, tray.name, normYMD(qDate), cause);
@@ -2803,6 +2845,13 @@ function trayDetailModal(trayId) {
               const photoFile = reason === 'Dead' ? ($('#death-photo', root2)?.files?.[0] || null) : null;
               const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females, reason, cause });
               upsertLocal('removals', r); touch('removals', r);
+              // Update tray sex counts
+              const t = byId('trays', trayId);
+              if (t) {
+                if (males !== null) t.adultMales = Math.max(0, (Number(t.adultMales) || 0) - males);
+                if (females !== null) t.adultFemales = Math.max(0, (Number(t.adultFemales) || 0) - females);
+                touch('trays', t);
+              }
               closeModal(); trayDetailModal(trayId); render();
               if (photoFile) uploadDeathPhoto(photoFile, trayId, byId('trays',trayId)?.name||trayId, toYMD(new Date()), cause);
               toast(`Removed ${n} ${name} · ${reason}${cause ? ' · ' + cause : ''}`);
