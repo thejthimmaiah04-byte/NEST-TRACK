@@ -669,6 +669,29 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   border-radius: 5px; padding: 1px 6px; font-size: 12px; font-weight: 700; color: var(--accent); }
 .rec-detail { margin-top: 3px; line-height: 1.4; }
 
+/* ---------- Recommendations — Option D alert banner ---------- */
+.rec-alert {
+  display: flex; align-items: flex-start; gap: 12px;
+  border-left: 4px solid var(--border);
+  background: var(--surface); border-radius: 0 10px 10px 0;
+  padding: 12px 14px; margin-bottom: 8px;
+  transition: opacity .3s;
+}
+.rec-alert.urgent   { border-left-color: #ef4444; }
+.rec-alert.moderate { border-left-color: #f59e0b; }
+.rec-chk-wrap { display: flex; align-items: flex-start; padding-top: 2px; flex-shrink: 0; }
+.rec-chk { width: 18px; height: 18px; accent-color: #22c55e; cursor: pointer; margin: 0; }
+.rec-alert-body { flex: 1; min-width: 0; }
+.rec-alert-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.rec-alert-pill {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 7px; border-radius: 99px;
+}
+.urgent   .rec-alert-pill { background: rgba(239,68,68,.15); color: #ef4444; }
+.moderate .rec-alert-pill { background: rgba(245,158,11,.15); color: #f59e0b; }
+.rec-alert-action { font-size: 14px; font-weight: 600; color: var(--text); }
+.rec-alert-reason  { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
 /* Sex count inputs inside adult cohort rows */
 .cohort-sex-edit { display: flex; align-items: center; gap: 6px; }
 .sex-lbl { display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: var(--text); }

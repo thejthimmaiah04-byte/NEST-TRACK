@@ -670,6 +670,74 @@ function computeShuffleRecommendations() {
   return recs;
 }
 
+/* ---------- Apply recommendation ---------- */
+function applyRecommendation(el) {
+  const fromId = el.dataset.from;
+  const toId   = el.dataset.to;
+  const count  = Number(el.dataset.count) || 1;
+  const sex    = el.dataset.sex; // '♂' or '♀'
+
+  // Find the latest adult cohort in the donor tray with the right sex data
+  const now = new Date();
+  const donorCohorts = live('cohorts')
+    .filter(c => c.trayId === fromId && cohortNet(c, now) > 0)
+    .sort((a, b) => (b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1);
+
+  const donor = donorCohorts.find(c => sex === '♂' ? (Number(c.males)||0) >= count : (Number(c.females)||0) >= count);
+  if (!donor) { toast('No matching cohort found to transfer from'); el.checked = false; return; }
+
+  // Create a removal record on the donor cohort
+  const remRec = rec('removals', {
+    cohortId: donor.id,
+    trayId:   fromId,
+    date:     toYMD(now),
+    stage:    stageIndexAt(donor, now)?.name || '',
+    count,
+    males:    sex === '♂' ? count : 0,
+    females:  sex === '♀' ? count : 0,
+    reason:   'Transfer'
+  });
+  upsertLocal('removals', remRec); touch('removals', remRec);
+
+  // Add to destination tray — find or create an adult cohort
+  const destCohorts = live('cohorts')
+    .filter(c => c.trayId === toId && cohortNet(c, now) > 0)
+    .sort((a, b) => (b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1);
+
+  const sp = byId('species', byId('trays', toId)?.speciesId);
+  const lastStage = sp?.stages?.length
+    ? [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name
+    : '';
+  const destAdult = destCohorts.find(c => stageIndexAt(c, now)?.name === lastStage);
+
+  if (destAdult) {
+    if (sex === '♂') destAdult.males   = (Number(destAdult.males)   || 0) + count;
+    else              destAdult.females = (Number(destAdult.females) || 0) + count;
+    touch('cohorts', destAdult);
+  } else {
+    // Create a new cohort entry for the transferred animals
+    const newC = rec('cohorts', {
+      trayId:       toId,
+      speciesId:    sp?.id || '',
+      birthDate:    toYMD(now),
+      initialCount: count,
+      males:        sex === '♂' ? count : 0,
+      females:      sex === '♀' ? count : 0,
+      notes:        `Transfer from ${byId('trays', fromId)?.name || fromId}`,
+      type:         'intake'
+    });
+    upsertLocal('cohorts', newC); touch('cohorts', newC);
+  }
+  toast(`Transferred ${count}${sex} — tray data updated`);
+
+  // Visually strike through this recommendation row
+  const row = el.closest('.rec-alert');
+  if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
+
+  // Re-render dashboard after a short delay so state is saved
+  setTimeout(renderDashboard, 600);
+}
+
 /* ---------- Dashboard ---------- */
 function renderDashboard() {
   const el = $('#tab-dashboard');
@@ -737,16 +805,25 @@ function renderDashboard() {
   const recs = computeShuffleRecommendations();
   const recsHtml = recs.length ? `
     <h2 class="section-title" style="margin:20px 0 10px">&#128260; Recommendations</h2>
-    <div class="card rec-list">
-      ${recs.map(r => `
-        <div class="rec-card">
-          <div class="rec-badge">${r.sex}</div>
-          <div class="rec-body">
-            <div class="rec-action">Move ${r.count}${r.sex} &nbsp;<span class="rec-tray">${esc(r.from.name)}</span> &rarr; <span class="rec-tray">${esc(r.to.name)}</span></div>
-            <div class="rec-detail small muted">${esc(r.detail)}</div>
+    ${recs.map((r, i) => {
+      const urgency = r.sex === '♂' ? 'urgent' : 'moderate';
+      const urgencyLabel = r.sex === '♂' ? 'Urgent' : 'Moderate';
+      return `
+      <div class="rec-alert ${urgency}" data-rec-idx="${i}">
+        <label class="rec-chk-wrap" title="Mark as done — auto-updates tray">
+          <input type="checkbox" class="rec-chk" data-act="rec-done"
+            data-from="${esc(r.from.id)}" data-to="${esc(r.to.id)}"
+            data-count="${r.count}" data-sex="${esc(r.sex)}" data-idx="${i}" />
+        </label>
+        <div class="rec-alert-body">
+          <div class="rec-alert-top">
+            <span class="rec-alert-pill">${urgencyLabel}</span>
+            <span class="rec-alert-action">Move ${r.count}${r.sex} &nbsp;<b>${esc(r.from.name)}</b> &rarr; <b>${esc(r.to.name)}</b></span>
           </div>
-        </div>`).join('')}
-    </div>` : '';
+          <div class="rec-alert-reason">${esc(r.detail)}</div>
+        </div>
+      </div>`;
+    }).join('')}` : '';
 
   el.innerHTML = `
     <div class="spread">
@@ -1993,13 +2070,28 @@ function getCalEvents() {
     if (c.males != null)   sexParts.push('♂' + c.males);
     if (c.females != null) sexParts.push('♀' + c.females);
     const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
-    add(c.birthDate, {
-      type:  'birth',
-      count: Number(c.initialCount) || 0,
-      label: `${c.initialCount} pinkies born`,
-      sub:   `${tray?.name || '—'}${sexStr}`,
-      color: 'var(--ok)'
-    });
+    // Legacy: records without type — treat as intake if notes starts with 'Intake'
+    const isBirth  = !c.type ? !String(c.notes||'').startsWith('Intake') : c.type === 'birth';
+    if (isBirth) {
+      add(c.birthDate, {
+        type:  'birth',
+        count: Number(c.initialCount) || 0,
+        label: `${c.initialCount} pinkies born`,
+        sub:   `${tray?.name || '—'}${sexStr}`,
+        color: 'var(--ok)'
+      });
+    } else {
+      // Intake — use birthDate (intake date) same as births use it
+      const intakeDate = c.birthDate;
+      const stageName = String(c.notes||'').replace('Intake · ','') || 'animal';
+      add(intakeDate, {
+        type:  'intake',
+        count: Number(c.initialCount) || 0,
+        label: `${c.initialCount} ${stageName.toLowerCase()}${c.initialCount !== 1 ? 's' : ''} added`,
+        sub:   `${tray?.name || '—'}${sexStr}`,
+        color: '#60a5fa'
+      });
+    }
   }
   for (const tray of live('trays')) {
     if (!tray.gravidSince || !tray.gravidFemales) continue;
@@ -2055,7 +2147,7 @@ function renderCalendar() {
     const isSel   = dateStr === calSelected;
 
     const dotTypes = [...new Set(evs.map(e => e.type))];
-    const DOT_COLOR = { birth: 'var(--ok)', 'predicted-birth': '#a78bfa', removal: 'var(--danger)' };
+    const DOT_COLOR = { birth: 'var(--ok)', 'predicted-birth': '#a78bfa', removal: 'var(--danger)', intake: '#60a5fa' };
     const dots = dotTypes.map(t =>
       `<span class="cal-dot" style="background:${DOT_COLOR[t]||'var(--accent)'}"></span>`
     ).join('');
@@ -2084,6 +2176,7 @@ function renderCalendar() {
   // Legend — count animals, not events
   const allEvs = Object.values(evMap).flat();
   const totalBirths    = allEvs.filter(e=>e.type==='birth').reduce((s,e)=>s+(e.count||0),0);
+  const totalIntakes   = allEvs.filter(e=>e.type==='intake').reduce((s,e)=>s+(e.count||0),0);
   const totalRemovals  = allEvs.filter(e=>e.type==='removal').reduce((s,e)=>s+(e.count||0),0);
   const totalPredicted = allEvs.filter(e=>e.type==='predicted-birth').length;
 
@@ -2105,7 +2198,8 @@ function renderCalendar() {
     </div>
 
     <div class="legend" style="margin-top:14px">
-      <span class="lg"><span class="sw" style="background:var(--ok)"></span>Birth (${totalBirths})</span>
+      <span class="lg"><span class="sw" style="background:var(--ok)"></span>Births (${totalBirths})</span>
+      ${totalIntakes > 0 ? `<span class="lg"><span class="sw" style="background:#60a5fa"></span>Intake (${totalIntakes})</span>` : ''}
       <span class="lg"><span class="sw" style="background:var(--danger)"></span>Removed (${totalRemovals})</span>
       ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>Expected birth (${totalPredicted})</span>` : ''}
     </div>`;
@@ -2617,7 +2711,7 @@ function litterModal(trayId) {
       const notes = $('#f-notes', root).value.trim();
       if (!birthDate) return toast('Pick a birth date', true);
       if (!initialCount || initialCount <= 0) return toast('Enter a count', true);
-      const r = rec('cohorts',{trayId, speciesId:tray.speciesId, birthDate, initialCount, notes});
+      const r = rec('cohorts',{trayId, speciesId:tray.speciesId, birthDate, initialCount, notes, type:'birth'});
       upsertLocal('cohorts',r); touch('cohorts',r);
       toast('Litter added');
       closeModal(); trayDetailModal(trayId); render();
@@ -2702,7 +2796,8 @@ function intakeModal(trayId) {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,
           males, females,
-          notes: `Intake · ${stageName}`
+          notes: `Intake · ${stageName}`,
+          type: 'intake'
         });
         upsertLocal('cohorts', r);
         touch('cohorts', r);
@@ -2929,6 +3024,7 @@ function onClick(e) {
       if (v && navigator.onLine) syncNow();
       return;
     }
+    case 'rec-done': return applyRecommendation(el);
     case 'sync-now': syncNow(true); return;
     case 'export': return exportJSON();
     case 'import': return importJSON();
@@ -3329,12 +3425,15 @@ function buildMonthlyData(year, month) {
   const { total: popStart } = stageTotalsAt(startDate);
   const { total: popEnd, totals: distEnd } = stageTotalsAt(endDate);
 
-  // Births this month
+  // Births and intakes this month
   const newCohorts = live('cohorts').filter(c => {
     const d = normYMD(c.birthDate);
     return d >= startYMD && d <= endYMD;
   });
-  const births = newCohorts.reduce((s, c) => s + (Number(c.initialCount) || 0), 0);
+  const birthCohorts  = newCohorts.filter(c => !c.type ? !String(c.notes||'').startsWith('Intake') : c.type === 'birth');
+  const intakeCohorts = newCohorts.filter(c => !c.type ? String(c.notes||'').startsWith('Intake')  : c.type === 'intake');
+  const births  = birthCohorts.reduce((s, c)  => s + (Number(c.initialCount) || 0), 0);
+  const intakes = intakeCohorts.reduce((s, c) => s + (Number(c.initialCount) || 0), 0);
 
   // Removals this month
   const monthRemovals = live('removals').filter(r => {
@@ -3383,7 +3482,7 @@ function buildMonthlyData(year, month) {
   return {
     type: 'monthly', year, month,
     monthName: MONTH_NAMES[month - 1],
-    popStart, popEnd, births,
+    popStart, popEnd, births, intakes,
     totalRemoved, byReason, frozenCount, harvestCount,
     stageData, topTrays, speciesBreakdown,
     growth, growthPct
@@ -3455,7 +3554,8 @@ function generateMonthlyReportHTML(d) {
   if (d.growthPct > 10)       insights.push(`Your colony grew strongly by <b>${d.growthPct}%</b> — excellent breeding activity this month.`);
   else if (d.growthPct < -10) insights.push(`Your colony contracted by <b>${Math.abs(d.growthPct)}%</b> — removals exceeded new births this month.`);
   else                        insights.push(`Your colony held steady with a <b>${d.growthPct >= 0 ? '+' : ''}${d.growthPct}%</b> net population change.`);
-  if (d.births > 0)      insights.push(`<b>${d.births.toLocaleString()} animals</b> born across ${newCohortCount(d)} litter${newCohortCount(d)!==1?'s':''}.`);
+  if (d.births > 0)      insights.push(`<b>${d.births.toLocaleString()} pinkies born</b> here across ${newCohortCount(d)} litter${newCohortCount(d)!==1?'s':''}.`);
+  if (d.intakes > 0)    insights.push(`<b>${d.intakes.toLocaleString()} animals added</b> via intake (external stock).`);
   if (d.frozenCount > 0) insights.push(`<b>${d.frozenCount.toLocaleString()} animals</b> frozen this month.`);
   if (d.harvestCount > 0) insights.push(`<b>${d.harvestCount.toLocaleString()} animals</b> harvested for sale or use.`);
 
@@ -3502,7 +3602,8 @@ function generateMonthlyReportHTML(d) {
             </td>
             <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
               <div style="font-size:28px;font-weight:800;color:#34d399;font-variant-numeric:tabular-nums">${d.births.toLocaleString()}</div>
-              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Births</div>
+              <div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-top:5px">Born Here</div>
+              ${d.intakes > 0 ? `<div style="font-size:12px;color:#60a5fa;margin-top:6px;font-weight:600">+${d.intakes.toLocaleString()} intake</div>` : ''}
             </td>
             <td width="25%" style="padding:22px 10px;text-align:center;border-right:1px solid #1e2035">
               <div style="font-size:28px;font-weight:800;color:#fb923c;font-variant-numeric:tabular-nums">${d.totalRemoved.toLocaleString()}</div>
@@ -3582,7 +3683,7 @@ function generateAnnualReportHTML(d) {
     return `
       <tr>
         <td style="padding:8px 12px;color:#94a3b8;font-size:12px;border-bottom:1px solid #1e2035;white-space:nowrap">${m.monthName}</td>
-        <td style="padding:8px 12px;color:#34d399;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.births||'—'}</td>
+        <td style="padding:8px 12px;color:#34d399;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.births||'—'}${m.intakes>0?`<span style="color:#60a5fa;font-size:10px;margin-left:4px">(+${m.intakes}i)</span>`:''}</td>
         <td style="padding:8px 12px;color:#fb923c;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.totalRemoved||'—'}</td>
         <td style="padding:8px 12px;color:#2dd4bf;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:600">${m.frozenCount||'—'}</td>
         <td style="padding:8px 12px;font-size:12px;text-align:right;border-bottom:1px solid #1e2035;font-weight:700;color:${netColor}">${m.growth>=0?'+':''}${m.growth}</td>
