@@ -1335,10 +1335,16 @@ function openRemoveByStage(stageName, stageIdx) {
 
   openModal(`Remove ${esc(stageName)}`, `
     <p class="small muted" style="margin-bottom:14px">${totalAvail} ${esc(stageName)} available across all trays.</p>
-    <label class="field" style="margin-bottom:14px">
-      <span>How many to remove?</span>
-      <input id="rbs-count" type="number" min="1" max="${totalAvail}" placeholder="e.g. 10" />
-    </label>
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1">
+        <span>Date</span>
+        <input id="rbs-date" type="date" value="${todayISO()}" />
+      </label>
+      <label class="field" style="flex:1">
+        <span>How many to remove?</span>
+        <input id="rbs-count" type="number" min="1" max="${totalAvail}" placeholder="e.g. 10" />
+      </label>
+    </div>
     <div class="field" style="margin-bottom:16px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
       <div class="reason-btns">
@@ -1359,8 +1365,9 @@ function openRemoveByStage(stageName, stageIdx) {
       const needed = parseInt($('#rbs-count', root).value, 10);
       const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Feeding';
       const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
+      const date   = $('#rbs-date', root).value || todayISO();
       if (!needed || needed < 1) return toast('Enter a count', true);
-      _rbsShowTrays(stageName, stageIdx, needed, reason, cause);
+      _rbsShowTrays(stageName, stageIdx, needed, reason, cause, date);
     };
     $('#rbs-next', root).onclick = go;
     $('#rbs-count', root).addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -1368,7 +1375,7 @@ function openRemoveByStage(stageName, stageIdx) {
 }
 
 // Step 2: harvest-search-style tray grid
-function _rbsShowTrays(stageName, stageIdx, needed, reason, cause) {
+function _rbsShowTrays(stageName, stageIdx, needed, reason, cause, date) {
   const today = new Date();
   const isAdult = live('species').some(sp => {
     if (!sp.stages?.length) return false;
@@ -1436,7 +1443,7 @@ function _rbsShowTrays(stageName, stageIdx, needed, reason, cause) {
 
   openModal(`Remove ${esc(stageName)} — pick a tray`, `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-      <span class="small muted">Removing <b>${needed} ${esc(stageName)}</b> &middot; reason: <b>${esc(reason)}</b></span>
+      <span class="small muted">Removing <b>${needed} ${esc(stageName)}</b> &middot; reason: <b>${esc(reason)}</b> &middot; <b>${date || todayISO()}</b></span>
       <button class="btn sm" id="rbs-back" style="margin-left:auto">&#8592; Back</button>
     </div>
     <div class="harvest-btns">${btns}</div>
@@ -1453,14 +1460,15 @@ function _rbsShowTrays(stageName, stageIdx, needed, reason, cause) {
         Number(btn.dataset.take),
         reason,
         isAdult,
-        cause
+        cause,
+        date
       );
     });
   });
 }
 
 // Step 3: confirm count from one tray (+ optional sex split)
-function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, reason, isAdult, cause) {
+function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, reason, isAdult, cause, date) {
   const tray      = byId('trays', trayId);
   const trayName  = tray ? tray.name : trayId;
   const today     = new Date();
@@ -1494,7 +1502,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
     </div>
   `, root => {
     $('#rbst-count', root).focus();
-    $('#rbst-back', root).onclick = () => _rbsShowTrays(stageName, stageIdx, needed, reason, cause);
+    $('#rbst-back', root).onclick = () => _rbsShowTrays(stageName, stageIdx, needed, reason, cause, date);
 
     $('#rbst-save', root).onclick = () => {
       const n = parseInt($('#rbst-count', root).value, 10);
@@ -1518,7 +1526,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
         const take = Math.min(left, cohortNet(c, today));
         const r = rec('removals', {
           cohortId: c.id, trayId,
-          date: todayISO(), stage: stageName, count: take,
+          date: date || todayISO(), stage: stageName, count: take,
           males:   first ? males   : null,
           females: first ? females : null,
           reason, cause
@@ -1531,7 +1539,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
 
       closeModal();
       render();
-      if (photoFile) uploadDeathPhoto(photoFile, trayId, trayName, toYMD(today), cause);
+      if (photoFile) uploadDeathPhoto(photoFile, trayId, trayName, normYMD(date || todayISO()), cause);
       toast(`${n} ${stageName} removed from ${trayName} · ${reason}${causeLabel}`);
     };
   });
@@ -1905,10 +1913,16 @@ function quickTrayRemoval(trayId) {
     .join('');
 
   openModal(`Record removal — ${esc(tray.name)}`, `
-    <label class="field" style="margin-bottom:14px">
-      <span>Stage</span>
-      <select id="qtr-stage">${stageOpts}</select>
-    </label>
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1">
+        <span>Date</span>
+        <input id="qtr-date" type="date" value="${todayISO()}" />
+      </label>
+      <label class="field" style="flex:1">
+        <span>Stage</span>
+        <select id="qtr-stage">${stageOpts}</select>
+      </label>
+    </div>
     <label class="field" style="margin-bottom:14px">
       <span>How many?</span>
       <input id="qtr-count" type="number" min="1" placeholder="e.g. 3" />
@@ -1935,6 +1949,7 @@ function quickTrayRemoval(trayId) {
       const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Dead';
       const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
       const photoFile = reason === 'Dead' ? ($('#death-photo', root)?.files?.[0] || null) : null;
+      const qDate = $('#qtr-date', root).value || todayISO();
       const avail = stageMap.get(stageName) || 0;
       if (!n || n < 1) return toast('Enter a count', true);
       if (n > avail) return toast(`Only ${avail} available in this stage`, true);
@@ -1947,14 +1962,14 @@ function quickTrayRemoval(trayId) {
       for (const c of matchCohorts) {
         if (left <= 0) break;
         const take = Math.min(left, cohortNet(c, today));
-        const r = rec('removals', { cohortId: c.id, trayId, date: todayISO(), stage: stageName, count: take, reason, cause });
+        const r = rec('removals', { cohortId: c.id, trayId, date: qDate, stage: stageName, count: take, reason, cause });
         upsertLocal('removals', r);
         touch('removals', r);
         left -= take;
       }
       closeModal();
       render();
-      if (photoFile) uploadDeathPhoto(photoFile, trayId, tray.name, toYMD(today), cause);
+      if (photoFile) uploadDeathPhoto(photoFile, trayId, tray.name, normYMD(qDate), cause);
       toast(`${n} ${stageName} removed from ${esc(tray.name)} · ${reason}${cause ? ' · ' + cause : ''}`);
     };
   });
@@ -2145,7 +2160,7 @@ let calSelected = todayISO();
 function getCalEvents() {
   const map = {};
   // Normalize to yyyy-mm-dd so stored yyyymmdd dates match the grid's keys
-  const add = (date, ev) => { const k=ymdToInput(date); (map[k]=map[k]||[]).push(ev); };
+  const add = (date, ev) => { const k=ymdToInput(normYMD(date)); (map[k]=map[k]||[]).push(ev); };
   for (const c of live('cohorts')) {
     const tray = byId('trays', c.trayId);
     const sexParts = [];
@@ -2196,13 +2211,25 @@ function getCalEvents() {
     if (r.males != null && r.males !== '') sexParts.push('♂' + r.males);
     if (r.females != null && r.females !== '') sexParts.push('♀' + r.females);
     const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
-    add(r.date, {
-      type:  'removal',
-      count: Number(r.count) || 0,
-      label: `${r.count} ${stageStr} removed${r.reason ? ' · ' + r.reason : ''}${sexStr}`,
-      sub:   `${tray?.name || r.trayId || '—'}`,
-      color: 'var(--danger)'
-    });
+    const trayName = tray?.name || r.trayId || '—';
+    if (r.reason === 'Dead') {
+      const causeStr = r.cause && r.cause !== 'Unknown' ? ` · ${r.cause}` : r.cause ? ' · Unknown cause' : '';
+      add(r.date, {
+        type:  'death',
+        count: Number(r.count) || 0,
+        label: `${r.count} ${stageStr} died${causeStr}`,
+        sub:   `${trayName}${sexStr}`,
+        color: '#dc2626'
+      });
+    } else {
+      add(r.date, {
+        type:  'removal',
+        count: Number(r.count) || 0,
+        label: `${r.count} ${stageStr} ${r.reason === 'Transfer' ? 'transferred' : r.reason === 'Sold' ? 'sold' : 'removed'}${sexStr}`,
+        sub:   `${trayName}`,
+        color: '#f97316'
+      });
+    }
   }
   return map;
 }
@@ -2229,7 +2256,7 @@ function renderCalendar() {
     const isSel   = dateStr === calSelected;
 
     const dotTypes = [...new Set(evs.map(e => e.type))];
-    const DOT_COLOR = { birth: 'var(--ok)', 'predicted-birth': '#a78bfa', removal: 'var(--danger)', intake: '#60a5fa' };
+    const DOT_COLOR = { birth: 'var(--ok)', 'predicted-birth': '#a78bfa', removal: '#f97316', intake: '#60a5fa', death: '#dc2626' };
     const dots = dotTypes.map(t =>
       `<span class="cal-dot" style="background:${DOT_COLOR[t]||'var(--accent)'}"></span>`
     ).join('');
@@ -2259,6 +2286,7 @@ function renderCalendar() {
   const allEvs = Object.values(evMap).flat();
   const totalBirths    = allEvs.filter(e=>e.type==='birth').reduce((s,e)=>s+(e.count||0),0);
   const totalIntakes   = allEvs.filter(e=>e.type==='intake').reduce((s,e)=>s+(e.count||0),0);
+  const totalDeaths    = allEvs.filter(e=>e.type==='death').reduce((s,e)=>s+(e.count||0),0);
   const totalRemovals  = allEvs.filter(e=>e.type==='removal').reduce((s,e)=>s+(e.count||0),0);
   const totalPredicted = allEvs.filter(e=>e.type==='predicted-birth').length;
 
@@ -2282,7 +2310,8 @@ function renderCalendar() {
     <div class="legend" style="margin-top:14px">
       <span class="lg"><span class="sw" style="background:var(--ok)"></span>Births (${totalBirths})</span>
       ${totalIntakes > 0 ? `<span class="lg"><span class="sw" style="background:#60a5fa"></span>Intake (${totalIntakes})</span>` : ''}
-      <span class="lg"><span class="sw" style="background:var(--danger)"></span>Removed (${totalRemovals})</span>
+      ${totalDeaths > 0 ? `<span class="lg"><span class="sw" style="background:#dc2626"></span>Deaths (${totalDeaths})</span>` : ''}
+      ${totalRemovals > 0 ? `<span class="lg"><span class="sw" style="background:#f97316"></span>Removed (${totalRemovals})</span>` : ''}
       ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>Expected birth (${totalPredicted})</span>` : ''}
     </div>`;
 }
@@ -2836,7 +2865,11 @@ function intakeModal(trayId) {
   }).join('');
 
   openModal(`Add to ${esc(tray.name)}`, `
-    <p class="small muted" style="margin-bottom:14px">Enter how many to add at each stage. Birth date is calculated automatically.</p>
+    <label class="field" style="margin-bottom:14px">
+      <span>Date added</span>
+      <input id="intake-date" type="date" value="${todayISO()}" />
+    </label>
+    <p class="small muted" style="margin-bottom:14px">Enter how many to add at each stage. Birth date is back-calculated from the stage.</p>
     <div class="intake-list">${rows}</div>
     <button class="btn primary block" id="intake-save" style="margin-top:16px">Add animals</button>
   `, root => {
@@ -2854,6 +2887,7 @@ function intakeModal(trayId) {
 
     $('#intake-save', root).onclick = () => {
       const inputs = $$('.intake-input', root);
+      const intakeDate = parseYMD($('#intake-date', root).value || todayISO());
       let added = 0;
       for (const inp of inputs) {
         const n = Number(inp.value);
@@ -2861,7 +2895,7 @@ function intakeModal(trayId) {
         const startDay  = Number(inp.dataset.startday);
         const stageName = inp.dataset.stage;
         const ri        = inp.dataset.row;
-        const birthDate = addDays(new Date(), -startDay).toISOString().slice(0, 10);
+        const birthDate = addDays(intakeDate, -startDay).toISOString().slice(0, 10);
         const mVal = $(`#isex-${ri} .sex-male`, root)?.value;
         const fVal = $(`#isex-${ri} .sex-female`, root)?.value;
         const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
