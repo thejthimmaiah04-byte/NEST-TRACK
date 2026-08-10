@@ -2213,7 +2213,8 @@ function getCalEvents() {
     const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
     const trayName = tray?.name || r.trayId || '—';
     if (r.reason === 'Dead') {
-      const causeStr = r.cause && r.cause !== 'Unknown' ? ` · ${r.cause}` : r.cause ? ' · Unknown cause' : '';
+      const namedCause = DEATH_CAUSES.includes(r.cause) ? r.cause : null;
+      const causeStr = namedCause && namedCause !== 'Unknown' ? ` · ${namedCause}` : '';
       add(r.date, {
         type:  'death',
         count: Number(r.count) || 0,
@@ -2885,6 +2886,16 @@ function intakeModal(trayId) {
           if (grv) grv.style.display = hasCount ? 'flex' : 'none';
         }
       });
+      // Auto-sum ♂+♀ → count whenever sex inputs change
+      const ri = inp.dataset.row;
+      const autoSum = () => {
+        const m = Number($(`#isex-${ri} .sex-male`, root)?.value) || 0;
+        const f = Number($(`#isex-${ri} .sex-female`, root)?.value) || 0;
+        if (m || f) { inp.value = m + f; inp.dispatchEvent(new Event('input')); }
+      };
+      root.addEventListener('input', e => {
+        if (e.target.closest(`#isex-${ri}`)) autoSum();
+      });
     });
 
     $('#intake-save', root).onclick = () => {
@@ -3392,7 +3403,7 @@ function renderReports() {
 
   /* ── Recent removals table ────────────────────────────────────── */
   const allRems = live('removals')
-    .filter(r => r.count > 0)
+    .filter(r => r.count > 0 && r.reason !== 'Transfer')
     .sort((a, b) => normYMD(b.date).localeCompare(normYMD(a.date)))
     .slice(0, 20);
 
@@ -3402,7 +3413,8 @@ function renderReports() {
       : r.reason === 'Feeding' ? 'var(--accent)'
       : r.reason === 'Frozen'  ? '#2dd4bf'
       : 'var(--text-2)';
-    const causeCell = r.reason === 'Dead' && r.cause ? `<span class="rpt-cause-tag">${esc(r.cause)}</span>` : '';
+    const validCause = DEATH_CAUSES.includes(r.cause) ? r.cause : null;
+    const causeCell = r.reason === 'Dead' && validCause ? `<span class="rpt-cause-tag">${esc(validCause)}</span>` : '';
     return `<tr class="rpt-rem-row">
       <td>${ymdToInput(normYMD(r.date))}</td>
       <td>${esc(tray?.name || r.trayId || '—')}</td>
@@ -3424,14 +3436,14 @@ function renderReports() {
   const deathsByCauseNow = {};
   const deathsByStageNow = {};
   for (const r of thisMonthDeaths) {
-    const cause = r.cause || 'Unknown';
+    const cause = DEATH_CAUSES.includes(r.cause) ? r.cause : 'Unknown';
     const stage = r.stage || '—';
     const cnt   = Number(r.count) || 0;
     deathsByCauseNow[cause] = (deathsByCauseNow[cause] || 0) + cnt;
     if (!deathsByStageNow[stage]) deathsByStageNow[stage] = {};
     deathsByStageNow[stage][cause] = (deathsByStageNow[stage][cause] || 0) + cnt;
   }
-  const causesPresent = [...new Set(thisMonthDeaths.map(r => r.cause || 'Unknown'))];
+  const causesPresent = [...new Set(thisMonthDeaths.map(r => DEATH_CAUSES.includes(r.cause) ? r.cause : 'Unknown'))];
   const stagesPresent = Object.keys(deathsByStageNow).sort();
   const deathTable = stagesPresent.length ? (() => {
     const headerCells = causesPresent.map(c => `<th>${esc(c)}</th>`).join('');
@@ -4074,8 +4086,10 @@ function _rptSaveSettings() {
 }
 
 function _rptSendNow(btn) {
-  const emails = (state.meta.reportEmails || '').split(',').map(e => e.trim()).filter(Boolean);
-  if (!emails.length) return toast('Save at least one email address first', true);
+  const emailsRaw = ($('#rpt-emails')?.value || state.meta.reportEmails || '').trim();
+  if (emailsRaw) { state.meta.reportEmails = emailsRaw; saveState(); }
+  const emails = emailsRaw.split(',').map(e => e.trim()).filter(Boolean);
+  if (!emails.length) return toast('Enter at least one email address', true);
 
   const now = new Date();
   const d   = buildMonthlyData(now.getFullYear(), now.getMonth() + 1);
