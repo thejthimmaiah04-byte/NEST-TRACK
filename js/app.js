@@ -19,9 +19,10 @@ const $   = (sel, root = document) => root.querySelector(sel);
 const $$  = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const uid = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
 const now = () => Date.now();
-const todayISO = () => new Date().toISOString().slice(0,10);
+const _localYMDStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayISO = () => _localYMDStr(new Date());
 // Store dates as yyyymmdd (e.g. "20260802")
-const toYMD     = d  => d.toISOString().slice(0,10).replace(/-/g,'');
+const toYMD     = d  => _localYMDStr(d).replace(/-/g,'');
 // Parse "20260802", "2026-08-02", or full ISO timestamp → Date
 const parseYMD  = s  => { s=String(s||''); if(/^\d{8}$/.test(s)) s=s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8); if(s.length>10) s=s.slice(0,10); return new Date(s?s+'T00:00:00':NaN); };
 // "20260802" → "2026-08-02" for <input type="date">
@@ -2908,7 +2909,7 @@ function intakeModal(trayId) {
         const startDay  = Number(inp.dataset.startday);
         const stageName = inp.dataset.stage;
         const ri        = inp.dataset.row;
-        const birthDate = addDays(intakeDate, -startDay).toISOString().slice(0, 10);
+        const birthDate = _localYMDStr(addDays(intakeDate, -startDay));
         const mVal = $(`#isex-${ri} .sex-male`, root)?.value;
         const fVal = $(`#isex-${ri} .sex-female`, root)?.value;
         const males   = mVal !== '' && mVal != null ? Number(mVal) : null;
