@@ -1281,6 +1281,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .rpt-rem-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .rpt-rem-table tbody tr:last-child td { border-bottom: none; }
 .rpt-rem-count { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
+.rpt-cause-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; padding: 1px 6px; border-radius: 99px;
+  background: rgba(239,68,68,.15); color: #ef4444; vertical-align: middle; margin-left: 4px; }
 
 /* Per-species forecast chart */
 .rpt-sp-fc { display: block; width: 100%; margin-top: 14px; }

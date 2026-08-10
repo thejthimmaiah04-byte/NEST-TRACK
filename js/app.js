@@ -9,6 +9,7 @@
  * ------------------------------------------------------------------ */
 const LS_KEY          = 'rbm.state.v1';
 const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
+const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
 const SYNC_DEBOUNCE   = 1200;   // ms after last change before pushing
 const AUTO_PULL_MS    = 15000;  // background pull interval when online
@@ -1255,6 +1256,69 @@ function renderCharts() {
 /* ---------- Remove by stage — 3-step flow ---------- */
 
 // Step 1: ask how many + pick reason
+/* Returns HTML for the "cause of death" selector + photo input, shown when reason=Dead */
+function deathCauseHtml(hidden = true) {
+  const style = hidden ? 'display:none;' : '';
+  const causeBtns = DEATH_CAUSES.map((c, i) =>
+    `<button type="button" class="reason-btn cause-btn${i === 0 ? ' active' : ''}" data-cause="${c}">${c}</button>`
+  ).join('');
+  return `
+  <div class="field" id="cause-field" style="${style}margin-bottom:12px">
+    <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Cause of death</span>
+    <div class="reason-btns cause-btns">${causeBtns}</div>
+  </div>
+  <div class="field" id="photo-field" style="${style}margin-bottom:16px">
+    <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Photo (optional)</span>
+    <input type="file" id="death-photo" accept="image/*"
+      style="width:100%;padding:6px;background:var(--surface);border:1px solid var(--border);
+             border-radius:8px;color:var(--text);font-size:13px;cursor:pointer" />
+  </div>`;
+}
+
+/* Wire cause buttons to stay mutually exclusive within root */
+function wireCauseBtns(root) {
+  $$('.cause-btn', root).forEach(b => b.onclick = () => {
+    $$('.cause-btn', root).forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+  });
+}
+
+/* Show/hide cause+photo when reason buttons are toggled */
+function wireReasonDeathToggle(root) {
+  $$('.reason-btn:not(.cause-btn)', root).forEach(b => b.onclick = () => {
+    $$('.reason-btn:not(.cause-btn)', root).forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const isDead = b.dataset.reason === 'Dead';
+    const cf = $('#cause-field', root);
+    const pf = $('#photo-field', root);
+    if (cf) cf.style.display = isDead ? '' : 'none';
+    if (pf) pf.style.display = isDead ? '' : 'none';
+  });
+}
+
+/* Upload a death photo to Google Drive via Apps Script */
+function uploadDeathPhoto(file, trayId, trayName, date, cause) {
+  const url = state.meta?.scriptUrl;
+  if (!file || !url) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const [header, b64] = reader.result.split(',');
+    const mimeType = (header.match(/:(.*?);/) || [])[1] || 'image/jpeg';
+    const safeName = String(trayName || trayId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    fetch(url, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'uploadImage',
+        imageBase64: b64,
+        mimeType,
+        fileName: safeName + '_' + date,
+        cause: (cause || 'Unknown').toLowerCase()
+      })
+    }).catch(() => {}); // fire-and-forget; failure is non-critical
+  };
+  reader.readAsDataURL(file);
+}
+
 function openRemoveByStage(stageName, stageIdx) {
   const today = new Date();
   const totalAvail = live('cohorts')
@@ -1278,19 +1342,19 @@ function openRemoveByStage(stageName, stageIdx) {
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
+    ${deathCauseHtml()}
     <button class="btn primary block" id="rbs-next">Find trays ›</button>
   `, root => {
-    $$('.reason-btn', root).forEach(b => b.onclick = () => {
-      $$('.reason-btn', root).forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-    });
+    wireReasonDeathToggle(root);
+    wireCauseBtns(root);
     $('#rbs-count', root).focus();
 
     const go = () => {
       const needed = parseInt($('#rbs-count', root).value, 10);
-      const reason = $('.reason-btn.active', root)?.dataset.reason || 'Feeding';
+      const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Feeding';
+      const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
       if (!needed || needed < 1) return toast('Enter a count', true);
-      _rbsShowTrays(stageName, stageIdx, needed, reason);
+      _rbsShowTrays(stageName, stageIdx, needed, reason, cause);
     };
     $('#rbs-next', root).onclick = go;
     $('#rbs-count', root).addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -1298,7 +1362,7 @@ function openRemoveByStage(stageName, stageIdx) {
 }
 
 // Step 2: harvest-search-style tray grid
-function _rbsShowTrays(stageName, stageIdx, needed, reason) {
+function _rbsShowTrays(stageName, stageIdx, needed, reason, cause) {
   const today = new Date();
   const isAdult = live('species').some(sp => {
     if (!sp.stages?.length) return false;
@@ -1382,22 +1446,24 @@ function _rbsShowTrays(stageName, stageIdx, needed, reason) {
         Number(btn.dataset.avail),
         Number(btn.dataset.take),
         reason,
-        isAdult
+        isAdult,
+        cause
       );
     });
   });
 }
 
 // Step 3: confirm count from one tray (+ optional sex split)
-function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, reason, isAdult) {
+function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, reason, isAdult, cause) {
   const tray      = byId('trays', trayId);
   const trayName  = tray ? tray.name : trayId;
   const today     = new Date();
   const defCount  = Math.max(1, Math.min(suggestTake || needed, avail));
 
+  const causeLabel = reason === 'Dead' ? ` · ${cause || 'Unknown'}` : '';
   openModal(`Remove from ${esc(trayName)}`, `
     <p class="small muted" style="margin-bottom:14px">
-      ${avail} ${esc(stageName)} available &middot; need ${needed} total &middot; <b>${esc(reason)}</b>
+      ${avail} ${esc(stageName)} available &middot; need ${needed} total &middot; <b>${esc(reason)}${esc(causeLabel)}</b>
     </p>
     <label class="field" style="margin-bottom:${isAdult ? '10px' : '16px'}">
       <span>How many from this tray?</span>
@@ -1410,13 +1476,19 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
       <label class="field" style="flex:1"><span>&#9792; removed</span>
         <input id="rbst-f" type="number" min="0" placeholder="—" /></label>
     </div>` : ''}
+    ${reason === 'Dead' ? `<div class="field" style="margin-bottom:16px">
+      <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Photo (optional)</span>
+      <input type="file" id="rbst-photo" accept="image/*"
+        style="width:100%;padding:6px;background:var(--surface);border:1px solid var(--border);
+               border-radius:8px;color:var(--text);font-size:13px;cursor:pointer" />
+    </div>` : ''}
     <div class="gap">
       <button class="btn" id="rbst-back">&#8592; Pick another tray</button>
       <button class="btn primary" id="rbst-save" style="flex:1">Confirm removal</button>
     </div>
   `, root => {
     $('#rbst-count', root).focus();
-    $('#rbst-back', root).onclick = () => _rbsShowTrays(stageName, stageIdx, needed, reason);
+    $('#rbst-back', root).onclick = () => _rbsShowTrays(stageName, stageIdx, needed, reason, cause);
 
     $('#rbst-save', root).onclick = () => {
       const n = parseInt($('#rbst-count', root).value, 10);
@@ -1427,6 +1499,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
       const fRaw = $('#rbst-f', root)?.value;
       const males   = isAdult && mRaw !== '' && mRaw != null ? Number(mRaw) : null;
       const females = isAdult && fRaw !== '' && fRaw != null ? Number(fRaw) : null;
+      const photoFile = reason === 'Dead' ? ($('#rbst-photo', root)?.files?.[0] || null) : null;
 
       // Distribute n across cohorts in this tray, oldest first
       const cohorts = live('cohorts')
@@ -1442,7 +1515,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
           date: todayISO(), stage: stageName, count: take,
           males:   first ? males   : null,
           females: first ? females : null,
-          reason
+          reason, cause
         });
         upsertLocal('removals', r);
         touch('removals', r);
@@ -1452,7 +1525,8 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
 
       closeModal();
       render();
-      toast(`${n} ${stageName} removed from ${trayName} · ${reason}`);
+      if (photoFile) uploadDeathPhoto(photoFile, trayId, trayName, toYMD(today), cause);
+      toast(`${n} ${stageName} removed from ${trayName} · ${reason}${causeLabel}`);
     };
   });
 }
@@ -1833,7 +1907,7 @@ function quickTrayRemoval(trayId) {
       <span>How many?</span>
       <input id="qtr-count" type="number" min="1" placeholder="e.g. 3" />
     </label>
-    <div class="field" style="margin-bottom:16px">
+    <div class="field" style="margin-bottom:12px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Dead">Dead</button>
@@ -1842,18 +1916,19 @@ function quickTrayRemoval(trayId) {
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
+    ${deathCauseHtml(false)}
     <button class="btn primary block" id="qtr-save">Confirm removal</button>
   `, root => {
-    $$('.reason-btn', root).forEach(b => b.onclick = () => {
-      $$('.reason-btn', root).forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
-    });
+    wireReasonDeathToggle(root);
+    wireCauseBtns(root);
     $('#qtr-count', root).focus();
 
     $('#qtr-save', root).onclick = () => {
       const stageName = $('#qtr-stage', root).value;
       const n = parseInt($('#qtr-count', root).value, 10);
-      const reason = $('.reason-btn.active', root)?.dataset.reason || 'Dead';
+      const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Dead';
+      const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
+      const photoFile = reason === 'Dead' ? ($('#death-photo', root)?.files?.[0] || null) : null;
       const avail = stageMap.get(stageName) || 0;
       if (!n || n < 1) return toast('Enter a count', true);
       if (n > avail) return toast(`Only ${avail} available in this stage`, true);
@@ -1866,14 +1941,15 @@ function quickTrayRemoval(trayId) {
       for (const c of matchCohorts) {
         if (left <= 0) break;
         const take = Math.min(left, cohortNet(c, today));
-        const r = rec('removals', { cohortId: c.id, trayId, date: todayISO(), stage: stageName, count: take, reason });
+        const r = rec('removals', { cohortId: c.id, trayId, date: todayISO(), stage: stageName, count: take, reason, cause });
         upsertLocal('removals', r);
         touch('removals', r);
         left -= take;
       }
       closeModal();
       render();
-      toast(`${n} ${stageName} removed from ${esc(tray.name)} · ${reason}`);
+      if (photoFile) uploadDeathPhoto(photoFile, trayId, tray.name, toYMD(today), cause);
+      toast(`${n} ${stageName} removed from ${esc(tray.name)} · ${reason}${cause ? ' · ' + cause : ''}`);
     };
   });
 }
@@ -2613,7 +2689,7 @@ function trayDetailModal(trayId) {
               <label class="gravid-field" style="flex:1"><span>♀ Females</span>
                 <input id="rmv-f" type="number" min="0" max="${n}" placeholder="0" /></label>
             </div>
-            <div class="field" style="margin-bottom:16px">
+            <div class="field" style="margin-bottom:12px">
               <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
               <div class="reason-btns">
                 <button class="reason-btn active" data-reason="Feeding">Feeding</button>
@@ -2621,13 +2697,12 @@ function trayDetailModal(trayId) {
                 <button class="reason-btn" data-reason="Other">Other</button>
               </div>
             </div>
+            ${deathCauseHtml()}
             <button class="btn primary block" data-save>Confirm removal</button>
           `, root2 => {
             $('#rmv-m', root2).focus();
-            $$('.reason-btn', root2).forEach(b => b.onclick = () => {
-              $$('.reason-btn', root2).forEach(x => x.classList.remove('active'));
-              b.classList.add('active');
-            });
+            wireReasonDeathToggle(root2);
+            wireCauseBtns(root2);
             $('[data-save]', root2).onclick = () => {
               const mRaw = $('#rmv-m', root2).value;
               const fRaw = $('#rmv-f', root2).value;
@@ -2635,36 +2710,41 @@ function trayDetailModal(trayId) {
               const females = fRaw !== '' ? Number(fRaw) : null;
               if (males !== null && females !== null && males + females > n)
                 return toast(`♂ + ♀ (${males+females}) exceeds count (${n})`, true);
-              const reason = $('.reason-btn.active', root2)?.dataset.reason || 'Feeding';
-              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females, reason });
+              const reason = $('.reason-btn:not(.cause-btn).active', root2)?.dataset.reason || 'Feeding';
+              const cause  = reason === 'Dead' ? ($('.cause-btn.active', root2)?.dataset.cause || 'Unknown') : undefined;
+              const photoFile = reason === 'Dead' ? ($('#death-photo', root2)?.files?.[0] || null) : null;
+              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females, reason, cause });
               upsertLocal('removals', r); touch('removals', r);
-              toast(`Removed ${n} ${name} · ${reason}`);
               closeModal(); trayDetailModal(trayId); render();
+              if (photoFile) uploadDeathPhoto(photoFile, trayId, byId('trays',trayId)?.name||trayId, toYMD(new Date()), cause);
+              toast(`Removed ${n} ${name} · ${reason}${cause ? ' · ' + cause : ''}`);
             };
           }), 10);
         } else {
           closeModal();
           setTimeout(() => openModal(`Remove ${esc(name)}`, `
             <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — select a reason.</p>
-            <div class="field" style="margin-bottom:16px">
+            <div class="field" style="margin-bottom:12px">
               <div class="reason-btns">
                 <button class="reason-btn active" data-reason="Feeding">Feeding</button>
                 <button class="reason-btn" data-reason="Dead">Dead</button>
                 <button class="reason-btn" data-reason="Other">Other</button>
               </div>
             </div>
+            ${deathCauseHtml()}
             <button class="btn primary block" data-save>Confirm removal</button>
           `, root2 => {
-            $$('.reason-btn', root2).forEach(b => b.onclick = () => {
-              $$('.reason-btn', root2).forEach(x => x.classList.remove('active'));
-              b.classList.add('active');
-            });
+            wireReasonDeathToggle(root2);
+            wireCauseBtns(root2);
             $('[data-save]', root2).onclick = () => {
-              const reason = $('.reason-btn.active', root2)?.dataset.reason || 'Feeding';
-              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, reason });
+              const reason = $('.reason-btn:not(.cause-btn).active', root2)?.dataset.reason || 'Feeding';
+              const cause  = reason === 'Dead' ? ($('.cause-btn.active', root2)?.dataset.cause || 'Unknown') : undefined;
+              const photoFile = reason === 'Dead' ? ($('#death-photo', root2)?.files?.[0] || null) : null;
+              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, reason, cause });
               upsertLocal('removals', r); touch('removals', r);
-              toast(`Removed ${n} ${name} · ${reason}`);
               closeModal(); trayDetailModal(trayId); render();
+              if (photoFile) uploadDeathPhoto(photoFile, trayId, byId('trays',trayId)?.name||trayId, toYMD(new Date()), cause);
+              toast(`Removed ${n} ${name} · ${reason}${cause ? ' · ' + cause : ''}`);
             };
           }), 10);
         }
@@ -3274,12 +3354,13 @@ function renderReports() {
       : r.reason === 'Feeding' ? 'var(--accent)'
       : r.reason === 'Frozen'  ? '#2dd4bf'
       : 'var(--text-2)';
+    const causeCell = r.reason === 'Dead' && r.cause ? `<span class="rpt-cause-tag">${esc(r.cause)}</span>` : '';
     return `<tr class="rpt-rem-row">
-      <td>${ymdToInput(r.date)}</td>
+      <td>${ymdToInput(normYMD(r.date))}</td>
       <td>${esc(tray?.name || r.trayId || '—')}</td>
       <td>${esc(r.stage || '—')}</td>
       <td class="rpt-rem-count">${r.count}</td>
-      <td style="color:${reasonColor};font-weight:600">${esc(r.reason || '—')}</td>
+      <td style="color:${reasonColor};font-weight:600">${esc(r.reason || '—')} ${causeCell}</td>
     </tr>`;
   }).join('');
 
@@ -3289,6 +3370,36 @@ function renderReports() {
         <tbody>${remRows}</tbody>
        </table></div>`
     : `<p class="small muted" style="margin:0">No removals recorded yet. Use the Trays tab or Dashboard to record deaths and removals.</p>`;
+
+  /* ── Deaths by cause (this month) ──────────────────────────────── */
+  const thisMonthDeaths = monthRems.filter(r => r.reason === 'Dead');
+  const deathsByCauseNow = {};
+  const deathsByStageNow = {};
+  for (const r of thisMonthDeaths) {
+    const cause = r.cause || 'Unknown';
+    const stage = r.stage || '—';
+    const cnt   = Number(r.count) || 0;
+    deathsByCauseNow[cause] = (deathsByCauseNow[cause] || 0) + cnt;
+    if (!deathsByStageNow[stage]) deathsByStageNow[stage] = {};
+    deathsByStageNow[stage][cause] = (deathsByStageNow[stage][cause] || 0) + cnt;
+  }
+  const causesPresent = [...new Set(thisMonthDeaths.map(r => r.cause || 'Unknown'))];
+  const stagesPresent = Object.keys(deathsByStageNow).sort();
+  const deathTable = stagesPresent.length ? (() => {
+    const headerCells = causesPresent.map(c => `<th>${esc(c)}</th>`).join('');
+    const dataRows = stagesPresent.map(st => {
+      const cells = causesPresent.map(c => `<td>${deathsByStageNow[st][c] || '—'}</td>`).join('');
+      const rowTotal = causesPresent.reduce((s, c) => s + (deathsByStageNow[st][c] || 0), 0);
+      return `<tr><td><b>${esc(st)}</b></td>${cells}<td class="rpt-rem-count">${rowTotal}</td></tr>`;
+    }).join('');
+    const totalRow = `<tr style="font-weight:700;border-top:2px solid var(--border)">
+      <td>Total</td>${causesPresent.map(c => `<td>${deathsByCauseNow[c] || 0}</td>`).join('')}
+      <td class="rpt-rem-count">${Object.values(deathsByCauseNow).reduce((a, b) => a + b, 0)}</td></tr>`;
+    return `<div style="overflow-x:auto"><table class="rpt-rem-table">
+      <thead><tr><th>Stage</th>${headerCells}<th>Total</th></tr></thead>
+      <tbody>${dataRows}${totalRow}</tbody>
+    </table></div>`;
+  })() : `<p class="small muted" style="margin:0">No deaths recorded this month.</p>`;
 
   /* ── Per-species cards ────────────────────────────────────────── */
   const spCards = live('species').map(sp => {
@@ -3377,7 +3488,11 @@ function renderReports() {
       <h2 class="section-title" style="margin:0">Removals &amp; Deaths</h2>
       ${state.meta.scriptUrl ? `<button class="btn sm" data-act="sync-now" style="flex-shrink:0">&#8635; Pull from sheet</button>` : ''}
     </div>
-    <div class="card" style="margin-bottom:20px">${remTable}</div>
+    <div class="card" style="margin-bottom:16px">${remTable}</div>
+
+    <!-- ② Deaths by Cause (this month) -->
+    <h2 class="section-title" style="margin:0 0 10px">Deaths by Cause — ${MONTH_NAMES[curMonth - 1]}</h2>
+    <div class="card" style="margin-bottom:20px">${deathTable}</div>
 
     <!-- ③ Species Breakdown -->
     ${live('species').length ? `
@@ -3451,6 +3566,18 @@ function buildMonthlyData(year, month) {
   const frozenCount  = byReason['Frozen'] || 0;
   const harvestCount = byReason['Harvest'] || byReason['Harvested'] || 0;
 
+  // Deaths by cause and by stage
+  const deathsByCause = {};
+  const deathsByStage = {};
+  for (const r of monthRemovals.filter(x => x.reason === 'Dead')) {
+    const cause = r.cause || 'Unknown';
+    const stage = r.stage || '—';
+    const cnt   = Number(r.count) || 0;
+    deathsByCause[cause] = (deathsByCause[cause] || 0) + cnt;
+    if (!deathsByStage[stage]) deathsByStage[stage] = {};
+    deathsByStage[stage][cause] = (deathsByStage[stage][cause] || 0) + cnt;
+  }
+
   // Stage distribution at end of month
   const stageNames = orderedStageNames();
   const stageData  = stageNames.map((nm, i) => ({
@@ -3484,6 +3611,7 @@ function buildMonthlyData(year, month) {
     monthName: MONTH_NAMES[month - 1],
     popStart, popEnd, births, intakes,
     totalRemoved, byReason, frozenCount, harvestCount,
+    deathsByCause, deathsByStage,
     stageData, topTrays, speciesBreakdown,
     growth, growthPct
   };
@@ -3636,6 +3764,24 @@ function generateMonthlyReportHTML(d) {
         <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#9660; Removal Breakdown</h2>
         <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #1e2035;border-radius:8px;overflow:hidden">${reasonRows}</table>
       </td></tr>` : ''}
+
+      ${Object.keys(d.deathsByStage||{}).length ? (() => {
+        const causes = [...new Set(Object.values(d.deathsByStage).flatMap(o => Object.keys(o)))];
+        const stages = Object.keys(d.deathsByStage);
+        const hdr = causes.map(c => `<td style="padding:7px 10px;color:#94a3b8;font-size:11px;font-weight:700;text-align:center;text-transform:uppercase;border-bottom:1px solid #1e2035">${c}</td>`).join('');
+        const rows = stages.map(st => {
+          const cells = causes.map(c => `<td style="padding:7px 10px;color:#e2e8f0;font-size:12px;font-weight:700;text-align:center;border-bottom:1px solid #1e2035">${d.deathsByStage[st][c]||'—'}</td>`).join('');
+          return `<tr><td style="padding:7px 10px;color:#94a3b8;font-size:12px;border-bottom:1px solid #1e2035;white-space:nowrap"><b>${st}</b></td>${cells}</tr>`;
+        }).join('');
+        return `<!-- Deaths by cause -->
+      <tr><td style="background:#111127;padding:24px 28px">
+        <h2 style="margin:0 0 12px;color:#e2e8f0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.1em">&#128700; Deaths by Cause &amp; Stage</h2>
+        <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #1e2035;border-radius:8px;overflow:hidden">
+          <thead><tr><td style="padding:7px 10px;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;border-bottom:1px solid #1e2035">Stage</td>${hdr}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </td></tr>`;
+      })() : ''}
 
       ${d.topTrays.length ? `
       <!-- Top trays -->

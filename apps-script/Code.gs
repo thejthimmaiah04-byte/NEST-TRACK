@@ -27,7 +27,7 @@ var SCHEMAS = {
   shelves:     ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
   trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:     ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
-  removals:    ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'updatedAt', 'deleted', 'syncedAt'],
+  removals:    ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'cause', 'updatedAt', 'deleted', 'syncedAt'],
   frozen_uses: ['id', 'speciesId', 'stage', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals', 'frozen_uses'];
@@ -45,7 +45,7 @@ var COL_LABELS = {
   sortOrder: '_ORDER', updatedAt: '_UPDATED', deleted: '_DELETED', syncedAt: '_SYNCED',
   shelfId: '_SHELF ID', speciesId: '_SPECIES ID', trayId: '_TRAY ID', cohortId: '_COHORT ID',
   birthDate: 'DATE', initialCount: 'COUNT', notes: 'NOTES',
-  males: '♂', females: '♀', reason: 'REASON', date: 'DATE', stage: 'STAGE', count: 'REMOVED',
+  males: '♂', females: '♀', reason: 'REASON', cause: 'CAUSE', date: 'DATE', stage: 'STAGE', count: 'REMOVED',
   gravidFemales: 'GRAVID ♀', lactatingFemales: 'LACTATING ♀',
   adultMales: '♂ ADULTS', adultFemales: '♀ ADULTS'
 };
@@ -72,14 +72,14 @@ var EXTRA = {
 // Shelves      : id(1) name(2) order(3) updated(4) deleted(5) synced(6) | TRAYS(7)
 // Trays        : id(1) shelfId(2) name(3) speciesId(4) gravid(5) lact(6) updated(7) deleted(8) synced(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stages(13+)
 // Birth        : id(1) trayId(2) speciesId(3) date(4) count(5) notes(6) ♂(7) ♀(8) updated(9) deleted(10) synced(11) | TRAY(12) SPECIES(13)
-// Removal      : id(1) cohortId(2) trayId(3) date(4) stage(5) count(6) ♂(7) ♀(8) reason(9) updated(10) deleted(11) synced(12) | TRAY(13)
+// Removal      : id(1) cohortId(2) trayId(3) date(4) stage(5) count(6) ♂(7) ♀(8) reason(9) cause(10) updated(11) deleted(12) synced(13) | TRAY(14)
 // Frozen       : id(1) speciesId(2) stage(3) date(4) count(5) updated(6) deleted(7) synced(8) | SPECIES(9)
 var HIDE = {
   species:     [1, 3, 6, 7, 8],             // show: NAME | LIFESPAN | GESTATION | STAGES | SEX RATIO | PINKY | FUZZY | HOPPER | ADULT
   shelves:     [1, 3, 4, 5, 6],             // show: NAME | TRAYS
   trays:       [1, 2, 4, 7, 8, 9],          // show: TRAY ID | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
   cohorts:     [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES
-  removals:    [1, 2, 3, 10, 11, 12],       // show: DATE | STAGE | REMOVED | ♂ | ♀ | REASON | TRAY
+  removals:    [1, 2, 3, 11, 12, 13],       // show: DATE | STAGE | REMOVED | ♂ | ♀ | REASON | CAUSE | TRAY
   frozen_uses: [1, 2, 6, 7, 8]             // show: STAGE | DATE | COUNT | SPECIES
 };
 
@@ -95,6 +95,25 @@ function doPost(e) {
   lock.waitLock(25000);
   try {
     var body = JSON.parse(e.postData.contents || '{}');
+
+    // ── Image upload to Drive ─────────────────────────────────────────
+    if (body.action === 'uploadImage') {
+      var rootFolderName = 'RODENT BREEDING IMAGES';
+      var causeFolder    = String(body.cause || 'unknown').toLowerCase();
+      var fileName       = String(body.fileName || 'photo') + '.' +
+                           (String(body.mimeType || 'image/jpeg').split('/')[1] || 'jpg');
+      var rootFolders = DriveApp.getFoldersByName(rootFolderName);
+      var rootFolder  = rootFolders.hasNext() ? rootFolders.next() : DriveApp.createFolder(rootFolderName);
+      var subFolders  = rootFolder.getFoldersByName(causeFolder);
+      var subFolder   = subFolders.hasNext() ? subFolders.next() : rootFolder.createFolder(causeFolder);
+      var blob = Utilities.newBlob(
+        Utilities.base64Decode(String(body.imageBase64 || '')),
+        String(body.mimeType || 'image/jpeg'),
+        fileName
+      );
+      var file = subFolder.createFile(blob);
+      return json({ ok: true, fileId: file.getId(), fileName: fileName });
+    }
 
     // ── Email report action ───────────────────────────────────────────
     if (body.action === 'sendReport') {
@@ -533,6 +552,21 @@ function reformatSheets() {
       readAll('cohorts').rows.forEach(function(c, i) {
         birthSh.getRange(i + 2, birthTrayCol).setValue(ctx2.trayName(c.trayId));
         birthSh.getRange(i + 2, birthSpeciesCol).setValue(ctx2.speciesName(c.speciesId));
+      });
+    }
+  }
+
+  // 4b. Insert CAUSE column in Removal sheet at position 10 (after REASON col 9)
+  var removalSh = ss.getSheetByName(SHEET_NAMES.removals);
+  if (removalSh && removalSh.getLastColumn() >= 9) {
+    var col10Val = removalSh.getLastColumn() >= 10 ? String(removalSh.getRange(1, 10).getValue()) : '';
+    if (col10Val !== 'CAUSE') {
+      removalSh.insertColumnBefore(10);
+      removalSh.getRange(1, 10).setValue('CAUSE')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      // Hide new col 11 (updatedAt), 12 (deleted), 13 (syncedAt) — col 10 (CAUSE) stays visible
+      [11, 12, 13].forEach(function(c) {
+        if (c <= removalSh.getLastColumn()) removalSh.hideColumns(c);
       });
     }
   }
