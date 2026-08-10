@@ -2749,8 +2749,8 @@ function onClick(e) {
     });
 
     // Reports
-    case 'rpt-generate': return generateAndPreviewReport();
-    case 'rpt-send':     return sendReportEmail(el);
+    case 'rpt-save-emails': return _rptSaveSettings();
+    case 'rpt-send-now':    return _rptSendNow(el);
   }
 }
 
@@ -2919,66 +2919,207 @@ const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct'
 let _reportHTML = '';
 
 function renderReports() {
-  const el = $('#tab-reports');
+  const el  = $('#tab-reports');
   const now = new Date();
-  const curYear = now.getFullYear();
-  const curMonth = now.getMonth() + 1;
+  const curYear  = now.getFullYear();
+  const curMonth = now.getMonth(); // 0-based
 
-  const years = [];
-  for (let y = curYear; y >= curYear - 4; y--) years.push(y);
-  const yearOpts   = years.map(y => `<option value="${y}" ${y===curYear?'selected':''}>${y}</option>`).join('');
-  const monthOpts  = MONTH_NAMES.map((m, i) =>
-    `<option value="${i+1}" ${i+1===curMonth?'selected':''}>${m}</option>`).join('');
+  if (!live('cohorts').length) {
+    el.innerHTML = `<h2 class="section-title" style="margin:4px 0 20px">Reports</h2>` +
+      emptyState('&#128202;', 'No data yet', 'Add species and litters first, then come back here for your colony summary.');
+    return;
+  }
 
-  el.innerHTML = `
-    <h2 class="section-title" style="margin:4px 0 20px">Colony Reports</h2>
-    <div class="card" style="margin-bottom:20px">
-      <div class="gap" style="flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
-        <label class="field" style="min-width:160px;flex:1">
-          <span>Report type</span>
-          <select id="rpt-type">
-            <option value="monthly">Monthly Report</option>
-            <option value="annual">Annual Summary</option>
-          </select>
-        </label>
-        <div id="rpt-month-row" class="gap" style="flex:2;min-width:200px">
-          <label class="field" style="flex:1"><span>Month</span>
-            <select id="rpt-month">${monthOpts}</select></label>
-          <label class="field" style="flex:1"><span>Year</span>
-            <select id="rpt-year">${yearOpts}</select></label>
-        </div>
-        <label id="rpt-annual-row" class="field" style="flex:2;min-width:200px;display:none">
-          <span>Year</span>
-          <select id="rpt-year2">${yearOpts}</select>
-        </label>
+  /* ── Colony snapshot ─────────────────────────────────────────── */
+  const { totals, total } = stageTotalsAt(now);
+  const names = orderedStageNames();
+
+  const monthStartYMD = toYMD(new Date(curYear, curMonth, 1));
+  const todayYMD      = toYMD(now);
+
+  const monthRems = live('removals').filter(r => {
+    const d = normYMD(r.date);
+    return d >= monthStartYMD && d <= todayYMD;
+  });
+  const birthsThisMonth = live('cohorts')
+    .filter(c => { const d = normYMD(c.birthDate); return d >= monthStartYMD && d <= todayYMD; })
+    .reduce((s, c) => s + (Number(c.initialCount) || 0), 0);
+  const deaths    = monthRems.filter(r => r.reason === 'Dead')
+    .reduce((s, r) => s + (Number(r.count) || 0), 0);
+  const harvested = monthRems.filter(r => r.reason === 'Feeding' || r.reason === 'Harvest' || r.reason === 'Harvested')
+    .reduce((s, r) => s + (Number(r.count) || 0), 0);
+  const frozenThisMonth = monthRems.filter(r => r.reason === 'Frozen')
+    .reduce((s, r) => s + (Number(r.count) || 0), 0);
+
+  // Overall tracked sex counts
+  let totalMales = 0, totalFemales = 0;
+  for (const c of live('cohorts')) {
+    if (cohortNet(c, now) <= 0 || (c.males == null && c.females == null)) continue;
+    const rems = live('removals').filter(r => r.cohortId === c.id);
+    const remM = rems.reduce((s, r) => s + (Number(r.males)   || 0), 0);
+    const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
+    totalMales   += Math.max(0, (Number(c.males)   || 0) - remM);
+    totalFemales += Math.max(0, (Number(c.females) || 0) - remF);
+  }
+  const sexRatioLine = (totalMales + totalFemales > 0)
+    ? `<div class="spread rpt-sex-row">
+         <span class="small muted">Overall sex ratio</span>
+         <span class="small">&#9794; ${totalMales} &nbsp;&#9792; ${totalFemales}
+           ${totalMales && totalFemales ? `<span class="muted"> &nbsp;1 : ${(totalFemales/totalMales).toFixed(1)}</span>` : ''}</span>
+       </div>` : '';
+
+  const stagePills = names.map((nm, i) => {
+    const count = totals.get(nm) || 0;
+    if (!count) return '';
+    return `<div class="rpt-pill" style="border-color:${STAGE_HEX[i%STAGE_HEX.length]}66;background:${STAGE_HEX[i%STAGE_HEX.length]}14">
+      <span class="rpt-pill-n" style="color:${STAGE_HEX[i%STAGE_HEX.length]}">${count.toLocaleString()}</span>
+      <span class="rpt-pill-l">${esc(nm)}</span>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  /* ── 4-week forecast bars ─────────────────────────────────────── */
+  const fc    = forecast(4);
+  const maxFc = Math.max(1, ...fc.points.map(p => p.total));
+  const fcBars = fc.points.map((p, i) => {
+    const h   = Math.max(6, Math.round((p.total / maxFc) * 56));
+    const lbl = i === 0 ? 'Now' : `Wk ${i}`;
+    return `<div class="rpt-fc-col">
+      <div class="rpt-fc-val">${p.total.toLocaleString()}</div>
+      <div class="rpt-fc-bar" style="height:${h}px"></div>
+      <div class="rpt-fc-lbl">${lbl}</div>
+    </div>`;
+  }).join('');
+
+  /* ── Per-species cards ────────────────────────────────────────── */
+  const spCards = live('species').map(sp => {
+    const { totals: spTot, total: spTotal } = stageTotalsAt(now, c => speciesOf(c)?.id === sp.id);
+    if (!spTotal) return '';
+
+    const stages = [...(sp.stages || [])].sort((a, b) => (a.startDay||0) - (b.startDay||0));
+    const spPills = stages.map((st, i) => {
+      const cnt = spTot.get(st.name) || 0;
+      if (!cnt) return '';
+      return `<span class="rpt-sp-pill" style="background:${STAGE_HEX[i%STAGE_HEX.length]}22;color:${STAGE_HEX[i%STAGE_HEX.length]};border:1px solid ${STAGE_HEX[i%STAGE_HEX.length]}55">${esc(st.name)}: ${cnt}</span>`;
+    }).filter(Boolean).join('');
+
+    let spM = 0, spF = 0;
+    for (const c of live('cohorts')) {
+      if (speciesOf(c)?.id !== sp.id || cohortNet(c, now) <= 0) continue;
+      if (c.males == null && c.females == null) continue;
+      const rems = live('removals').filter(r => r.cohortId === c.id);
+      spM += Math.max(0, (Number(c.males)||0) - rems.reduce((s,r)=>s+(Number(r.males)||0),0));
+      spF += Math.max(0, (Number(c.females)||0) - rems.reduce((s,r)=>s+(Number(r.females)||0),0));
+    }
+    const spSex = (spM || spF)
+      ? `<span class="rpt-sp-meta-item">&#9794; ${spM} &middot; &#9792; ${spF}${spM&&spF?` <span class="muted">(1:${(spF/spM).toFixed(1)})</span>`:''}</span>`
+      : '';
+
+    const trayCount  = live('trays').filter(t => t.speciesId === sp.id).length;
+    const spBirths   = live('cohorts')
+      .filter(c => c.speciesId === sp.id && normYMD(c.birthDate) >= monthStartYMD && normYMD(c.birthDate) <= todayYMD)
+      .reduce((s, c) => s + (Number(c.initialCount)||0), 0);
+    const spDeaths   = live('removals')
+      .filter(r => {
+        const d = normYMD(r.date); if (d < monthStartYMD || d > todayYMD || r.reason !== 'Dead') return false;
+        const c = byId('cohorts', r.cohortId); return speciesOf(c)?.id === sp.id;
+      }).reduce((s, r) => s + (Number(r.count)||0), 0);
+
+    // Mini forecast for this species
+    const spFc = forecast(4, c => speciesOf(c)?.id === sp.id);
+    const spMaxFc = Math.max(1, ...spFc.points.map(p => p.total));
+    const spFcBars = spFc.points.map((p, i) => {
+      const h = Math.max(3, Math.round((p.total / spMaxFc) * 32));
+      return `<div class="rpt-sp-fc-col">
+        <div class="rpt-sp-fc-bar" style="height:${h}px"></div>
+        <div class="rpt-sp-fc-lbl">${i===0?'Now':`W${i}`}</div>
+      </div>`;
+    }).join('');
+
+    return `<div class="card rpt-sp-card">
+      <div class="rpt-sp-header">
+        <span class="rpt-sp-name">${esc(sp.name)}</span>
+        <span class="rpt-sp-total">${spTotal.toLocaleString()} alive</span>
       </div>
+      <div class="rpt-sp-pills">${spPills || '<span class="small muted">No stage data</span>'}</div>
+      <div class="rpt-sp-meta">
+        ${spSex}
+        <span class="rpt-sp-meta-item muted">${trayCount} tray${trayCount!==1?'s':''}</span>
+        ${spBirths ? `<span class="rpt-sp-meta-item" style="color:var(--ok)">+${spBirths} born this month</span>` : ''}
+        ${spDeaths ? `<span class="rpt-sp-meta-item" style="color:var(--danger)">${spDeaths} died this month</span>` : ''}
+      </div>
+      <div class="rpt-sp-fc">${spFcBars}</div>
+    </div>`;
+  }).filter(Boolean).join('');
+
+  /* ── Email / schedule ─────────────────────────────────────────── */
+  const savedEmails   = state.meta.reportEmails   || '';
+  const savedSchedule = state.meta.reportSchedule || 'off';
+  const lastSentTs    = state.meta.reportLastSent;
+  const lastSentLabel = lastSentTs
+    ? new Date(lastSentTs).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+    : 'Never';
+  const nextDueLabel  = _reportNextDueLabel();
+
+  /* ── Render ───────────────────────────────────────────────────── */
+  el.innerHTML = `
+    <!-- ① Colony Snapshot -->
+    <h2 class="section-title" style="margin:4px 0 14px">Colony Snapshot &mdash; ${MONTH_NAMES[curMonth]} ${curYear}</h2>
+    <div class="card" style="margin-bottom:20px">
+      <div class="rpt-total-row">
+        <span class="rpt-total-n">${total.toLocaleString()}</span>
+        <span class="small muted">total alive</span>
+      </div>
+      <div class="rpt-pills-grid">${stagePills}</div>
+      <hr class="hr" />
+      <div class="rpt-month-grid">
+        <div class="rpt-mstat"><span class="rpt-mstat-n ok">${birthsThisMonth}</span><span class="rpt-mstat-l">Births</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n danger">${deaths}</span><span class="rpt-mstat-l">Deaths</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n" style="color:var(--accent)">${harvested}</span><span class="rpt-mstat-l">Harvested</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n" style="color:#2dd4bf">${frozenThisMonth}</span><span class="rpt-mstat-l">Frozen</span></div>
+      </div>
+      ${sexRatioLine ? `<hr class="hr" />${sexRatioLine}` : ''}
+    </div>
+
+    <!-- ② Forecast -->
+    <h2 class="section-title" style="margin:0 0 12px">4-Week Population Forecast</h2>
+    <div class="card" style="margin-bottom:20px">
+      <p class="small muted" style="margin:0 0 14px">Based on current removal rate. Highlighted bar = now.</p>
+      <div class="rpt-fc-chart">${fcBars}</div>
+    </div>
+
+    <!-- ③ Species Breakdown -->
+    ${live('species').length ? `
+    <h2 class="section-title" style="margin:0 0 12px">Species Breakdown</h2>
+    <div class="rpt-sp-grid" style="margin-bottom:20px">${spCards || '<div class="card"><p class="small muted" style="margin:0">No live animals.</p></div>'}</div>` : ''}
+
+    <!-- ④ Auto-Reports & Email -->
+    <h2 class="section-title" style="margin:0 0 12px">Auto-Reports &amp; Email</h2>
+    <div class="card">
       <label class="field" style="margin-bottom:6px">
         <span>Email recipients</span>
-        <input id="rpt-emails" type="text" placeholder="user@example.com, another@example.com" value="${esc(state.meta.reportEmails||'')}" />
+        <input id="rpt-emails" type="text"
+          placeholder="alice@example.com, bob@example.com"
+          value="${esc(savedEmails)}" />
       </label>
-      <p class="small muted" style="margin:0 0 16px">Comma-separated. Emails are sent via the Apps Script URL configured in Settings.</p>
-      <div class="gap">
-        <button class="btn primary" data-act="rpt-generate">&#128202; Generate Report</button>
-        <button class="btn" id="rpt-send-btn" data-act="rpt-send" style="opacity:.45;pointer-events:none">&#9993; Send Report</button>
+      <p class="small muted" style="margin:0 0 14px">Comma-separated. Sent via the Apps Script URL in Settings.</p>
+      <label class="field" style="margin-bottom:14px">
+        <span>Auto-send schedule</span>
+        <select id="rpt-schedule">
+          <option value="off"    ${savedSchedule==='off'    ?'selected':''}>Off &mdash; manual only</option>
+          <option value="weekly" ${savedSchedule==='weekly' ?'selected':''}>Weekly (every 7 days)</option>
+          <option value="monthly"${savedSchedule==='monthly'?'selected':''}>Monthly (every 30 days)</option>
+          <option value="yearly" ${savedSchedule==='yearly' ?'selected':''}>Yearly (every 365 days)</option>
+        </select>
+      </label>
+      <div class="rpt-schedule-info small muted" style="margin-bottom:16px">
+        <div class="spread mt"><span>Last sent</span><span>${lastSentLabel}</span></div>
+        ${nextDueLabel ? `<div class="spread mt"><span>Next due</span><span>${nextDueLabel}</span></div>` : ''}
       </div>
-    </div>
-    <div id="rpt-preview-wrap" style="display:none">
-      <h2 class="section-title" style="margin:0 0 12px">Preview</h2>
-      <div class="card" style="padding:0;overflow:hidden">
-        <iframe id="rpt-frame" style="width:100%;height:680px;border:none;display:block" title="Report preview"></iframe>
+      <div class="gap">
+        <button class="btn primary" data-act="rpt-save-emails">Save settings</button>
+        <button class="btn" data-act="rpt-send-now">&#9993; Send now</button>
       </div>
     </div>`;
-
-  // Report type toggle — swap month/year vs year-only picker
-  $('#rpt-type').addEventListener('change', function() {
-    const monthly = this.value === 'monthly';
-    $('#rpt-month-row').style.display = monthly ? '' : 'none';
-    $('#rpt-annual-row').style.display = monthly ? 'none' : '';
-    $('#rpt-preview-wrap').style.display = 'none';
-    const sb = $('#rpt-send-btn');
-    sb.style.opacity = '.45'; sb.style.pointerEvents = 'none';
-    _reportHTML = '';
-  });
 }
 
 /* --- Data builders --- */
@@ -3418,6 +3559,88 @@ function sendReportEmail(triggerEl) {
 }
 
 /* ------------------------------------------------------------------ *
+ *  Report schedule helpers
+ * ------------------------------------------------------------------ */
+const SCHEDULE_MS = { weekly: 7*86400000, monthly: 30*86400000, yearly: 365*86400000 };
+
+function _reportNextDueLabel() {
+  const s = state.meta.reportSchedule;
+  if (!s || s === 'off') return null;
+  const ms   = SCHEDULE_MS[s];
+  const last = state.meta.reportLastSent || 0;
+  const due  = new Date(last + ms);
+  return due <= new Date() ? 'Overdue — will send on next open' : due.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+function _rptSaveSettings() {
+  const emails   = $('#rpt-emails')?.value?.trim()   || '';
+  const schedule = $('#rpt-schedule')?.value          || 'off';
+  state.meta.reportEmails   = emails;
+  state.meta.reportSchedule = schedule;
+  saveState();
+  toast('Report settings saved');
+  renderReports();
+}
+
+function _rptSendNow(btn) {
+  const emails = (state.meta.reportEmails || '').split(',').map(e => e.trim()).filter(Boolean);
+  if (!emails.length) return toast('Save at least one email address first', true);
+
+  const now = new Date();
+  const d   = buildMonthlyData(now.getFullYear(), now.getMonth() + 1);
+  const html = generateMonthlyReportHTML(d);
+  const subject = `NestTrak Colony Report — ${d.monthName} ${d.year}`;
+
+  if (btn) { btn.textContent = 'Sending…'; btn.style.pointerEvents = 'none'; }
+
+  _sendReportHtml(emails, subject, html)
+    .then(() => {
+      state.meta.reportLastSent = Date.now();
+      saveState();
+      toast(`Report sent to ${emails.join(', ')}`);
+      renderReports();
+    })
+    .catch(err => toast(`Send failed: ${err.message}`, true))
+    .finally(() => { if (btn) { btn.textContent = '✉ Send now'; btn.style.pointerEvents = ''; } });
+}
+
+function _sendReportHtml(emails, subject, html) {
+  if (!state.meta.scriptUrl) {
+    const body = encodeURIComponent('This report is best viewed in HTML. Please use NestTrak to regenerate.');
+    window.open(`mailto:${emails.join(',')}?subject=${encodeURIComponent(subject)}&body=${body}`);
+    return Promise.resolve();
+  }
+  return fetch(state.meta.scriptUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body:    JSON.stringify({ action: 'sendReport', to: emails, subject, html })
+  }).then(r => r.json()).then(resp => {
+    if (!resp.ok) throw new Error(resp.error || 'Unknown error');
+  });
+}
+
+function checkAutoReport() {
+  const s = state.meta.reportSchedule;
+  if (!s || s === 'off') return;
+  const emails = (state.meta.reportEmails || '').split(',').map(e => e.trim()).filter(Boolean);
+  if (!emails.length) return;
+  const ms   = SCHEDULE_MS[s];
+  const last = state.meta.reportLastSent || 0;
+  if ((Date.now() - last) < ms) return;
+
+  const now  = new Date();
+  const d    = buildMonthlyData(now.getFullYear(), now.getMonth() + 1);
+  const html = generateMonthlyReportHTML(d);
+  const subject = `NestTrak Auto-Report — ${d.monthName} ${d.year}`;
+
+  _sendReportHtml(emails, subject, html).then(() => {
+    state.meta.reportLastSent = Date.now();
+    saveState();
+    console.log('Auto-report sent');
+  }).catch(err => console.warn('Auto-report failed:', err));
+}
+
+/* ------------------------------------------------------------------ *
  *  Boot
  * ------------------------------------------------------------------ */
 function init() {
@@ -3442,6 +3665,7 @@ function init() {
 
   render();
   if (state.meta.scriptUrl && navigator.onLine) syncNow();
+  setTimeout(checkAutoReport, 5000); // check after initial sync settles
 
   // Floating action button — quick add
   const fab = document.createElement('button');
