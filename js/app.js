@@ -1933,14 +1933,14 @@ function getCalEvents() {
 
   for (const r of live('removals')) {
     const tray = byId('trays', r.trayId);
+    const stageStr = r.stage ? r.stage.toLowerCase() + (r.count !== 1 ? 's' : '') : 'animal' + (r.count !== 1 ? 's' : '');
     const sexStr = (r.males != null || r.females != null)
       ? ` · ${r.males != null ? '♂'+r.males : ''}${r.females != null ? ' ♀'+r.females : ''}`.trim()
       : '';
-    const reasonStr = r.reason ? ` · ${r.reason}` : '';
     add(r.date, {
       type: 'removal',
-      label: `${r.count} removed`,
-      sub:   `${tray?.name || '—'} · ${r.stage}${sexStr}${reasonStr}`,
+      label: `${r.count} ${stageStr} removed${r.reason ? ' · ' + r.reason : ''}`,
+      sub:   `${tray?.name || r.trayId || '—'}${sexStr}`,
       color: 'var(--danger)'
     });
   }
@@ -1969,8 +1969,9 @@ function renderCalendar() {
     const isSel   = dateStr === calSelected;
 
     const dotTypes = [...new Set(evs.map(e => e.type))];
+    const DOT_COLOR = { birth: 'var(--ok)', 'predicted-birth': '#a78bfa', removal: 'var(--danger)' };
     const dots = dotTypes.map(t =>
-      `<span class="cal-dot" style="background:${t==='birth'?'var(--ok)':'var(--danger)'}"></span>`
+      `<span class="cal-dot" style="background:${DOT_COLOR[t]||'var(--accent)'}"></span>`
     ).join('');
 
     cells += `<div class="cal-cell ${isToday?'today':''} ${isSel?'selected':''} ${evs.length?'has-ev':''}"
