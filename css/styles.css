@@ -1225,11 +1225,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .rpt-sp-meta  { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .rpt-sp-meta-item { font-size: 12.5px; }
 
-/* Per-species mini forecast */
-.rpt-sp-fc { display: flex; align-items: flex-end; gap: 6px; height: 44px; }
-.rpt-sp-fc-col { display: flex; flex-direction: column; align-items: center;
-  gap: 2px; flex: 1; height: 100%; justify-content: flex-end; }
-.rpt-sp-fc-bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 3px;
-  background: var(--accent); opacity: .75; }
-.rpt-sp-fc-col:first-child .rpt-sp-fc-bar { opacity: 1; }
-.rpt-sp-fc-lbl { font-size: 9px; color: var(--muted); }
+/* Per-species forecast chart */
+.rpt-sp-fc { display: block; width: 100%; margin-top: 14px; }
+.rpt-sp-fc #fc-wrap { margin: 0; }
+.rpt-sp-fc svg { display: block; width: 100%; }
