@@ -3024,16 +3024,11 @@ function renderReports() {
         const c = byId('cohorts', r.cohortId); return speciesOf(c)?.id === sp.id;
       }).reduce((s, r) => s + (Number(r.count)||0), 0);
 
-    // Mini forecast for this species
-    const spFc = forecast(4, c => speciesOf(c)?.id === sp.id);
-    const spMaxFc = Math.max(1, ...spFc.points.map(p => p.total));
-    const spFcBars = spFc.points.map((p, i) => {
-      const h = Math.max(3, Math.round((p.total / spMaxFc) * 32));
-      return `<div class="rpt-sp-fc-col">
-        <div class="rpt-sp-fc-bar" style="height:${h}px"></div>
-        <div class="rpt-sp-fc-lbl">${i===0?'Now':`W${i}`}</div>
-      </div>`;
-    }).join('');
+    // Forecast chart for this species (reuse Charts-tab bar chart, all stages visible)
+    const _savedVis = fcVisibleStages;
+    fcVisibleStages = null;
+    const spFcChart = renderForecastChart(forecast(13, c => speciesOf(c)?.id === sp.id));
+    fcVisibleStages = _savedVis;
 
     return `<div class="card rpt-sp-card">
       <div class="rpt-sp-header">
@@ -3047,7 +3042,7 @@ function renderReports() {
         ${spBirths ? `<span class="rpt-sp-meta-item" style="color:var(--ok)">+${spBirths} born this month</span>` : ''}
         ${spDeaths ? `<span class="rpt-sp-meta-item" style="color:var(--danger)">${spDeaths} died this month</span>` : ''}
       </div>
-      <div class="rpt-sp-fc">${spFcBars}</div>
+      <div class="rpt-sp-fc">${spFcChart}</div>
     </div>`;
   }).filter(Boolean).join('');
 
