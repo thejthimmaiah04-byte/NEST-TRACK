@@ -655,6 +655,20 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .cohort-remove { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 .cohort-remove input { width: 68px; }
 
+/* ---------- Shuffle Recommendations ---------- */
+.rec-list { padding: 4px 0; }
+.rec-card { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0;
+  border-bottom: 1px solid var(--border-2); }
+.rec-card:last-child { border-bottom: none; }
+.rec-badge { width: 34px; height: 34px; border-radius: 50%; background: var(--accent-subtle, rgba(249,115,22,.12));
+  color: var(--accent); font-size: 16px; font-weight: 700; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; }
+.rec-body { flex: 1; min-width: 0; }
+.rec-action { font-size: 14px; font-weight: 600; color: var(--text); }
+.rec-tray { display: inline-block; background: var(--surface-2, var(--surface)); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 6px; font-size: 12px; font-weight: 700; color: var(--accent); }
+.rec-detail { margin-top: 3px; line-height: 1.4; }
+
 /* Sex count inputs inside adult cohort rows */
 .cohort-sex-edit { display: flex; align-items: center; gap: 6px; }
 .sex-lbl { display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: var(--text); }

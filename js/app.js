@@ -602,6 +602,74 @@ function render() {
   else if (activeTab === 'reports')   renderReports();
 }
 
+/* ---------- Shuffle Recommendations ---------- */
+function computeShuffleRecommendations() {
+  const now = new Date();
+  const trayData = [];
+
+  for (const tray of live('trays')) {
+    const sp = speciesOf(tray);
+    if (!sp?.stages?.length) continue;
+    const lastStage = [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name;
+
+    let males = 0, females = 0, hasData = false;
+    for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+      if (cohortNet(c, now) <= 0) continue;
+      if (stageIndexAt(c, now).name !== lastStage) continue;
+      if (c.males == null && c.females == null) continue;
+      hasData = true;
+      const rems = live('removals').filter(r => r.cohortId === c.id);
+      const remM = rems.reduce((s, r) => s + (Number(r.males)   || 0), 0);
+      const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
+      males   += Math.max(0, (Number(c.males)   || 0) - remM);
+      females += Math.max(0, (Number(c.females) || 0) - remF);
+    }
+    if (!hasData || (males === 0 && females === 0)) continue;
+    trayData.push({ tray, sp, males, females });
+  }
+
+  const recs = [];
+  const usedDonors = new Map(); // trayId → males already pledged
+
+  // Pass 1 — trays with females but no male → find a donor with ≥2 males
+  const needsMale  = trayData.filter(t => t.males === 0 && t.females >= 1);
+  const hasSurplus = trayData.filter(t => t.males >= 2);
+  for (const need of needsMale) {
+    const donor = hasSurplus.find(d =>
+      d.sp.id === need.sp.id &&
+      d.tray.id !== need.tray.id &&
+      d.males - (usedDonors.get(d.tray.id) || 0) >= 2
+    );
+    if (!donor) continue;
+    usedDonors.set(donor.tray.id, (usedDonors.get(donor.tray.id) || 0) + 1);
+    recs.push({
+      from: donor.tray, to: need.tray, count: 1, sex: '♂',
+      detail: `${need.tray.name} has ${need.females} ♀ but no ♂ — ${donor.tray.name} has ${donor.males} ♂`
+    });
+  }
+
+  // Pass 2 — ratio > 1:4 → suggest moving excess females to a roomier tray
+  for (const t of trayData) {
+    if (t.males === 0 || t.females / t.males <= 4) continue;
+    const target = trayData.find(d =>
+      d.sp.id === t.sp.id &&
+      d.tray.id !== t.tray.id &&
+      d.males > 0 &&
+      d.females / d.males < 3 &&
+      !recs.some(r => r.from?.id === t.tray.id && r.sex === '♀')
+    );
+    if (!target) continue;
+    const excess = Math.floor(t.females - t.males * 3);
+    if (excess < 1) continue;
+    recs.push({
+      from: t.tray, to: target.tray, count: excess, sex: '♀',
+      detail: `${t.tray.name} ratio is 1:${Math.round(t.females / t.males)} (${t.males}♂ ${t.females}♀) — move ${excess}♀ to ${target.tray.name}`
+    });
+  }
+
+  return recs;
+}
+
 /* ---------- Dashboard ---------- */
 function renderDashboard() {
   const el = $('#tab-dashboard');
@@ -666,13 +734,28 @@ function renderDashboard() {
     </select>`;
   }
 
+  const recs = computeShuffleRecommendations();
+  const recsHtml = recs.length ? `
+    <h2 class="section-title" style="margin:20px 0 10px">&#128260; Recommendations</h2>
+    <div class="card rec-list">
+      ${recs.map(r => `
+        <div class="rec-card">
+          <div class="rec-badge">${r.sex}</div>
+          <div class="rec-body">
+            <div class="rec-action">Move ${r.count}${r.sex} &nbsp;<span class="rec-tray">${esc(r.from.name)}</span> &rarr; <span class="rec-tray">${esc(r.to.name)}</span></div>
+            <div class="rec-detail small muted">${esc(r.detail)}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : '';
+
   el.innerHTML = `
     <div class="spread">
       <h2 class="section-title" style="margin:4px 0 0">Right now</h2>
       ${filterSel}
     </div>
     <div class="stats-grid mt">${stats}</div>
-    <p class="small muted" style="margin-top:8px;text-align:center">Tap a stage card to record a removal</p>`;
+    <p class="small muted" style="margin-top:8px;text-align:center">Tap a stage card to record a removal</p>
+    ${recsHtml}`;
 
   const df = $('#dash-filter');
   if (df) df.onchange = () => { dashFilterSpecies = df.value; renderDashboard(); };
@@ -1906,14 +1989,15 @@ function getCalEvents() {
   const add = (date, ev) => { const k=ymdToInput(date); (map[k]=map[k]||[]).push(ev); };
   for (const c of live('cohorts')) {
     const tray = byId('trays', c.trayId);
-    const sp   = speciesOf(c);
-    const sexStr = (c.males != null && c.females != null)
-      ? ` · ♂${c.males} ♀${c.females}`
-      : c.males != null ? ` · ♂${c.males}` : c.females != null ? ` · ♀${c.females}` : '';
+    const sexParts = [];
+    if (c.males != null)   sexParts.push('♂' + c.males);
+    if (c.females != null) sexParts.push('♀' + c.females);
+    const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
     add(c.birthDate, {
-      type: 'birth',
-      label: `${c.initialCount} born`,
-      sub:   `${tray?.name || '—'} · ${sp?.name || '—'}${sexStr}`,
+      type:  'birth',
+      count: Number(c.initialCount) || 0,
+      label: `${c.initialCount} pinkies born`,
+      sub:   `${tray?.name || '—'}${sexStr}`,
       color: 'var(--ok)'
     });
   }
@@ -1939,7 +2023,8 @@ function getCalEvents() {
     if (r.females != null && r.females !== '') sexParts.push('♀' + r.females);
     const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
     add(r.date, {
-      type: 'removal',
+      type:  'removal',
+      count: Number(r.count) || 0,
       label: `${r.count} ${stageStr} removed${r.reason ? ' · ' + r.reason : ''}${sexStr}`,
       sub:   `${tray?.name || r.trayId || '—'}`,
       color: 'var(--danger)'
@@ -1996,10 +2081,11 @@ function renderCalendar() {
         </div>`).join('')
     : `<p class="muted small" style="margin:0;padding:6px 0">No events on this day.</p>`;
 
-  // Legend
-  const totalBirths    = Object.values(evMap).flat().filter(e=>e.type==='birth').length;
-  const totalRemovals  = Object.values(evMap).flat().filter(e=>e.type==='removal').length;
-  const totalPredicted = Object.values(evMap).flat().filter(e=>e.type==='predicted-birth').length;
+  // Legend — count animals, not events
+  const allEvs = Object.values(evMap).flat();
+  const totalBirths    = allEvs.filter(e=>e.type==='birth').reduce((s,e)=>s+(e.count||0),0);
+  const totalRemovals  = allEvs.filter(e=>e.type==='removal').reduce((s,e)=>s+(e.count||0),0);
+  const totalPredicted = allEvs.filter(e=>e.type==='predicted-birth').length;
 
   el.innerHTML = `
     <div class="cal-nav">
