@@ -1271,6 +1271,32 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .rpt-fc-col:first-child .rpt-fc-bar { background: var(--accent-2); }
 .rpt-fc-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; }
 
+/* Productivity metrics */
+.rpt-prod-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px;
+}
+.rpt-prod-item {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.rpt-prod-n {
+  font-size: 28px; font-weight: 900; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.rpt-prod-l {
+  font-size: 11px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.rpt-prod-bar {
+  height: 4px; background: var(--surface-2);
+  border-radius: 2px; margin-top: 6px; overflow: hidden;
+}
+.rpt-prod-fill {
+  height: 100%; border-radius: 2px;
+  transition: width .4s ease;
+}
+
 /* Species grid */
 .rpt-sp-grid  { display: flex; flex-direction: column; gap: 12px; }
 .rpt-sp-card  { padding: 14px 16px; }

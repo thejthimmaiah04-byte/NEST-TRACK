@@ -1420,25 +1420,22 @@ function openRemoveByStage(stageName, stageIdx) {
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-        <button class="reason-btn" data-reason="Dead">Dead</button>
         <button class="reason-btn" data-reason="Frozen">Frozen</button>
-        <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
-    ${deathCauseHtml()}
     <button class="btn primary block" id="rbs-next">Find trays ›</button>
   `, root => {
-    wireReasonDeathToggle(root);
-    wireCauseBtns(root);
+    root.querySelectorAll('.reason-btn').forEach(b => {
+      b.onclick = () => { root.querySelectorAll('.reason-btn').forEach(x => x.classList.remove('active')); b.classList.add('active'); };
+    });
     $('#rbs-count', root).focus();
 
     const go = () => {
       const needed = parseInt($('#rbs-count', root).value, 10);
-      const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Feeding';
-      const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
+      const reason = $('.reason-btn.active', root)?.dataset.reason || 'Feeding';
       const date   = $('#rbs-date', root).value || todayISO();
       if (!needed || needed < 1) return toast('Enter a count', true);
-      _rbsShowTrays(stageName, stageIdx, needed, reason, cause, date);
+      _rbsShowTrays(stageName, stageIdx, needed, reason, undefined, date);
     };
     $('#rbs-next', root).onclick = go;
     $('#rbs-count', root).addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -3598,6 +3595,77 @@ function renderReports() {
     </table></div>`;
   })() : `<p class="small muted" style="margin:0">No deaths recorded this month.</p>`;
 
+  /* ── Productivity metrics ────────────────────────────────────── */
+  const birthCohorts = live('cohorts')
+    .filter(c => { const d = normYMD(c.birthDate); return d >= monthStartYMD && d <= todayYMD && !String(c.notes||'').startsWith('Transfer'); });
+  const avgLitterSize = birthCohorts.length
+    ? (birthCohorts.reduce((s, c) => s + (Number(c.initialCount)||0), 0) / birthCohorts.length)
+    : null;
+
+  // Yield rate: animals fed as % of current population
+  const yieldRate = total > 0 ? (harvested / total * 100) : null;
+
+  // Freezer current stock (all-time frozen minus used)
+  const totalFrozenStock = Object.values(frozenByStage()).reduce((s, v) => s + Math.max(0, v), 0);
+
+  // Avg age at harvest: for feeding removals this month that have a known birthDate via cohort
+  let harvestAgeSum = 0, harvestAgeCount = 0;
+  for (const r of monthRems.filter(x => x.reason === 'Feeding' || x.reason === 'Harvest' || x.reason === 'Harvested')) {
+    const c = byId('cohorts', r.cohortId);
+    if (!c?.birthDate) continue;
+    const remDate = parseYMD(normYMD(r.date));
+    const bd      = parseYMD(normYMD(c.birthDate));
+    if (!remDate || !bd) continue;
+    harvestAgeSum   += Math.round((remDate - bd) / 86400000);
+    harvestAgeCount += Number(r.count) || 1;
+  }
+  const avgHarvestAge = harvestAgeCount > 0 ? Math.round(harvestAgeSum / harvestAgeCount) : null;
+
+  const deathRate = total > 0 ? (deaths / total * 100) : 0;
+
+  // Death rate bar width — capped at 5% = 100% of bar
+  const deathBarPct = Math.min(100, deathRate / 5 * 100);
+  const deathRateColor = deathRate < 1 ? 'var(--ok)' : deathRate < 3 ? 'var(--warn)' : 'var(--danger)';
+  const deathRateLabel = deathRate < 1 ? 'excellent' : deathRate < 3 ? 'monitor' : 'high — investigate';
+
+  const prodHtml = `
+    <h2 class="section-title" style="margin:0 0 10px">Productivity</h2>
+    <div class="card" style="margin-bottom:20px">
+      <div class="rpt-prod-grid">
+        ${avgLitterSize != null ? `
+        <div class="rpt-prod-item">
+          <span class="rpt-prod-n" style="color:var(--accent)">${avgLitterSize.toFixed(1)}</span>
+          <span class="rpt-prod-l">Avg litter size</span>
+          <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, avgLitterSize/15*100).toFixed(0)}%;background:var(--accent)"></div></div>
+        </div>` : ''}
+        ${yieldRate != null ? `
+        <div class="rpt-prod-item">
+          <span class="rpt-prod-n" style="color:var(--ok)">${yieldRate.toFixed(1)}<span style="font-size:14px;font-weight:500">%</span></span>
+          <span class="rpt-prod-l">Yield rate (fed / alive)</span>
+          <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, yieldRate*3).toFixed(0)}%;background:var(--ok)"></div></div>
+        </div>` : ''}
+        <div class="rpt-prod-item">
+          <span class="rpt-prod-n" style="color:#2dd4bf">${totalFrozenStock}</span>
+          <span class="rpt-prod-l">Freezer stock</span>
+          <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, totalFrozenStock/200*100).toFixed(0)}%;background:#2dd4bf"></div></div>
+        </div>
+        ${avgHarvestAge != null ? `
+        <div class="rpt-prod-item">
+          <span class="rpt-prod-n" style="color:var(--info,#818cf8)">${avgHarvestAge}<span style="font-size:14px;font-weight:500">d</span></span>
+          <span class="rpt-prod-l">Avg age at harvest</span>
+          <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, avgHarvestAge/90*100).toFixed(0)}%;background:var(--info,#818cf8)"></div></div>
+        </div>` : ''}
+      </div>
+      <hr class="hr" style="margin:14px 0" />
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="small" style="color:var(--muted);white-space:nowrap;min-width:70px">Death rate</span>
+        <div style="flex:1;background:var(--surface-2);border-radius:4px;height:8px;overflow:hidden">
+          <div style="width:${deathBarPct.toFixed(1)}%;background:${deathRateColor};height:100%;border-radius:4px;transition:width .4s"></div>
+        </div>
+        <span class="small" style="color:${deathRateColor};font-weight:700;white-space:nowrap">${deathRate.toFixed(2)}% <span style="color:var(--muted);font-weight:400">— ${deathRateLabel}</span></span>
+      </div>
+    </div>`;
+
   /* ── Per-species cards ────────────────────────────────────────── */
   const spCards = live('species').map(sp => {
     const { totals: spTot, total: spTotal } = stageTotalsAt(now, c => speciesOf(c)?.id === sp.id);
@@ -3680,7 +3748,10 @@ function renderReports() {
       ${sexRatioLine ? `<hr class="hr" />${sexRatioLine}` : ''}
     </div>
 
-    <!-- ② Removals & Deaths -->
+    <!-- ② Productivity -->
+    ${prodHtml}
+
+    <!-- ③ Removals & Deaths -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 12px">
       <h2 class="section-title" style="margin:0">Removals &amp; Deaths</h2>
       ${state.meta.scriptUrl ? `<button class="btn sm" data-act="sync-now" style="flex-shrink:0">&#8635; Pull from sheet</button>` : ''}
