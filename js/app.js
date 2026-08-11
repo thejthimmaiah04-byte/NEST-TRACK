@@ -2862,6 +2862,119 @@ function requestNotificationPermission() {
   });
 }
 
+/* ── In-app notification bell ─────────────────────────────────────────────── */
+
+function getAppNotifications() {
+  const notifs = [];
+
+  // Backup overdue
+  const lastExport  = state.meta?.lastExport || 0;
+  const daysSince   = lastExport ? Math.floor((Date.now() - lastExport) / 86400000) : 999;
+  if (daysSince >= 7) {
+    notifs.push({
+      id: 'backup-due', type: 'warn', icon: '💾',
+      title: daysSince === 999 ? 'No backup taken yet' : `Backup ${daysSince} days overdue`,
+      body:  'Download a JSON backup to protect your data.',
+      action: 'export-json', actionLabel: 'Download now'
+    });
+  }
+
+  // Sync failures
+  const failCount = state.meta?.syncFailCount || 0;
+  if (failCount >= 3) {
+    notifs.push({
+      id: 'sync-fail', type: 'error', icon: '⚠',
+      title: `Sync failing (${failCount} attempts)`,
+      body:  'Data is not reaching Google Sheets.',
+      action: 'sync-now', actionLabel: 'Retry'
+    });
+  }
+
+  // Gravid females — due within 2 days or overdue
+  const today = new Date(); today.setHours(0,0,0,0);
+  for (const tray of live('trays')) {
+    if (!tray.gravidFemales || !tray.gravidSince) continue;
+    const sp = speciesOf(tray);
+    if (!sp?.gestation) continue;
+    const dueDate  = addDays(parseYMD(tray.gravidSince), sp.gestation);
+    const daysLeft = Math.floor((dueDate - today) / 86400000);
+    if (daysLeft > 2) continue;
+    const overdue = daysLeft < 0;
+    notifs.push({
+      id: 'birth-' + tray.id,
+      type: overdue ? 'error' : 'warn',
+      icon: overdue ? '🚨' : '🐣',
+      title: `${tray.name} — birth ${overdue ? `overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'due today' : `due in ${daysLeft}d`}`,
+      body:  `${tray.gravidFemales} gravid ♀ · expected ${fmtDate(dueDate)}`,
+      action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
+    });
+  }
+
+  // Pending changes
+  const pc = pendingCount();
+  if (pc > 0 && state.meta?.scriptUrl) {
+    notifs.push({
+      id: 'pending', type: 'info', icon: '↑',
+      title: `${pc} change${pc !== 1 ? 's' : ''} pending upload`,
+      body:  'Will sync automatically when online.',
+      action: 'sync-now', actionLabel: 'Upload now'
+    });
+  }
+
+  return notifs;
+}
+
+function renderNotificationBell() {
+  const badge = $('#notif-badge');
+  if (!badge) return;
+  const count = getAppNotifications().length;
+  badge.textContent = count > 9 ? '9+' : String(count);
+  badge.hidden = count === 0;
+  const bell = $('#notif-bell');
+  if (bell) bell.classList.toggle('has-notifs', count > 0);
+}
+
+function openNotifPanel() {
+  const panel    = $('#notif-panel');
+  const backdrop = $('#notif-backdrop');
+  const list     = $('#notif-list');
+  if (!panel || !list) return;
+
+  const notifs = getAppNotifications();
+  if (!notifs.length) {
+    list.innerHTML = `<div class="notif-empty">
+      <span style="font-size:28px">✓</span>
+      <span>All clear — no alerts</span>
+    </div>`;
+  } else {
+    list.innerHTML = notifs.map(n => `
+      <div class="notif-item notif-type-${n.type}">
+        <span class="notif-icon">${n.icon}</span>
+        <div class="notif-content">
+          <div class="notif-title">${esc(n.title)}</div>
+          <div class="notif-desc">${esc(n.body)}</div>
+        </div>
+        ${n.action ? `<button class="btn sm notif-act" data-act="${esc(n.action)}"${n.trayId ? ` data-id="${esc(n.trayId)}"` : ''}>
+          ${esc(n.actionLabel)}
+        </button>` : ''}
+      </div>`).join('');
+    // Close panel when an action button inside it is clicked
+    list.querySelectorAll('.notif-act').forEach(btn => {
+      btn.addEventListener('click', closeNotifPanel);
+    });
+  }
+
+  panel.hidden    = false;
+  if (backdrop) backdrop.hidden = false;
+}
+
+function closeNotifPanel() {
+  const panel    = $('#notif-panel');
+  const backdrop = $('#notif-backdrop');
+  if (panel)    panel.hidden    = true;
+  if (backdrop) backdrop.hidden = true;
+}
+
 function checkDueNotifications() {
   if (!state.meta.notificationsGranted || Notification.permission !== 'granted') return;
   const today = new Date();
@@ -4028,26 +4141,7 @@ function renderSync() {
     }
   }
 
-  // Data-safety warning banner — sync failures or no local backup in >7 days
-  const safetyBanner = $('#safety-banner');
-  if (safetyBanner) {
-    const failCount  = state.meta.syncFailCount || 0;
-    const lastExport = state.meta.lastExport || 0;
-    const daysSinceBackup = lastExport ? Math.floor((Date.now() - lastExport) / 86400000) : 999;
-    const syncDown   = state.meta.scriptUrl && failCount >= 3;
-    const backupDue  = daysSinceBackup >= 7;
-    if (syncDown) {
-      safetyBanner.hidden = false;
-      safetyBanner.className = 'safety-banner error';
-      safetyBanner.innerHTML = `⚠ Sync has failed ${failCount} times — data is NOT reaching Google Sheets. <button class="sbtn" data-act="sync-now">Retry now</button> or check your Apps Script URL in Settings.`;
-    } else if (backupDue) {
-      safetyBanner.hidden = false;
-      safetyBanner.className = 'safety-banner warn';
-      safetyBanner.innerHTML = `💾 No backup in ${daysSinceBackup === 999 ? 'a long time' : daysSinceBackup + ' days'} — <button class="sbtn" data-act="export-json">Download backup now</button>`;
-    } else {
-      safetyBanner.hidden = true;
-    }
-  }
+  renderNotificationBell();
 }
 
 /* ------------------------------------------------------------------ *
@@ -4949,6 +5043,17 @@ function init() {
   initHistory();
   $$('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
   document.addEventListener('click', onClick);
+
+  // Notification bell
+  const bellBtn  = $('#notif-bell');
+  const notifClose = $('#notif-close');
+  const notifBack  = $('#notif-backdrop');
+  if (bellBtn)   bellBtn.addEventListener('click', () => {
+    const panel = $('#notif-panel');
+    if (panel && !panel.hidden) closeNotifPanel(); else openNotifPanel();
+  });
+  if (notifClose) notifClose.addEventListener('click', closeNotifPanel);
+  if (notifBack)  notifBack.addEventListener('click',  closeNotifPanel);
 
   // Auto-sync triggers
   window.addEventListener('online',  () => { renderSync(); syncNow(); });
