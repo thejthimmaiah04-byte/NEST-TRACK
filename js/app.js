@@ -9,7 +9,7 @@
  * ------------------------------------------------------------------ */
 const LS_KEY          = 'rbm.state.v1';
 const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
-const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding'];
+const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding','Dystocia','Cannibalism','Hypothermia','Age/Natural','Culled'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
 const SYNC_DEBOUNCE   = 1200;   // ms after last change before pushing
 const AUTO_PULL_MS    = 15000;  // background pull interval when online
@@ -32,6 +32,15 @@ const normYMD   = s  => toYMD(parseYMD(s));
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Returns true if dateStr (any supported format) is a plausible colony date (2015–2040)
+function isValidDate(dateStr) {
+  if (!dateStr) return false;
+  const d = parseYMD(dateStr);
+  if (isNaN(d.getTime())) return false;
+  const y = d.getFullYear();
+  return y >= 2015 && y <= 2040;
+}
 
 function daysBetween(fromDateStr, toDate = new Date()) {
   const a = parseYMD(fromDateStr); // handles both formats
@@ -161,14 +170,14 @@ function frozenStock() {
     .filter(x => x.count > 0);
 }
 
-// Red = 0 males or >1 male; Yellow = 1 male but females off ratio; Green = 1 male + females on ratio
+// Green = ratio within 15% of target; Yellow = within 40%; Red = no males or ratio off
 function ratioStatus(males, females, ratio) {
   if (males === 0) return 'off';
-  if (males > 1)  return 'off';
   if (!ratio) return 'ok';
-  const targetF = ratio.females / ratio.males;
-  if (!females) return 'close';
-  const dev = Math.abs(targetF - females) / targetF;
+  const targetRatio = ratio.females / (ratio.males || 1); // target females per male
+  const actual = females / males;
+  if (!females) return males > 0 ? 'close' : 'off';
+  const dev = Math.abs(targetRatio - actual) / targetRatio;
   if (dev <= 0.15) return 'ok';
   if (dev <= 0.40) return 'close';
   return 'off';
@@ -200,8 +209,15 @@ function loadState() {
 }
 
 function saveState() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
-  catch(e) { console.warn('save failed', e); }
+  try {
+    const serialized = JSON.stringify(state);
+    if (serialized.length > 4_000_000) toast('⚠ Storage nearly full — export a backup now', true);
+    localStorage.setItem(LS_KEY, serialized);
+  }
+  catch(e) {
+    console.warn('save failed', e);
+    toast('⚠ Storage full — export a backup immediately!', true);
+  }
 }
 
 function seedExample() {
@@ -270,9 +286,7 @@ const speciesOf = obj => {
   if (!obj) return null;
   const exact = byId('species', obj.speciesId);
   if (exact && !exact.deleted) return exact;
-  // Fallback: if only one live species exists, use it (handles ID-mismatch after re-sync)
-  const all = live('species');
-  return all.length === 1 ? all[0] : null;
+  return null; // Don't silently return wrong species in multi-species setups
 };
 
 /* ------------------------------------------------------------------ *
@@ -291,8 +305,10 @@ function cohortNet(cohort, asOf = new Date()) {
 function stageIndexAt(cohort, atDate = new Date()) {
   const sp = speciesOf(cohort);
   if (!sp || !sp.stages?.length) return { idx:0, name:'—', species:sp };
+  if (!cohort.birthDate) return { idx:0, name:'Unknown', species:sp, age:null, stages:[] };
   const stages = [...sp.stages].sort((a,b) => a.startDay - b.startDay);
   const age = daysBetween(cohort.birthDate, atDate);
+  if (isNaN(age)) return { idx:0, name:'Unknown', species:sp, age:null, stages };
   let idx = 0;
   for (let i = 0; i < stages.length; i++) {
     if (age >= stages[i].startDay) idx = i; else break;
@@ -300,18 +316,62 @@ function stageIndexAt(cohort, atDate = new Date()) {
   return { idx, name:stages[idx].name, species:sp, age, stages };
 }
 
-function stageTotalsAt(atDate = new Date(), filter = () => true) {
+function stageTotalsAt(atDate = new Date(), filter = () => true, forecastMode = false) {
+  // Build removal index once so cohortNet doesn't scan all removals per cohort call
+  const removalsByCohort = new Map();
+  for (const r of state.removals) {
+    if (r.deleted) continue;
+    if (!removalsByCohort.has(r.cohortId)) removalsByCohort.set(r.cohortId, []);
+    removalsByCohort.get(r.cohortId).push(r);
+  }
+
   const totals = new Map();
   let total = 0;
+
+  // For adult-stage counts, use tray-level sex tally (authoritative) per tray, not per cohort
+  // Exception: forecastMode uses cohort-based arithmetic so maturing animals project correctly
+  const adultTraysCounted = new Set();
+
   for (const c of live('cohorts')) {
     if (!filter(c)) continue;
-    const net = cohortNet(c, atDate);
-    if (net <= 0) continue;
     const sp = speciesOf(c);
-    if (sp?.lifespan && daysBetween(c.birthDate, atDate) >= sp.lifespan) continue;
+    if (!sp?.stages?.length) continue;
+    const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
     const { name } = stageIndexAt(c, atDate);
-    totals.set(name, (totals.get(name) || 0) + net);
-    total += net;
+
+    if (name === lastStage) {
+      if (forecastMode) {
+        // Forecast: count each cohort's net animals so adults maturing from sub-stages show up
+        const rems = removalsByCohort.get(c.id) || [];
+        const asYMD = toYMD(atDate);
+        let removed = rems.reduce((s, r) => normYMD(r.date) <= asYMD ? s + (Number(r.count)||0) : s, 0);
+        const net = Math.max(0, (Number(c.initialCount)||0) - removed);
+        if (net <= 0) continue;
+        if (sp?.lifespan && daysBetween(c.birthDate, atDate) >= sp.lifespan) continue;
+        totals.set(lastStage, (totals.get(lastStage) || 0) + net);
+        total += net;
+      } else {
+        // Current view: count once per tray via stored sex tally (authoritative)
+        const tray = byId('trays', c.trayId);
+        if (!tray || adultTraysCounted.has(tray.id)) continue;
+        if (!filter({ ...c, trayId: tray.id })) continue;
+        adultTraysCounted.add(tray.id);
+        const adultCount = trayAdultCount(tray, sp);
+        if (adultCount <= 0) continue;
+        totals.set(lastStage, (totals.get(lastStage) || 0) + adultCount);
+        total += adultCount;
+      }
+    } else {
+      // Non-adult stages: use cohortNet with pre-built removal index
+      const rems = removalsByCohort.get(c.id) || [];
+      const asYMD = toYMD(atDate);
+      let removed = rems.reduce((s, r) => normYMD(r.date) <= asYMD ? s + (Number(r.count)||0) : s, 0);
+      const net = Math.max(0, (Number(c.initialCount)||0) - removed);
+      if (net <= 0) continue;
+      if (sp?.lifespan && daysBetween(c.birthDate, atDate) >= sp.lifespan) continue;
+      totals.set(name, (totals.get(name) || 0) + net);
+      total += net;
+    }
   }
   return { totals, total };
 }
@@ -349,7 +409,7 @@ function forecast(weeks, filter = () => true) {
   const points = [];
   for (let w = 0; w <= weeks; w++) {
     const d = addDays(new Date(), w * 7);
-    const { totals } = stageTotalsAt(d, filter);
+    const { totals } = stageTotalsAt(d, filter, true);
     const adjustedTotals = new Map();
     let total = 0;
     names.forEach(nm => {
@@ -709,6 +769,56 @@ function computeShuffleRecommendations() {
     });
   }
 
+  // Pass 3 — trays with adults approaching lifespan (≥ 85% of lifespan)
+  for (const { tray, sp } of trayData) {
+    if (!sp.lifespan) continue;
+    const adultCohorts = live('cohorts').filter(c => c.trayId === tray.id && cohortNet(c, now) > 0 && stageIndexAt(c, now).name === [...sp.stages].sort((a,b)=>(b.startDay||0)-(a.startDay||0))[0]?.name);
+    const oldest = adultCohorts.reduce((best, c) => {
+      const age = daysBetween(c.birthDate, now);
+      return (age > (best || 0)) ? age : best;
+    }, null);
+    if (oldest == null) continue;
+    const pct = oldest / sp.lifespan;
+    if (pct >= 0.85) {
+      recs.push({
+        from: null, to: tray, count: 0, sex: '⏰',
+        detail: `${tray.name} adults are ${oldest}d old — ${sp.lifespan}d max lifespan (${Math.round(pct*100)}%). Plan replacement cohort.`,
+        actionLabel: 'Plan replacement', noCheckbox: true
+      });
+    }
+  }
+
+  // Pass 4 — gravid females overdue (gravidSince + gestation < today)
+  for (const tray of live('trays')) {
+    if (!tray.gravidFemales || !tray.gravidSince) continue;
+    const sp = speciesOf(tray);
+    const gestation = sp?.gestation || 21;
+    const dueDate = addDays(parseYMD(tray.gravidSince), gestation);
+    if (dueDate < now) {
+      const overdueDays = Math.floor((now - dueDate) / 86400000);
+      recs.push({
+        from: null, to: tray, count: 0, sex: '🤰',
+        detail: `${tray.name}: ${tray.gravidFemales} gravid ♀ overdue by ${overdueDays}d (expected birth ${fmtDate(dueDate)}). Check tray.`,
+        actionLabel: 'Check tray', noCheckbox: true
+      });
+    }
+  }
+
+  // Pass 5 — adult trays with no sex data entered
+  for (const tray of live('trays')) {
+    if (tray.adultMales != null || tray.adultFemales != null) continue;
+    const sp = speciesOf(tray);
+    if (!sp?.stages?.length) continue;
+    const lastStage = [...sp.stages].sort((a,b)=>(b.startDay||0)-(a.startDay||0))[0]?.name;
+    const hasAdults = live('cohorts').some(c => c.trayId === tray.id && cohortNet(c, now) > 0 && stageIndexAt(c, now).name === lastStage);
+    if (!hasAdults) continue;
+    recs.push({
+      from: null, to: tray, count: 0, sex: '❓',
+      detail: `${tray.name} has adults but no sex data entered — open tray details to record ♂/♀ counts.`,
+      actionLabel: 'Open tray', noCheckbox: true, trayId: tray.id
+    });
+  }
+
   return recs;
 }
 
@@ -832,6 +942,44 @@ function renderDashboard() {
   }
 
   if (live('cohorts').length === 0) {
+    const noSpecies = !live('species').length;
+    const noShelves = !live('shelves').length;
+    const noTrays   = !live('trays').length;
+    if (noSpecies || noShelves || noTrays) {
+      const step1Done = !noSpecies, step2Done = step1Done && !noShelves, step3Done = step2Done && !noTrays;
+      el.innerHTML = `
+        <h2 class="section-title" style="margin:4px 0 16px">Welcome to RAT-TRACK</h2>
+        <div class="card" style="margin-bottom:16px">
+          <p class="small" style="margin:0 0 14px;color:var(--muted)">Complete these steps to start tracking your colony:</p>
+          <div class="onboarding-steps">
+            <div class="onb-step ${step1Done?'done':'active'}">
+              <span class="onb-num">${step1Done?'✓':'1'}</span>
+              <div class="onb-body">
+                <div class="onb-title">Add a species</div>
+                <div class="onb-sub">Define stages (Pinky, Fuzzy, Hopper, Adult…), gestation, lifespan</div>
+              </div>
+              ${!step1Done ? `<button class="btn primary sm" data-act="add-species">Add species</button>` : ''}
+            </div>
+            <div class="onb-step ${step2Done?'done':step1Done?'active':'locked'}">
+              <span class="onb-num">${step2Done?'✓':'2'}</span>
+              <div class="onb-body">
+                <div class="onb-title">Add a shelf</div>
+                <div class="onb-sub">Group trays by shelf / rack location</div>
+              </div>
+              ${step1Done && !step2Done ? `<button class="btn primary sm" data-act="add-shelf">Add shelf</button>` : ''}
+            </div>
+            <div class="onb-step ${step3Done?'done':step2Done?'active':'locked'}">
+              <span class="onb-num">${step3Done?'✓':'3'}</span>
+              <div class="onb-body">
+                <div class="onb-title">Add trays &amp; record first litter</div>
+                <div class="onb-sub">Go to Trays tab → tap a shelf → Add tray → Born today</div>
+              </div>
+              ${step2Done && !step3Done ? `<button class="btn sm" onclick="switchTab('trays')">Go to Trays</button>` : ''}
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
     el.innerHTML = emptyState('🪹','No litters logged yet',
       'Go to the <b>Trays</b> tab and add a litter to a tray to start tracking.');
     return;
@@ -882,20 +1030,36 @@ function renderDashboard() {
     </div>
     <div class="rec-rows">
     ${recs.map((r, i) => {
-      const urgency = r.sex === '♂' ? 'urgent' : 'moderate';
-      const urgencyLabel = r.sex === '♂' ? 'Urgent' : 'Moderate';
+      const sexIcon = r.sex;
+      const isTransfer = sexIcon === '♂' || sexIcon === '♀';
+      const urgency = sexIcon === '♂' ? 'urgent' : sexIcon === '♀' ? 'moderate' : 'info';
+      const urgencyLabel = sexIcon === '♂' ? 'Urgent' : sexIcon === '♀' ? 'Moderate' : sexIcon === '⏰' ? 'Aging' : sexIcon === '🤰' ? 'Overdue' : 'Action';
+      if (r.noCheckbox) {
+        const actAttr = r.trayId ? `data-act="open-tray-from-rec" data-trayid="${esc(r.trayId)}"` : '';
+        return `
+        <div class="rec-row ${urgency}">
+          <div class="rec-row-body">
+            <div class="rec-row-top">
+              <span class="rec-pill ${urgency}">${urgencyLabel}</span>
+              <span class="rec-row-action">${sexIcon} ${esc(r.to?.name || '')}</span>
+            </div>
+            <div class="rec-row-detail">${esc(r.detail)}</div>
+            ${r.trayId ? `<button class="btn sm" style="margin-top:6px" ${actAttr}>${esc(r.actionLabel||'View')}</button>` : ''}
+          </div>
+        </div>`;
+      }
       return `
       <label class="rec-row ${urgency}" title="Tick to apply — auto-updates tray data">
         <input type="checkbox" class="rec-chk" data-act="rec-done"
-          data-from="${esc(r.from.id)}" data-to="${esc(r.to.id)}"
+          data-from="${esc(r.from?.id||'')}" data-to="${esc(r.to?.id||'')}"
           data-count="${r.count}" data-sex="${esc(r.sex)}" data-idx="${i}" />
         <div class="rec-row-body">
           <div class="rec-row-top">
             <span class="rec-pill ${urgency}">${urgencyLabel}</span>
             <span class="rec-row-action">Move ${r.count}${r.sex}</span>
-            <span class="rec-tray">${esc(r.from.name)}</span>
+            <span class="rec-tray">${esc(r.from?.name||'')}</span>
             <span class="rec-arrow">→</span>
-            <span class="rec-tray">${esc(r.to.name)}</span>
+            <span class="rec-tray">${esc(r.to?.name||'')}</span>
           </div>
           <div class="rec-row-detail">${esc(r.detail)}</div>
         </div>
@@ -1062,7 +1226,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterO
 
   for (const d of xDays) {
     const at = addDays(today, d);
-    const { totals } = stageTotalsAt(at, cohortFilter);
+    const { totals } = stageTotalsAt(at, cohortFilter, true);
     stageNames.forEach(nm => series.get(nm).push(totals.get(nm) || 0));
 
     // Count cohorts that will have exceeded lifespan by this date
@@ -1131,6 +1295,15 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterO
     const deathPts = xDays.map((d, j) => `${xS(d).toFixed(1)},${yS(deathSeries[j]).toFixed(1)}`).join(' ');
     lines += `<polyline points="${deathPts}" fill="none" stroke="#ef4444" stroke-width="1.8"
       stroke-dasharray="5,4" stroke-linejoin="round" stroke-linecap="round" opacity=".75"/>`;
+  }
+
+  // Population target line (if set and in range)
+  if (state.meta.targetCount && state.meta.targetCount <= maxY * 1.5) {
+    const ty = +yS(state.meta.targetCount).toFixed(1);
+    const clampedTy = Math.max(PT, Math.min(H - PB, ty));
+    lines += `<line x1="${PL}" y1="${clampedTy}" x2="${W-PR}" y2="${clampedTy}"
+      stroke="#22c55e" stroke-width="1.8" stroke-dasharray="6,4" opacity=".9"/>`;
+    lines += `<text x="${W-PR+2}" y="${clampedTy+4}" font-size="9" fill="#22c55e" font-weight="600">Target ${state.meta.targetCount}${state.meta.targetStage?' '+state.meta.targetStage:''}</text>`;
   }
 
   // Axes
@@ -1434,6 +1607,7 @@ function openRemoveByStage(stageName, stageIdx) {
       const needed = parseInt($('#rbs-count', root).value, 10);
       const reason = $('.reason-btn.active', root)?.dataset.reason || 'Feeding';
       const date   = $('#rbs-date', root).value || todayISO();
+      if (!isValidDate(date)) return toast('Invalid date — check year', true);
       if (!needed || needed < 1) return toast('Enter a count', true);
       _rbsShowTrays(stageName, stageIdx, needed, reason, undefined, date);
     };
@@ -2015,13 +2189,13 @@ function quickTrayRemoval(trayId) {
     <div class="field" style="margin-bottom:12px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
       <div class="reason-btns">
-        <button class="reason-btn active" data-reason="Dead">Dead</button>
-        <button class="reason-btn" data-reason="Feeding">Feeding</button>
+        <button class="reason-btn active" data-reason="Feeding">Feeding</button>
         <button class="reason-btn" data-reason="Frozen">Frozen</button>
+        <button class="reason-btn" data-reason="Dead">Dead</button>
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
     </div>
-    ${deathCauseHtml(false)}
+    ${deathCauseHtml(true)}
     <button class="btn primary block" id="qtr-save">Confirm removal</button>
   `, root => {
     wireReasonDeathToggle(root);
@@ -2042,6 +2216,7 @@ function quickTrayRemoval(trayId) {
       const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
       const photoFile = reason === 'Dead' ? ($('#death-photo', root)?.files?.[0] || null) : null;
       const qDate = $('#qtr-date', root).value || todayISO();
+      if (!isValidDate(qDate)) return toast('Invalid date — check year', true);
       const avail = stageMap.get(stageName) || 0;
       if (!n || n < 1) return toast('Enter a count', true);
       if (n > avail) return toast(`Only ${avail} available in this stage`, true);
@@ -2102,8 +2277,12 @@ function renderTrays() {
     <div class="harvest-card card">
       <div class="harvest-header">
         <span class="harvest-icon">🔍</span>
-        <span class="harvest-label">Harvest search</span>
+        <span class="harvest-label">Find &amp; Harvest</span>
       </div>
+      <input id="tray-search" type="search" placeholder="Search tray by name (e.g. D-30)…"
+        style="width:100%;margin-bottom:10px;padding:8px 10px;background:var(--surface-2,#242424);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none" />
+      <div id="tray-search-results"></div>
+      <hr class="hr" style="margin:10px 0" />
       <div class="harvest-row">
         <select id="harvest-species">
           <option value="all">All species</option>
@@ -2265,6 +2444,28 @@ function renderTrays() {
   }
 
   el.innerHTML = html;
+
+  // Wire tray quick-search
+  const traySearchEl = $('#tray-search', el);
+  if (traySearchEl) {
+    traySearchEl.addEventListener('input', () => {
+      const q = traySearchEl.value.trim().toLowerCase();
+      const resultsEl = $('#tray-search-results', el);
+      if (!resultsEl) return;
+      if (!q) { resultsEl.innerHTML = ''; return; }
+      const today = new Date();
+      const matches = live('trays').filter(t => t.name.toLowerCase().includes(q)).slice(0, 8);
+      if (!matches.length) { resultsEl.innerHTML = `<p class="small muted" style="margin:4px 0">No trays match "${esc(q)}"</p>`; return; }
+      const btns = matches.map(t => {
+        const alive = live('cohorts').filter(c=>c.trayId===t.id).reduce((s,c)=>s+cohortNet(c,today),0);
+        return `<button class="harvest-btn" data-act="open-tray" data-id="${esc(t.id)}">
+          <span class="hb-name">${esc(t.name)}</span>
+          <span class="hb-count">${alive}</span>
+        </button>`;
+      }).join('');
+      resultsEl.innerHTML = `<div class="harvest-btns tray-search-grid">${btns}</div>`;
+    });
+  }
 
   // Wire harvest search inputs
   const spEl    = $('#harvest-species', el);
@@ -2476,6 +2677,76 @@ function renderSpecies() {
 }
 
 /* ---------- Settings ---------- */
+function exportCSV(entity) {
+  const rows = live(entity);
+  if (!rows.length) return toast(`No ${entity} to export`, true);
+  const keys = [...new Set(rows.flatMap(r => Object.keys(r)))].filter(k => k !== 'deleted');
+  const escape = v => (v == null ? '' : String(v).includes(',') || String(v).includes('"') ? `"${String(v).replace(/"/g,'""')}"` : String(v));
+  const csv = [keys.join(','), ...rows.map(r => keys.map(k => escape(r[k])).join(','))].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `${entity}-${todayISO()}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function renderRecentlyDeleted() {
+  const cutoff = Date.now() - 30 * 86400000;
+  const deleted = [];
+  for (const e of ENTITIES) {
+    for (const r of state[e]) {
+      if (r.deleted && (r.updatedAt || 0) >= cutoff) deleted.push({ entity: e, record: r });
+    }
+  }
+  if (!deleted.length) return toast('No recently deleted records (within 30 days)', true);
+  const rows = deleted.sort((a,b) => (b.record.updatedAt||0) - (a.record.updatedAt||0)).slice(0,20).map(({entity, record}) => {
+    const label = record.name || record.id;
+    const ts = record.updatedAt ? new Date(record.updatedAt).toLocaleDateString() : '—';
+    return `<div class="deleted-row">
+      <div><span class="deleted-entity">${entity}</span> <span class="deleted-label">${esc(label)}</span></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="small muted">${ts}</span>
+        <button class="btn sm" data-act="restore-record" data-entity="${esc(entity)}" data-id="${esc(record.id)}">Restore</button>
+      </div>
+    </div>`;
+  }).join('');
+  openModal('Recently deleted', `
+    <p class="small muted" style="margin-bottom:12px">Records deleted within the last 30 days. Restoring re-adds them to the live app.</p>
+    <div class="deleted-list">${rows}</div>
+  `);
+}
+
+function requestNotificationPermission() {
+  if (!('Notification' in window)) return toast('Notifications not supported in this browser', true);
+  Notification.requestPermission().then(p => {
+    state.meta.notificationsGranted = p === 'granted';
+    saveState();
+    if (p === 'granted') toast('Notifications enabled');
+    else if (p === 'denied') toast('Notifications blocked — enable in browser settings', true);
+    else toast('Notification permission dismissed');
+    renderSettings();
+  });
+}
+
+function checkDueNotifications() {
+  if (!state.meta.notificationsGranted || Notification.permission !== 'granted') return;
+  const today = new Date();
+  for (const tray of live('trays')) {
+    if (!tray.gravidSince || !tray.gravidFemales) continue;
+    const sp = speciesOf(tray);
+    const gestation = sp?.gestation || 21;
+    const dueDate = addDays(parseYMD(tray.gravidSince), gestation);
+    const daysUntil = Math.floor((dueDate - today) / 86400000);
+    const key = 'notif-birth-' + tray.id + '-' + tray.gravidSince;
+    if (daysUntil <= 1 && daysUntil >= -3 && !sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, '1');
+      new Notification(`RAT-TRACK: Birth due in ${tray.name}`, {
+        body: `${tray.gravidFemales} gravid ♀ — expected birth ${fmtDate(dueDate)}`,
+        icon: 'icons/icon.png'
+      });
+    }
+  }
+}
+
 function renderSettings() {
   const el = $('#tab-settings');
   const url  = state.meta.scriptUrl || '';
@@ -2489,9 +2760,13 @@ function renderSettings() {
         <span>Apps Script Web App URL</span>
         <input id="script-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(url)}" />
       </label>
-      <p class="small muted" style="margin:0 0 14px">Once set, all changes sync automatically. Data also saves locally on this device and uploads when back online.</p>
+      <p class="small muted" style="margin:0 0 10px">Once set, all changes sync automatically. Data also saves locally on this device and uploads when back online.</p>
+      <label class="field" style="margin-bottom:10px">
+        <span>API key <span class="muted" style="font-weight:400;font-size:11px">(optional — matches API_KEY in Apps Script Script Properties)</span></span>
+        <input id="script-apikey" type="password" placeholder="leave blank if not set" value="${esc(state.meta.scriptApiKey||'')}" autocomplete="off" />
+      </label>
       <div class="gap">
-        <button class="btn primary" data-act="save-url">Save URL</button>
+        <button class="btn primary" data-act="save-url">Save</button>
         ${url ? `<button class="btn" data-act="sync-now">Sync now</button>` : ''}
         ${url ? `<button class="btn" data-act="full-sync" title="Re-pulls every record from the Sheet — use after editing dates or data directly in Google Sheets">Full re-sync from Sheet</button>` : ''}
       </div>
@@ -2505,13 +2780,52 @@ function renderSettings() {
       </div>
     </div>
 
-    <h2 class="section-title">Backup</h2>
+    <h2 class="section-title">Backup &amp; Export</h2>
     <div class="card">
-      <div class="gap">
+      <div class="gap" style="flex-wrap:wrap">
         <button class="btn" data-act="export">Export JSON</button>
         <button class="btn" data-act="import">Import JSON</button>
+        <button class="btn" data-act="export-csv-removals">CSV: Removals</button>
+        <button class="btn" data-act="export-csv-cohorts">CSV: Cohorts</button>
+        <button class="btn" data-act="recently-deleted">Recently deleted</button>
       </div>
-      <p class="small muted mt">Local backup of all data on this device.</p>
+      <p class="small muted mt">JSON = full backup for re-import. CSV = spreadsheet-friendly export for reporting.</p>
+    </div>
+
+    <h2 class="section-title">Notifications</h2>
+    <div class="card">
+      <p class="small muted" style="margin:0 0 10px">Get alerts when births are due or overdue. Requires browser permission.</p>
+      <div class="gap">
+        ${state.meta.notificationsGranted
+          ? `<span class="small" style="color:var(--ok)">✓ Notifications enabled</span>
+             <button class="btn sm" data-act="check-notifications">Check now</button>`
+          : `<button class="btn primary" data-act="enable-notifications">Enable notifications</button>`
+        }
+      </div>
+    </div>
+
+    <h2 class="section-title">Population Target</h2>
+    <div class="card">
+      <p class="small muted" style="margin:0 0 12px">Set a target so the forecast chart shows whether you're on track.</p>
+      <div class="field-row" style="flex-wrap:wrap;gap:10px">
+        <label class="field" style="flex:1;min-width:120px">
+          <span>Target count</span>
+          <input id="set-target-count" type="number" min="1" value="${state.meta.targetCount||''}" placeholder="e.g. 200" />
+        </label>
+        <label class="field" style="flex:1;min-width:120px">
+          <span>Stage</span>
+          <select id="set-target-stage">
+            <option value="">Any stage</option>
+            ${orderedStageNames().map(nm => `<option value="${esc(nm)}" ${state.meta.targetStage===nm?'selected':''}>${esc(nm)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="field" style="flex:1;min-width:140px">
+          <span>Target date</span>
+          <input id="set-target-date" type="date" value="${ymdToInput(state.meta.targetDate||'')}" />
+        </label>
+      </div>
+      <button class="btn primary" data-act="save-target" style="margin-top:8px">Save target</button>
+      ${state.meta.targetCount ? `<button class="btn" data-act="clear-target" style="margin-top:8px">Clear target</button>` : ''}
     </div>
 
     <h2 class="section-title">Danger zone</h2>
@@ -2530,10 +2844,12 @@ function emptyState(icon, title, sub) {
 function openModal(title, bodyHtml, onMount) {
   $('#modal-title').innerHTML = title;
   $('#modal-body').innerHTML  = bodyHtml;
-  // Only push history when opening fresh — replacing content keeps the same entry
   if ($('#modal-root').hidden) {
     history.pushState({ tab: activeTab, modal: true }, '');
     _modalPushed = true;
+    // Attach Escape key handler on open; remove on close
+    openModal._escHandler = e => { if (e.key === 'Escape') closeModal(); };
+    document.addEventListener('keydown', openModal._escHandler);
   }
   $('#modal-root').hidden = false;
   if (onMount) onMount($('#modal-body'));
@@ -2543,9 +2859,13 @@ function closeModal() {
   if ($('#modal-root').hidden) return;
   $('#modal-root').hidden    = true;
   $('#modal-body').innerHTML = '';
+  if (openModal._escHandler) {
+    document.removeEventListener('keydown', openModal._escHandler);
+    openModal._escHandler = null;
+  }
   if (_modalPushed) {
     _modalPushed = false;
-    history.back(); // pop the modal history entry
+    history.back();
   }
 }
 
@@ -2811,6 +3131,15 @@ function trayDetailModal(trayId) {
       Tap <b>Edit tray / species</b> below to fix.
     </div>` : '';
 
+  const notesSection = `
+    <div class="tray-notes-section" style="margin-top:10px">
+      <label class="field">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Observations / Notes</span>
+        <textarea id="tray-notes-input" rows="2" placeholder="Record observations, temperature issues, health notes…" style="resize:vertical;min-height:48px;font-size:13px">${esc(tray.notes || '')}</textarea>
+      </label>
+      <button class="btn sm" id="save-tray-notes" style="margin-top:4px">Save notes</button>
+    </div>`;
+
   openModal(`${esc(tray.name)} · ${sp?esc(sp.name):'—'}`, `
     ${mismatchBanner}
     <div class="gap" style="margin-bottom:4px">
@@ -2821,6 +3150,7 @@ function trayDetailModal(trayId) {
     <div class="mt">${cohorts.length ? rows : '<p class="muted small">No litters yet.</p>'}</div>
     ${ratioSection}
     ${gravidSection}
+    ${notesSection}
     <hr class="hr" />
     <div class="gap">
       <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" style="flex:1">✎ Edit tray / species</button>
@@ -2932,6 +3262,15 @@ function trayDetailModal(trayId) {
         touch('trays', tray);
         toast('Status saved');
         closeModal(); trayDetailModal(trayId); render();
+      };
+    }
+    // Tray notes save
+    const saveNotesBtn = $('#save-tray-notes', root);
+    if (saveNotesBtn) {
+      saveNotesBtn.onclick = () => {
+        tray.notes = $('#tray-notes-input', root).value.trim();
+        touch('trays', tray);
+        toast('Notes saved');
       };
     }
   });
@@ -3286,12 +3625,16 @@ function onClick(e) {
 
     // Settings
     case 'save-url': {
-      const v = $('#script-url').value.trim();
-      state.meta.scriptUrl = v; saveState(); toast('URL saved'); render();
+      const v = $('#script-url')?.value.trim() || '';
+      const k = $('#script-apikey')?.value.trim() || '';
+      state.meta.scriptUrl    = v;
+      state.meta.scriptApiKey = k;
+      saveState(); toast('Saved'); render();
       if (v && navigator.onLine) syncNow();
       return;
     }
     case 'rec-done': return applyRecommendation(el);
+    case 'open-tray-from-rec': { const t = byId('trays', el.dataset.trayid); if (t) { switchTab('trays'); setTimeout(() => trayDetailModal(t.id), 120); } return; }
     case 'sync-now': syncNow(true); return;
     case 'full-sync':
       state.meta.lastSync = 0;
@@ -3301,6 +3644,26 @@ function onClick(e) {
       return;
     case 'export': return exportJSON();
     case 'import': return importJSON();
+    case 'export-csv-removals': return exportCSV('removals');
+    case 'export-csv-cohorts':  return exportCSV('cohorts');
+    case 'recently-deleted': return renderRecentlyDeleted();
+    case 'restore-record': {
+      const rec = byId(el.dataset.entity, el.dataset.id);
+      if (rec) { rec.deleted = false; touch(el.dataset.entity, rec); toast('Restored'); closeModal(); render(); }
+      return;
+    }
+    case 'enable-notifications': return requestNotificationPermission();
+    case 'check-notifications':  checkDueNotifications(); toast('Checked birth notifications'); return;
+    case 'save-target': {
+      state.meta.targetCount = Number($('#set-target-count')?.value) || null;
+      state.meta.targetStage = $('#set-target-stage')?.value || null;
+      state.meta.targetDate  = normYMD($('#set-target-date')?.value || '');
+      saveState(); toast('Target saved'); render(); return;
+    }
+    case 'clear-target': {
+      state.meta.targetCount = null; state.meta.targetStage = null; state.meta.targetDate = null;
+      saveState(); toast('Target cleared'); render(); return;
+    }
     case 'wipe':   return confirmDelete('ALL local data', () => {
       localStorage.removeItem(LS_KEY); location.reload();
     });
@@ -3348,10 +3711,21 @@ function importJSON() {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
+        // Schema validation: each entity must be an array
+        const invalid = ENTITIES.filter(e => e in data && !Array.isArray(data[e]));
+        if (invalid.length) { toast(`Import failed: ${invalid.join(', ')} not an array`, true); return; }
+        // Spot-check required fields
+        for (const e of ENTITIES) {
+          const arr = data[e] || [];
+          const badRow = arr.find(r => typeof r !== 'object' || !r.id);
+          if (badRow) { toast(`Import failed: ${e} row missing id`, true); return; }
+        }
+        // Backup current state before overwriting
+        try { localStorage.setItem(LS_KEY + '.pre-import', localStorage.getItem(LS_KEY)); } catch {}
         for (const e of ENTITIES) if (Array.isArray(data[e])) state[e] = data[e];
         if (data.meta) state.meta = Object.assign(state.meta, data.meta);
-        saveState(); toast('Imported'); render();
-      } catch { toast('Invalid file', true); }
+        saveState(); toast('Imported — previous data saved as backup'); render();
+      } catch { toast('Invalid JSON file', true); }
     };
     reader.readAsText(file);
   };
@@ -3378,11 +3752,10 @@ async function syncNow(manual = false) {
   if (!navigator.onLine) { renderSync(); return; }
 
   syncing = true; renderSync();
+  const syncStartTime = now(); // capture before fetch so mid-sync edits are detectable
 
   const changes = {};
   if (manual) {
-    // Full push on manual sync — every entity is sent so all Sheet tabs stay current.
-    // Birth sheet only grows when new births are added (upsertRecords is ID-based, no duplicates).
     for (const e of ENTITIES) {
       const recs = live(e);
       if (recs.length) changes[e] = recs;
@@ -3392,6 +3765,12 @@ async function syncNow(manual = false) {
       const ids = Object.keys(state.pending[e] || {});
       if (ids.length) changes[e] = ids.map(id => byId(e, id)).filter(Boolean);
     }
+  }
+  // Snapshot sent IDs with their updatedAt timestamps so we can safely clear only those
+  const sentSnapshot = {};
+  for (const e of ENTITIES) {
+    sentSnapshot[e] = {};
+    for (const r of (changes[e] || [])) sentSnapshot[e][r.id] = r.updatedAt || 0;
   }
 
   const ctrl = new AbortController();
@@ -3404,7 +3783,7 @@ async function syncNow(manual = false) {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: pullSince, changes }),
+      body: JSON.stringify({ since: pullSince, changes, key: state.meta.scriptApiKey || undefined }),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -3420,10 +3799,13 @@ async function syncNow(manual = false) {
         if (!local || manual || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
       }
     }
-    // Clear pending for all records we successfully sent
+    // Clear pending only for records whose updatedAt hasn't changed since we sent them
+    // (guards against edits made during the fetch overwriting their own pending marker)
     for (const e of ENTITIES) {
-      for (const r of (changes[e] || [])) {
-        if (state.pending[e]) delete state.pending[e][r.id];
+      for (const [id, sentAt] of Object.entries(sentSnapshot[e] || {})) {
+        const current = byId(e, id);
+        if (current && (current.updatedAt || 0) > sentAt) continue; // re-edited during sync
+        if (state.pending[e]) delete state.pending[e][id];
       }
     }
     state.meta.lastSync = data.serverTime || now();
@@ -3509,15 +3891,14 @@ function renderReports() {
   const frozenThisMonth = monthRems.filter(r => r.reason === 'Frozen')
     .reduce((s, r) => s + (Number(r.count) || 0), 0);
 
-  // Overall tracked sex counts
+  // Overall tracked sex counts — read from authoritative tray-level fields
   let totalMales = 0, totalFemales = 0;
-  for (const c of live('cohorts')) {
-    if (cohortNet(c, now) <= 0 || (c.males == null && c.females == null)) continue;
-    const rems = live('removals').filter(r => r.cohortId === c.id);
-    const remM = rems.reduce((s, r) => s + (Number(r.males)   || 0), 0);
-    const remF = rems.reduce((s, r) => s + (Number(r.females) || 0), 0);
-    totalMales   += Math.max(0, (Number(c.males)   || 0) - remM);
-    totalFemales += Math.max(0, (Number(c.females) || 0) - remF);
+  for (const tray of live('trays')) {
+    const tSp = speciesOf(tray);
+    const sex = trayAdultSex(tray.id, tSp);
+    if (!sex) continue;
+    totalMales   += sex.males;
+    totalFemales += sex.females;
   }
   const sexRatioLine = (totalMales + totalFemales > 0)
     ? `<div class="spread rpt-sex-row">
@@ -3679,12 +4060,10 @@ function renderReports() {
     }).filter(Boolean).join('');
 
     let spM = 0, spF = 0;
-    for (const c of live('cohorts')) {
-      if (speciesOf(c)?.id !== sp.id || cohortNet(c, now) <= 0) continue;
-      if (c.males == null && c.females == null) continue;
-      const rems = live('removals').filter(r => r.cohortId === c.id);
-      spM += Math.max(0, (Number(c.males)||0) - rems.reduce((s,r)=>s+(Number(r.males)||0),0));
-      spF += Math.max(0, (Number(c.females)||0) - rems.reduce((s,r)=>s+(Number(r.females)||0),0));
+    for (const tray of live('trays').filter(t => t.speciesId === sp.id)) {
+      const sex = trayAdultSex(tray.id, sp);
+      if (!sex) continue;
+      spM += sex.males; spF += sex.females;
     }
     const spSex = (spM || spF)
       ? `<span class="rpt-sp-meta-item">&#9794; ${spM} &middot; &#9792; ${spF}${spM&&spF?` <span class="muted">(1:${(spF/spM).toFixed(1)})</span>`:''}</span>`
@@ -3759,7 +4138,7 @@ function renderReports() {
     <div class="card" style="margin-bottom:16px">${remTable}</div>
 
     <!-- ② Deaths by Cause (this month) -->
-    <h2 class="section-title" style="margin:0 0 10px">Deaths by Cause — ${MONTH_NAMES[curMonth - 1]}</h2>
+    <h2 class="section-title" style="margin:0 0 10px">Deaths by Cause — ${MONTH_NAMES[curMonth]}</h2>
     <div class="card" style="margin-bottom:20px">${deathTable}</div>
 
     <!-- ③ Species Breakdown -->
@@ -4359,6 +4738,8 @@ function checkAutoReport() {
 function init() {
   loadState();
   migrateTraySexData();
+  // Run notification check shortly after boot (non-blocking)
+  setTimeout(checkDueNotifications, 2000);
   initHistory();
   $$('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
   document.addEventListener('click', onClick);

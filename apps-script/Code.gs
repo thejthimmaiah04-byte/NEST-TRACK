@@ -23,9 +23,9 @@ var SHEET_NAMES = {
 
 // ── Internal schemas (column order — do NOT change) ───────────────────────────
 var SCHEMAS = {
-  species:     ['id', 'name', 'stages', 'lifespan', 'gestation', 'updatedAt', 'deleted', 'syncedAt'],
+  species:     ['id', 'name', 'stages', 'lifespan', 'gestation', 'ratio', 'updatedAt', 'deleted', 'syncedAt'],
   shelves:     ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
-  trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'adultMales', 'adultFemales', 'updatedAt', 'deleted', 'syncedAt'],
+  trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'gravidSince', 'adultMales', 'adultFemales', 'notes', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:     ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
   removals:    ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'cause', 'updatedAt', 'deleted', 'syncedAt'],
   frozen_uses: ['id', 'speciesId', 'stage', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']
@@ -83,9 +83,20 @@ var HIDE = {
   frozen_uses: [1, 2, 6, 7, 8]             // show: STAGE | DATE | COUNT | SPECIES
 };
 
+// ── API key authentication ────────────────────────────────────────────────────
+// Store your key in Script Properties: File › Project Properties › Script Properties › API_KEY
+// Leave API_KEY blank (or unset) to keep the endpoint open (backwards-compatible).
+function _checkApiKey(body, params) {
+  var stored = PropertiesService.getScriptProperties().getProperty('API_KEY');
+  if (!stored) return; // no key configured — allow all (open mode)
+  var sent = (body && body.key) || (params && params.key) || '';
+  if (sent !== stored) throw new Error('Unauthorized: invalid API key');
+}
+
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
 
 function doGet(e) {
+  try { _checkApiKey(null, e && e.parameter); } catch(err) { return json({ error: err.message }); }
   var since = e && e.parameter && e.parameter.since ? Number(e.parameter.since) : 0;
   return json({ ok: true, serverTime: Date.now(), changes: pullChanges(since), accepted: {} });
 }
@@ -95,6 +106,7 @@ function doPost(e) {
   lock.waitLock(25000);
   try {
     var body = JSON.parse(e.postData.contents || '{}');
+    _checkApiKey(body, null);
 
     // ── Image upload to Drive ─────────────────────────────────────────
     if (body.action === 'uploadImage') {

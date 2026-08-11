@@ -1,12 +1,14 @@
 /* Service worker — caches the app shell so it opens offline.
    Data itself lives in localStorage; this only caches the static files. */
-const CACHE = 'rbm-v69';
+const CACHE = 'rbm-v92';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/app.js',
-  './manifest.webmanifest'
+  './manifest.webmanifest',
+  './RODENT APP LOGO.jpg',
+  './icons/icon.png'
 ];
 
 self.addEventListener('install', (e) => {
