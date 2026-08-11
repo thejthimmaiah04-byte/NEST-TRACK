@@ -156,11 +156,91 @@ function doPost(e) {
     updateTrayStageStats();
     updateShelfStats();
 
-    return json({ ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) });
+    var response = { ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) };
+
+    // Layer 4: Google Drive daily backup — runs once per calendar day, non-fatal
+    _maybeWriteDriveBackup();
+
+    return json(response);
   } catch (err) {
     return json({ error: String(err) });
   } finally {
     lock.releaseLock();
+  }
+}
+
+// ── Google Drive daily backup ─────────────────────────────────────────────────
+// Writes a full JSON snapshot to "RAT-TRACK Backups" folder in Drive.
+// Runs at most once per calendar day (checked via Script Properties).
+// Keeps the last 14 daily snapshots and deletes older ones automatically.
+function _maybeWriteDriveBackup() {
+  try {
+    var props   = PropertiesService.getScriptProperties();
+    var today   = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var lastDay = props.getProperty('LAST_BACKUP_DAY') || '';
+    if (lastDay === today) return; // already backed up today
+
+    var folderName = 'RAT-TRACK Backups';
+    var folders = DriveApp.getFoldersByName(folderName);
+    var folder  = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+
+    // Build full JSON export from all sheets
+    var allData = { exportedAt: new Date().toISOString(), version: 1, source: 'auto-drive-backup' };
+    ENTITIES.forEach(function(entity) {
+      var rows = _readSheet(entity);
+      allData[entity] = rows;
+    });
+    var content  = JSON.stringify(allData, null, 2);
+    var filename = 'rattrack-' + today + '.json';
+
+    // Overwrite today's file if it already exists, otherwise create
+    var existing = folder.getFilesByName(filename);
+    if (existing.hasNext()) {
+      existing.next().setContent(content);
+    } else {
+      folder.createFile(filename, content, 'application/json');
+    }
+
+    // Prune: delete backups older than 14 days
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 14);
+    var allFiles = folder.getFiles();
+    while (allFiles.hasNext()) {
+      var f = allFiles.next();
+      if (f.getName() !== filename && f.getDateCreated() < cutoff) f.setTrashed(true);
+    }
+
+    props.setProperty('LAST_BACKUP_DAY', today);
+    Logger.log('Drive backup written: ' + filename);
+  } catch (err) {
+    Logger.log('Drive backup failed (non-fatal): ' + err);
+  }
+}
+
+// Read all live (non-deleted) records from a sheet as plain objects
+function _readSheet(entity) {
+  try {
+    var sh = sheetFor(entity);
+    var lastRow = sh.getLastRow();
+    if (lastRow < 2) return [];
+    var schema  = SCHEMAS[entity];
+    var numCols = schema.length;
+    var data    = sh.getRange(2, 1, lastRow - 1, numCols).getValues();
+    var results = [];
+    data.forEach(function(row) {
+      var obj = {};
+      schema.forEach(function(col, i) {
+        var val = row[i];
+        if (col === 'deleted') { if (val === true || val === 'TRUE' || val === 'true') { obj.deleted = true; } else { obj.deleted = false; } }
+        else if (JSON_FIELDS[col]) { try { obj[col] = typeof val === 'string' && val ? JSON.parse(val) : val; } catch(e) { obj[col] = val; } }
+        else { obj[col] = val; }
+      });
+      if (!obj.deleted) results.push(obj);
+    });
+    return results;
+  } catch(err) {
+    Logger.log('_readSheet ' + entity + ' failed: ' + err);
+    return [];
   }
 }
 

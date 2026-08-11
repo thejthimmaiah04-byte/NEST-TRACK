@@ -8,6 +8,39 @@
  *  Constants & helpers
  * ------------------------------------------------------------------ */
 const LS_KEY          = 'rbm.state.v1';
+
+/* ── IndexedDB mirror (Layer 1 redundancy) ────────────────────────────────── *
+ * Writes alongside localStorage so either store can recover the other.
+ * All calls are fire-and-forget; IDB errors never block the UI.            */
+const IDB_NAME  = 'rattrack-v1';
+const IDB_STORE = 'state';
+let _idb = null;
+function _openIDB() {
+  if (_idb) return Promise.resolve(_idb);
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = e => { _idb = e.target.result; res(_idb); };
+    req.onerror   = () => rej(req.error);
+  });
+}
+function idbPut(key, value) {
+  _openIDB().then(db => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+  }).catch(() => {});
+}
+function idbGet(key) {
+  return _openIDB().then(db => new Promise((res, rej) => {
+    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => res(req.result);
+    req.onerror   = () => rej(req.error);
+  })).catch(() => null);
+}
 const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
 const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding','Dystocia','Cannibalism','Hypothermia','Age/Natural','Culled'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
@@ -195,15 +228,31 @@ let state = {
   pending: {}
 };
 
+function _applyRaw(raw) {
+  const p = JSON.parse(raw);
+  state = Object.assign(state, p);
+  for (const e of ENTITIES) state[e] = state[e] || [];
+  state.meta    = Object.assign({ scriptUrl:'', lastSync:0, forecastWeeks:8 }, state.meta);
+  state.pending = state.pending || {};
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
-      const p = JSON.parse(raw);
-      state = Object.assign(state, p);
-      for (const e of ENTITIES) state[e] = state[e] || [];
-      state.meta   = Object.assign({ scriptUrl:'', lastSync:0, forecastWeeks:8 }, state.meta);
-      state.pending = state.pending || {};
+      _applyRaw(raw);
+      idbPut('main', raw); // keep IDB in sync with localStorage
+    } else {
+      // localStorage empty — attempt async recovery from IndexedDB
+      idbGet('main').then(saved => {
+        if (!saved) return;
+        try {
+          _applyRaw(saved);
+          localStorage.setItem(LS_KEY, saved); // restore LS from IDB
+          toast('⚠ Restored from IndexedDB backup — data recovered', true);
+          render();
+        } catch(e2) { console.warn('IDB restore failed', e2); }
+      });
     }
   } catch(e) { console.warn('load failed', e); }
 }
@@ -213,6 +262,7 @@ function saveState() {
     const serialized = JSON.stringify(state);
     if (serialized.length > 4_000_000) toast('⚠ Storage nearly full — export a backup now', true);
     localStorage.setItem(LS_KEY, serialized);
+    idbPut('main', serialized); // Layer 1: mirror to IndexedDB
   }
   catch(e) {
     console.warn('save failed', e);
@@ -3696,11 +3746,17 @@ function confirmDelete(what, fn) {
  *  Backup
  * ------------------------------------------------------------------ */
 function exportJSON() {
-  const blob = new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const ENTITIES_EXPORT = ['species','shelves','trays','cohorts','removals','frozen_uses'];
+  const payload = { exportedAt: new Date().toISOString(), version: 1 };
+  for (const e of ENTITIES_EXPORT) payload[e] = state[e] || [];
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `breeding-backup-${todayISO()}.json`;
+  a.download = `rattrack-backup-${todayISO()}.json`;
   a.click(); URL.revokeObjectURL(a.href);
+  state.meta.lastExport = Date.now();
+  saveState();
+  toast('Backup downloaded');
 }
 function importJSON() {
   const input = document.createElement('input');
@@ -3809,6 +3865,7 @@ async function syncNow(manual = false) {
       }
     }
     state.meta.lastSync = data.serverTime || now();
+    state.meta.syncFailCount = 0; // reset on success
     syncError = null;
     saveState();
     const gotNewData = ENTITIES.some(e => (data.changes?.[e]?.length || 0) > 0);
@@ -3818,6 +3875,9 @@ async function syncNow(manual = false) {
   } catch(err) {
     clearTimeout(timeoutId);
     syncError = err.name === 'AbortError' ? 'Timed out — script took >25s' : err.message;
+    state.meta.syncFailCount = (state.meta.syncFailCount || 0) + 1;
+    state.meta.lastSyncFail  = now();
+    saveState();
     syncing = false; renderSync();
     console.warn('sync failed', syncError);
     if (manual) toast('Sync failed: ' + syncError, true);
@@ -3847,6 +3907,27 @@ function renderSync() {
     banner.hidden = !showBanner;
     if (showBanner) {
       bannerTxt.textContent = `⚠ ${pc} change${pc !== 1 ? 's' : ''} not yet uploaded to Google Sheet`;
+    }
+  }
+
+  // Data-safety warning banner — sync failures or no local backup in >7 days
+  const safetyBanner = $('#safety-banner');
+  if (safetyBanner) {
+    const failCount  = state.meta.syncFailCount || 0;
+    const lastExport = state.meta.lastExport || 0;
+    const daysSinceBackup = lastExport ? Math.floor((Date.now() - lastExport) / 86400000) : 999;
+    const syncDown   = state.meta.scriptUrl && failCount >= 3;
+    const backupDue  = daysSinceBackup >= 7;
+    if (syncDown) {
+      safetyBanner.hidden = false;
+      safetyBanner.className = 'safety-banner error';
+      safetyBanner.innerHTML = `⚠ Sync has failed ${failCount} times — data is NOT reaching Google Sheets. <button class="sbtn" data-act="sync-now">Retry now</button> or check your Apps Script URL in Settings.`;
+    } else if (backupDue) {
+      safetyBanner.hidden = false;
+      safetyBanner.className = 'safety-banner warn';
+      safetyBanner.innerHTML = `💾 No backup in ${daysSinceBackup === 999 ? 'a long time' : daysSinceBackup + ' days'} — <button class="sbtn" data-act="export-json">Download backup now</button>`;
+    } else {
+      safetyBanner.hidden = true;
     }
   }
 }
@@ -4738,6 +4819,13 @@ function checkAutoReport() {
 function init() {
   loadState();
   migrateTraySexData();
+
+  // Layer 2: session snapshot — save state at boot so mid-session corruption is recoverable
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) sessionStorage.setItem(LS_KEY + '.session', raw);
+  } catch(e) {}
+
   // Run notification check shortly after boot (non-blocking)
   setTimeout(checkDueNotifications, 2000);
   initHistory();

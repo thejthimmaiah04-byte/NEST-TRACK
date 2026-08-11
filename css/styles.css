@@ -1070,6 +1070,20 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .hb-total-sm { font-size: 12px; font-weight: 500; color: var(--text-2); }
 
 /* ---------- Pending-changes banner ---------- */
+.safety-banner[hidden] { display: none; }
+.safety-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 600; padding: 9px 16px;
+  position: sticky; top: 0; z-index: 90;
+}
+.safety-banner.error { background: #7f1d1d; color: #fecaca; }
+.safety-banner.warn  { background: #78350f; color: #fed7aa; }
+.safety-banner .sbtn {
+  background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+  color: inherit; padding: 3px 10px; border-radius: 6px; font-size: 12px;
+  font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.safety-banner .sbtn:hover { background: rgba(255,255,255,.25); }
 .pending-banner[hidden] { display: none; }
 .pending-banner {
   display: flex;
