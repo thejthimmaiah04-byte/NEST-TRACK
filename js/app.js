@@ -305,6 +305,8 @@ function stageColor(i) { return `var(${STAGE_COLORS[i % STAGE_COLORS.length]})`;
  *  State
  * ------------------------------------------------------------------ */
 const ENTITIES = ['species','shelves','trays','cohorts','removals','frozen_uses'];
+// Separate key so scriptUrl survives rbm.state.v1 wipes (browser clear-data, etc.)
+const LS_SCRIPT_URL_KEY = 'rbm.scriptUrl';
 
 let state = {
   species:[], shelves:[], trays:[], cohorts:[], removals:[], frozen_uses:[],
@@ -318,6 +320,10 @@ function _applyRaw(raw) {
   for (const e of ENTITIES) state[e] = state[e] || [];
   state.meta    = Object.assign({ scriptUrl:'', lastSync:0, forecastWeeks:8 }, state.meta);
   state.pending = state.pending || {};
+  // Restore scriptUrl from its dedicated key if the main state was wiped
+  if (!state.meta.scriptUrl) {
+    state.meta.scriptUrl = localStorage.getItem(LS_SCRIPT_URL_KEY) || '';
+  }
 }
 
 function loadState() {
@@ -329,13 +335,21 @@ function loadState() {
     } else {
       // localStorage empty — attempt async recovery from IndexedDB
       idbGet('main').then(saved => {
-        if (!saved) return;
-        try {
-          _applyRaw(saved);
-          localStorage.setItem(LS_KEY, saved); // restore LS from IDB
-          toast('⚠ Restored from IndexedDB backup — data recovered', true);
-          render();
-        } catch(e2) { console.warn('IDB restore failed', e2); }
+        if (saved) {
+          try {
+            _applyRaw(saved);
+            localStorage.setItem(LS_KEY, saved); // restore LS from IDB
+            toast('⚠ Restored from IndexedDB backup — data recovered', true);
+            render();
+            return;
+          } catch(e2) { console.warn('IDB restore failed', e2); }
+        }
+        // Nothing in IDB either — check if we have a saved scriptUrl to auto-restore from Sheets
+        const savedUrl = localStorage.getItem(LS_SCRIPT_URL_KEY) || '';
+        if (savedUrl) {
+          state.meta.scriptUrl = savedUrl;
+          // lastSync stays 0 → init() will do a full pull from Sheets automatically
+        }
       });
     }
   } catch(e) { console.warn('load failed', e); }
@@ -346,6 +360,8 @@ function saveState() {
     const serialized = JSON.stringify(state);
     if (serialized.length > 4_000_000) toast('⚠ Storage nearly full — export a backup now', true);
     localStorage.setItem(LS_KEY, serialized);
+    // Keep dedicated scriptUrl key in sync so it survives state wipes
+    if (state.meta.scriptUrl) localStorage.setItem(LS_SCRIPT_URL_KEY, state.meta.scriptUrl);
     idbPut('main', serialized); // Layer 1: mirror to IndexedDB
   }
   catch(e) {
@@ -2867,18 +2883,6 @@ function requestNotificationPermission() {
 function getAppNotifications() {
   const notifs = [];
 
-  // Backup overdue
-  const lastExport  = state.meta?.lastExport || 0;
-  const daysSince   = lastExport ? Math.floor((Date.now() - lastExport) / 86400000) : 999;
-  if (daysSince >= 7) {
-    notifs.push({
-      id: 'backup-due', type: 'warn', icon: '💾',
-      title: daysSince === 999 ? 'No backup taken yet' : `Backup ${daysSince} days overdue`,
-      body:  'Download a JSON backup to protect your data.',
-      action: 'export-json', actionLabel: 'Download now'
-    });
-  }
-
   // Sync failures
   const failCount = state.meta?.syncFailCount || 0;
   if (failCount >= 3) {
@@ -3883,8 +3887,19 @@ function onClick(e) {
       const k = $('#script-apikey')?.value.trim() || '';
       state.meta.scriptUrl    = v;
       state.meta.scriptApiKey = k;
-      saveState(); toast('Saved'); render();
-      if (v && navigator.onLine) syncNow();
+      if (v) localStorage.setItem(LS_SCRIPT_URL_KEY, v); // persist separately from main state
+      saveState(); render();
+      if (v && navigator.onLine) {
+        const isEmpty = ENTITIES.every(e => live(e).length === 0);
+        if (isEmpty) {
+          toast('Fetching all data from Google Sheets…');
+        } else {
+          toast('Saved — syncing with Google Sheets…');
+        }
+        syncNow(true); // always full pull when saving URL
+      } else {
+        toast('Saved');
+      }
       return;
     }
     case 'rec-done': return applyRecommendation(el);
@@ -5065,12 +5080,22 @@ function init() {
       syncNow();   // pull latest when returning to app
     }
   });
+  // iOS/Android: pagehide fires more reliably than visibilitychange on app close
+  window.addEventListener('pagehide', syncOnExit);
   setInterval(() => {
     if (navigator.onLine && state.meta.scriptUrl && !syncing) syncNow();
   }, AUTO_PULL_MS);
 
   render();
-  if (state.meta.scriptUrl && navigator.onLine) syncNow();
+  if (state.meta.scriptUrl && navigator.onLine) {
+    if (!state.meta.lastSync) {
+      // Fresh device or wiped state — pull everything from Sheets first, push nothing
+      toast('Loading data from Google Sheets…');
+      syncNow(true);
+    } else {
+      syncNow(); // normal incremental: push pending, pull since lastSync
+    }
+  }
   setTimeout(checkAutoReport, 5000); // check after initial sync settles
 
   // Floating action button — quick add
