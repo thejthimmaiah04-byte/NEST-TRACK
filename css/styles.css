@@ -666,6 +666,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 /* ── Recently deleted ── */
 .deleted-list { display: flex; flex-direction: column; gap: 8px; }
 .deleted-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; background: var(--surface-2); border-radius: 8px; border: 1px solid var(--border); }
+.ver-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.ver-row:last-child { border-bottom: none; }
+.ver-meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.ver-time { font-size: 13px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ver-ago  { font-size: 11px; color: var(--text-2); white-space: nowrap; }
+.ver-lbl  { font-size: 11px; color: var(--accent); background: rgba(249,115,22,.12); padding: 2px 7px; border-radius: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .deleted-entity { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-right: 6px; }
 .deleted-label  { font-size: 13px; font-weight: 600; }
 .muted { color: var(--muted); }

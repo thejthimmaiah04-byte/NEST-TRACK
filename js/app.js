@@ -15,17 +15,101 @@ const LS_KEY          = 'rbm.state.v1';
 const IDB_NAME  = 'rattrack-v1';
 const IDB_STORE = 'state';
 let _idb = null;
+const IDB_HIST  = 'history'; // object store name for version snapshots
+const HIST_MAX  = 50;        // rolling window — oldest pruned when exceeded
+
 function _openIDB() {
   if (_idb) return Promise.resolve(_idb);
   return new Promise((res, rej) => {
-    const req = indexedDB.open(IDB_NAME, 1);
+    const req = indexedDB.open(IDB_NAME, 2); // v2 adds history store
     req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+      if (!db.objectStoreNames.contains(IDB_HIST))  db.createObjectStore(IDB_HIST, { keyPath: 'savedAt' });
     };
     req.onsuccess = e => { _idb = e.target.result; res(_idb); };
     req.onerror   = () => rej(req.error);
   });
+}
+
+/* ── Version history (local rolling snapshots) ────────────────────────────── *
+ * Before every touch() the current state is captured. Writes are debounced   *
+ * 1.5 s so rapid back-to-back edits count as one snapshot. Keeps last 50.   */
+let _preChangeRaw   = null; // state captured before this batch of changes
+let _snapshotTimer  = null;
+
+function scheduleVersionSnapshot(label) {
+  // Capture the pre-change state only once per debounce window
+  if (!_preChangeRaw) {
+    try { _preChangeRaw = localStorage.getItem(LS_KEY); } catch(e) {}
+  }
+  clearTimeout(_snapshotTimer);
+  _snapshotTimer = setTimeout(() => _commitSnapshot(label), 1500);
+}
+
+function _commitSnapshot(label) {
+  const raw = _preChangeRaw;
+  _preChangeRaw  = null;
+  _snapshotTimer = null;
+  if (!raw) return;
+  const entry = { savedAt: Date.now(), label: label || 'change', state: raw };
+  _openIDB().then(db => {
+    const tx    = db.transaction(IDB_HIST, 'readwrite');
+    const store = tx.objectStore(IDB_HIST);
+    store.put(entry);
+    // Prune oldest if over cap
+    const countReq = store.count();
+    countReq.onsuccess = () => {
+      if (countReq.result <= HIST_MAX) return;
+      const excess = countReq.result - HIST_MAX;
+      const cur = store.openCursor(); // ascending order (oldest first)
+      let pruned = 0;
+      cur.onsuccess = e => {
+        const c = e.target.result;
+        if (c && pruned < excess) { c.delete(); pruned++; c.continue(); }
+      };
+    };
+  }).catch(() => {});
+}
+
+function _timeAgo(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60)   return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function renderVersionHistory() {
+  const container = $('#version-history-list');
+  if (!container) return;
+  container.innerHTML = '<p class="small muted">Loading…</p>';
+  _openIDB().then(db => {
+    const tx  = db.transaction(IDB_HIST, 'readonly');
+    const req = tx.objectStore(IDB_HIST).getAll();
+    req.onsuccess = () => {
+      const entries = (req.result || []).slice().reverse(); // newest first
+      if (!entries.length) {
+        container.innerHTML = '<p class="small muted">No history yet — snapshots build as you make changes.</p>';
+        return;
+      }
+      const nowMs = Date.now();
+      container.innerHTML = entries.map(e => {
+        const t   = new Date(e.savedAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+        const ago = _timeAgo(nowMs - e.savedAt);
+        const lbl = esc(e.label || 'change');
+        return `<div class="ver-row">
+          <div class="ver-meta">
+            <span class="ver-time">${t}</span>
+            <span class="ver-ago">${ago}</span>
+            <span class="ver-lbl">${lbl}</span>
+          </div>
+          <button class="btn sm" data-act="restore-version" data-ts="${e.savedAt}">Restore</button>
+        </div>`;
+      }).join('');
+    };
+    req.onerror = () => { container.innerHTML = '<p class="small muted">Could not load history.</p>'; };
+  }).catch(() => { container.innerHTML = '<p class="small muted">IndexedDB unavailable.</p>'; });
 }
 function idbPut(key, value) {
   _openIDB().then(db => {
@@ -305,6 +389,7 @@ function genSpeciesId(name) {
 }
 
 function touch(entity, record) {
+  scheduleVersionSnapshot(entity); // capture before-state first
   record.updatedAt = now();
   markPending(entity, record.id);
   saveState();
@@ -762,7 +847,7 @@ function render() {
   else if (activeTab === 'freezer')   renderFreezer();
   else if (activeTab === 'calendar')  renderCalendar();
   else if (activeTab === 'species')   renderSpecies();
-  else if (activeTab === 'settings')  renderSettings();
+  else if (activeTab === 'settings')  { renderSettings(); renderVersionHistory(); }
   else if (activeTab === 'reports')   renderReports();
 }
 
@@ -2842,6 +2927,12 @@ function renderSettings() {
       <p class="small muted mt">JSON = full backup for re-import. CSV = spreadsheet-friendly export for reporting.</p>
     </div>
 
+    <h2 class="section-title">Version history</h2>
+    <div class="card">
+      <p class="small muted" style="margin:0 0 10px">A snapshot is saved automatically before every change. Restore any of the last ${HIST_MAX} saves instantly — no sync required.</p>
+      <div id="version-history-list"></div>
+    </div>
+
     <h2 class="section-title">Notifications</h2>
     <div class="card">
       <p class="small muted" style="margin:0 0 10px">Get alerts when births are due or overdue. Requires browser permission.</p>
@@ -3700,6 +3791,33 @@ function onClick(e) {
     case 'restore-record': {
       const rec = byId(el.dataset.entity, el.dataset.id);
       if (rec) { rec.deleted = false; touch(el.dataset.entity, rec); toast('Restored'); closeModal(); render(); }
+      return;
+    }
+    case 'restore-version': {
+      const ts = Number(el.dataset.ts);
+      _openIDB().then(db => {
+        const req = db.transaction(IDB_HIST, 'readonly').objectStore(IDB_HIST).get(ts);
+        req.onsuccess = () => {
+          const entry = req.result;
+          if (!entry) { toast('Version not found', true); return; }
+          // Save current state as a new snapshot before overwriting
+          _commitSnapshot('before-restore');
+          try { localStorage.setItem(LS_KEY + '.pre-restore', localStorage.getItem(LS_KEY)); } catch(e) {}
+          localStorage.setItem(LS_KEY, entry.state);
+          idbPut('main', entry.state);
+          _applyRaw(entry.state);
+          // Mark everything pending so changes sync back up
+          for (const e of ENTITIES) {
+            if (!state.pending[e]) state.pending[e] = {};
+            for (const r of (state[e] || [])) if (!r.deleted) state.pending[e][r.id] = r.updatedAt || 0;
+          }
+          saveState();
+          toast('Restored to ' + new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }));
+          render();
+          scheduleSync();
+        };
+        req.onerror = () => toast('Restore failed', true);
+      }).catch(() => toast('Restore failed', true));
       return;
     }
     case 'enable-notifications': return requestNotificationPermission();
