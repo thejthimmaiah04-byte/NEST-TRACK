@@ -158,8 +158,10 @@ function doPost(e) {
 
     var response = { ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) };
 
-    // Layer 4: Google Drive daily backup — runs once per calendar day, non-fatal
+    // Layer 4a: Google Drive daily JSON backup — runs once per calendar day
     _maybeWriteDriveBackup();
+    // Layer 4b: Per-change CSV snapshot — one file set per sync with changes
+    _writeCsvSnapshot(changes);
 
     return json(response);
   } catch (err) {
@@ -215,6 +217,83 @@ function _maybeWriteDriveBackup() {
   } catch (err) {
     Logger.log('Drive backup failed (non-fatal): ' + err);
   }
+}
+
+// ── Per-change CSV snapshot ───────────────────────────────────────────────────
+// Called after every sync POST that contains at least one changed record.
+// Creates a timestamped CSV file per changed entity inside a per-day folder.
+// Folder structure:  RAT-TRACK Backups / CSV Snapshots / 2026-08-11 / 09-15-30_Trays.csv
+// Weekly cleanup: folders older than 7 days are moved to trash automatically.
+function _writeCsvSnapshot(changes) {
+  try {
+    // Only run when at least one entity actually had incoming changes
+    var changedEntities = ENTITIES.filter(function(e) {
+      return changes[e] && changes[e].length > 0;
+    });
+    if (!changedEntities.length) return;
+
+    var tz = Session.getScriptTimeZone();
+    var today = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    var timeStr = Utilities.formatDate(new Date(), tz, 'HH-mm-ss');
+
+    // Navigate to / create folder structure
+    var parentName = 'RAT-TRACK Backups';
+    var parents = DriveApp.getFoldersByName(parentName);
+    var parent  = parents.hasNext() ? parents.next() : DriveApp.createFolder(parentName);
+
+    var csvRootName = 'CSV Snapshots';
+    var csvRoots = parent.getFoldersByName(csvRootName);
+    var csvRoot  = csvRoots.hasNext() ? csvRoots.next() : parent.createFolder(csvRootName);
+
+    // One subfolder per calendar day (created once, reused all day)
+    var dayFolders = csvRoot.getFoldersByName(today);
+    var dayFolder  = dayFolders.hasNext() ? dayFolders.next() : csvRoot.createFolder(today);
+
+    // Write one CSV per changed entity
+    changedEntities.forEach(function(entity) {
+      var rows   = _readSheet(entity);
+      var schema = SCHEMAS[entity];
+      var header = schema.map(function(col) {
+        return COL_LABELS[col] || col.toUpperCase();
+      });
+      var csvRows = [header].concat(rows.map(function(r) {
+        return schema.map(function(col) {
+          var v = r[col];
+          if (v === null || v === undefined) return '';
+          if (typeof v === 'object') return JSON.stringify(v);
+          return v;
+        });
+      }));
+      var filename = timeStr + '_' + SHEET_NAMES[entity] + '.csv';
+      dayFolder.createFile(filename, _toCsv(csvRows), 'text/csv');
+    });
+
+    // Weekly cleanup: trash day-folders older than 7 days
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    var allDayFolders = csvRoot.getFolders();
+    while (allDayFolders.hasNext()) {
+      var f = allDayFolders.next();
+      if (f.getName() !== today && f.getDateCreated() < cutoff) f.setTrashed(true);
+    }
+
+    Logger.log('CSV snapshot: ' + today + '/' + timeStr + ' (' + changedEntities.join(', ') + ')');
+  } catch (err) {
+    Logger.log('CSV snapshot failed (non-fatal): ' + err);
+  }
+}
+
+// Escape and join rows into a valid CSV string
+function _toCsv(rows) {
+  return rows.map(function(row) {
+    return row.map(function(cell) {
+      var s = String(cell === null || cell === undefined ? '' : cell);
+      if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }).join(',');
+  }).join('\r\n');
 }
 
 // Read all live (non-deleted) records from a sheet as plain objects
