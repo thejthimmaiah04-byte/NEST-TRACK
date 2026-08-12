@@ -409,7 +409,7 @@ function touch(entity, record) {
   record.updatedAt = now();
   markPending(entity, record.id);
   saveState();
-  scheduleSync();
+  renderSync(); // update badge/banner — no auto-push
 }
 function upsertLocal(entity, record) {
   const arr = state[entity];
@@ -818,32 +818,13 @@ window.addEventListener('popstate', e => {
   if (tab && tab !== activeTab) switchTab(tab, false);
 });
 
-// Desktop: warn before tab close / navigation if changes are pending
+// Warn before closing if there are changes not yet uploaded
 window.addEventListener('beforeunload', e => {
   if (pendingCount() > 0) {
     e.preventDefault();
-    e.returnValue = 'You have unsynced changes that have not been uploaded to Google Sheet. Leave anyway?';
+    e.returnValue = 'You have changes not yet uploaded to Google Sheets. Upload them before closing!';
   }
 });
-
-// Mobile: fire-and-forget upload when app goes to background or page is hidden
-function syncOnExit() {
-  if (!pendingCount() || !navigator.onLine || !state.meta.scriptUrl) return;
-  const changes = {};
-  for (const e of ENTITIES) {
-    const ids = Object.keys(state.pending[e] || {});
-    if (ids.length) changes[e] = ids.map(id => byId(e, id)).filter(Boolean);
-  }
-  try {
-    fetch(state.meta.scriptUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: state.meta.lastSync || 0, changes }),
-      keepalive: true   // keeps request alive even after page is unloaded
-    });
-  } catch(_) {}
-}
-window.addEventListener('pagehide',         syncOnExit);
 
 /* ------------------------------------------------------------------ *
  *  Rendering
@@ -2890,7 +2871,7 @@ function getAppNotifications() {
       id: 'sync-fail', type: 'error', icon: '⚠',
       title: `Sync failing (${failCount} attempts)`,
       body:  'Data is not reaching Google Sheets.',
-      action: 'sync-now', actionLabel: 'Retry'
+      action: 'upload-changes', actionLabel: 'Retry upload'
     });
   }
 
@@ -2921,7 +2902,7 @@ function getAppNotifications() {
       id: 'pending', type: 'info', icon: '↑',
       title: `${pc} change${pc !== 1 ? 's' : ''} pending upload`,
       body:  'Will sync automatically when online.',
-      action: 'sync-now', actionLabel: 'Upload now'
+      action: 'upload-changes', actionLabel: 'Upload now'
     });
   }
 
@@ -3019,8 +3000,8 @@ function renderSettings() {
       </label>
       <div class="gap">
         <button class="btn primary" data-act="save-url">Save</button>
-        ${url ? `<button class="btn" data-act="sync-now">Sync now</button>` : ''}
-        ${url ? `<button class="btn" data-act="full-sync" title="Re-pulls every record from the Sheet — use after editing dates or data directly in Google Sheets">Full re-sync from Sheet</button>` : ''}
+        ${url ? `<button class="btn" data-act="upload-changes">Upload changes</button>` : ''}
+        ${url ? `<button class="btn" data-act="full-sync" title="Re-pulls every record from the Sheet — use after editing data directly in Google Sheets">Full re-pull from Sheet</button>` : ''}
       </div>
       ${syncError ? `<p class="sync-error-msg">⚠ Last sync error: ${esc(syncError)}</p>` : ''}
       <p class="small muted" style="margin:8px 0 0">Use <b>Full re-sync</b> after editing data directly in Google Sheets — the normal sync only picks up new changes.</p>
@@ -3891,12 +3872,8 @@ function onClick(e) {
       saveState(); render();
       if (v && navigator.onLine) {
         const isEmpty = ENTITIES.every(e => live(e).length === 0);
-        if (isEmpty) {
-          toast('Fetching all data from Google Sheets…');
-        } else {
-          toast('Saved — syncing with Google Sheets…');
-        }
-        syncNow(true); // always full pull when saving URL
+        toast(isEmpty ? 'Fetching all data from Google Sheets…' : 'Saved — pulling latest from Google Sheets…');
+        pullFromSheets(0); // full pull when saving URL; never pushes
       } else {
         toast('Saved');
       }
@@ -3904,12 +3881,14 @@ function onClick(e) {
     }
     case 'rec-done': return applyRecommendation(el);
     case 'open-tray-from-rec': { const t = byId('trays', el.dataset.trayid); if (t) { switchTab('trays'); setTimeout(() => trayDetailModal(t.id), 120); } return; }
-    case 'sync-now': syncNow(true); return;
+    case 'sync-now':
+    case 'upload-changes': uploadChanges(); return;
+    case 'pull-sheets': pullFromSheets(); return;
     case 'full-sync':
       state.meta.lastSync = 0;
       saveState();
-      toast('Full re-sync started — pulling all records from Sheet…');
-      syncNow(true);
+      toast('Pulling all records from Google Sheets…');
+      pullFromSheets(0);
       return;
     case 'export': return exportJSON();
     case 'import': return importJSON();
@@ -3942,7 +3921,7 @@ function onClick(e) {
           saveState();
           toast('Restored to ' + new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }));
           render();
-          scheduleSync();
+          renderSync();
         };
         req.onerror = () => toast('Restore failed', true);
       }).catch(() => toast('Restore failed', true));
@@ -4041,34 +4020,71 @@ let syncTimer = null;
 let syncing   = false;
 let syncError = null; // last error message, cleared on success
 
-function scheduleSync() {
-  renderSync();
-  if (!state.meta.scriptUrl || !navigator.onLine) return;
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => syncNow(), SYNC_DEBOUNCE);
-}
-
-async function syncNow(manual = false) {
+// Pull latest data FROM Google Sheets into the app. Never pushes local changes.
+async function pullFromSheets(since) {
   if (syncing) return;
   if (!state.meta.scriptUrl) return;
   if (!navigator.onLine) { renderSync(); return; }
 
+  const pullSince = (since !== undefined) ? since : (state.meta.lastSync || 0);
   syncing = true; renderSync();
-  const syncStartTime = now(); // capture before fetch so mid-sync edits are detectable
+
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const res = await fetch(state.meta.scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ since: pullSince, changes: {}, key: state.meta.scriptApiKey || undefined }),
+      signal: ctrl.signal
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const fullPull = pullSince === 0;
+    for (const e of ENTITIES) {
+      for (const remote of (data.changes?.[e] || [])) {
+        if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
+        const local = byId(e, remote.id);
+        if (!local || fullPull || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
+      }
+    }
+    state.meta.lastSync = data.serverTime || now();
+    state.meta.syncFailCount = 0;
+    syncError = null;
+    saveState();
+    const gotNewData = ENTITIES.some(e => (data.changes?.[e]?.length || 0) > 0);
+    syncing = false; renderSync();
+    if (gotNewData || fullPull) render();
+  } catch(err) {
+    clearTimeout(timeoutId);
+    syncError = err.name === 'AbortError' ? 'Timed out — script took >25s' : err.message;
+    state.meta.syncFailCount = (state.meta.syncFailCount || 0) + 1;
+    state.meta.lastSyncFail = now();
+    saveState();
+    syncing = false; renderSync();
+    console.warn('pull failed', syncError);
+  }
+}
+
+// Upload pending local changes TO Google Sheets. Only called by explicit user action.
+async function uploadChanges() {
+  if (syncing) return;
+  if (!state.meta.scriptUrl) { toast('Set up Google Sheets URL in Settings first', true); return; }
+  if (!navigator.onLine) { toast('Offline — connect to upload', true); return; }
+
+  const pc = pendingCount();
+  if (pc === 0) { toast('Nothing to upload — all changes are already on Google Sheets'); return; }
+
+  syncing = true; renderSync();
 
   const changes = {};
-  if (manual) {
-    for (const e of ENTITIES) {
-      const recs = live(e);
-      if (recs.length) changes[e] = recs;
-    }
-  } else {
-    for (const e of ENTITIES) {
-      const ids = Object.keys(state.pending[e] || {});
-      if (ids.length) changes[e] = ids.map(id => byId(e, id)).filter(Boolean);
-    }
+  for (const e of ENTITIES) {
+    const ids = Object.keys(state.pending[e] || {});
+    if (ids.length) changes[e] = ids.map(id => byId(e, id)).filter(Boolean);
   }
-  // Snapshot sent IDs with their updatedAt timestamps so we can safely clear only those
   const sentSnapshot = {};
   for (const e of ENTITIES) {
     sentSnapshot[e] = {};
@@ -4077,15 +4093,11 @@ async function syncNow(manual = false) {
 
   const ctrl = new AbortController();
   const timeoutId = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
-
-  // Manual sync: full pull (since=0) so direct Sheet edits are always picked up
-  const pullSince = manual ? 0 : (state.meta.lastSync || 0);
-
   try {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: pullSince, changes, key: state.meta.scriptApiKey || undefined }),
+      body: JSON.stringify({ since: state.meta.lastSync || 0, changes, key: state.meta.scriptApiKey || undefined }),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -4093,40 +4105,38 @@ async function syncNow(manual = false) {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    // Merge remote changes — full pull always wins (sheet is truth on manual sync)
+    // Merge any remote updates that arrived alongside the upload response
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
         if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
         const local = byId(e, remote.id);
-        if (!local || manual || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
+        if (!local || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
       }
     }
-    // Clear pending only for records whose updatedAt hasn't changed since we sent them
-    // (guards against edits made during the fetch overwriting their own pending marker)
+    // Clear pending only for records that haven't been re-edited during the upload
     for (const e of ENTITIES) {
       for (const [id, sentAt] of Object.entries(sentSnapshot[e] || {})) {
         const current = byId(e, id);
-        if (current && (current.updatedAt || 0) > sentAt) continue; // re-edited during sync
+        if (current && (current.updatedAt || 0) > sentAt) continue;
         if (state.pending[e]) delete state.pending[e][id];
       }
     }
     state.meta.lastSync = data.serverTime || now();
-    state.meta.syncFailCount = 0; // reset on success
+    state.meta.syncFailCount = 0;
     syncError = null;
     saveState();
-    const gotNewData = ENTITIES.some(e => (data.changes?.[e]?.length || 0) > 0);
+    const uploaded = Object.values(sentSnapshot).reduce((sum, obj) => sum + Object.keys(obj).length, 0);
     syncing = false; renderSync();
-    if (gotNewData || manual) render();
-    if (manual) toast('Synced');
+    render();
+    toast(`✓ ${uploaded} change${uploaded !== 1 ? 's' : ''} uploaded to Google Sheets`);
   } catch(err) {
     clearTimeout(timeoutId);
     syncError = err.name === 'AbortError' ? 'Timed out — script took >25s' : err.message;
     state.meta.syncFailCount = (state.meta.syncFailCount || 0) + 1;
-    state.meta.lastSyncFail  = now();
+    state.meta.lastSyncFail = now();
     saveState();
     syncing = false; renderSync();
-    console.warn('sync failed', syncError);
-    if (manual) toast('Sync failed: ' + syncError, true);
+    toast('Upload failed: ' + syncError, true);
   }
 }
 
@@ -4138,21 +4148,21 @@ function renderSync() {
   let syncEl = dot.closest('.sync') || txt.closest('.sync');
   if (!state.meta.scriptUrl) { cls+=' pending'; label='Local only'; }
   else if (syncing)           { cls+=' syncing'; label='Syncing…'; }
-  else if (!navigator.onLine) { cls+=' offline';  label=pc?`Offline · ${pc} queued`:'Offline'; }
+  else if (!navigator.onLine) { cls+=' offline';  label=pc?`Offline · ${pc} unsaved`:'Offline'; }
   else if (syncError)         { cls+=' error';    label='Sync error'; }
-  else if (pc > 0)            { cls+=' pending';  label=`${pc} pending`; }
-  else                        { cls+=' ok';       label='Synced'; }
+  else if (pc > 0)            { cls+=' pending';  label=`${pc} unsaved`; }
+  else                        { cls+=' ok';       label='Up to date'; }
   dot.className=cls; txt.textContent=label;
   if (syncEl) syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
 
-  // Pending banner — visible whenever there are changes not yet on the server
+  // Pending banner — visible whenever there are unsaved changes
   const banner = $('#pending-banner');
   const bannerTxt = $('#pending-banner-text');
   if (banner && bannerTxt) {
     const showBanner = pc > 0 && state.meta.scriptUrl;
     banner.hidden = !showBanner;
     if (showBanner) {
-      bannerTxt.textContent = `⚠ ${pc} change${pc !== 1 ? 's' : ''} not yet uploaded to Google Sheet`;
+      bannerTxt.textContent = `${pc} unsaved change${pc !== 1 ? 's' : ''} — upload before closing`;
     }
   }
 
@@ -4441,7 +4451,7 @@ function renderReports() {
     <!-- ③ Removals & Deaths -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 12px">
       <h2 class="section-title" style="margin:0">Removals &amp; Deaths</h2>
-      ${state.meta.scriptUrl ? `<button class="btn sm" data-act="sync-now" style="flex-shrink:0">&#8635; Pull from sheet</button>` : ''}
+      ${state.meta.scriptUrl ? `<button class="btn sm" data-act="pull-sheets" style="flex-shrink:0">&#8635; Pull from sheet</button>` : ''}
     </div>
     <div class="card" style="margin-bottom:16px">${remTable}</div>
 
@@ -5071,29 +5081,24 @@ function init() {
   if (notifBack)  notifBack.addEventListener('click',  closeNotifPanel);
 
   // Auto-sync triggers
-  window.addEventListener('online',  () => { renderSync(); syncNow(); });
+  window.addEventListener('online',  () => { renderSync(); pullFromSheets(); });
   window.addEventListener('offline', renderSync);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      syncOnExit(); // attempt to push pending data before app is suspended
-    } else if (navigator.onLine && state.meta.scriptUrl) {
-      syncNow();   // pull latest when returning to app
+    if (document.visibilityState === 'visible' && navigator.onLine && state.meta.scriptUrl) {
+      pullFromSheets(); // pull latest when returning to app
     }
   });
-  // iOS/Android: pagehide fires more reliably than visibilitychange on app close
-  window.addEventListener('pagehide', syncOnExit);
   setInterval(() => {
-    if (navigator.onLine && state.meta.scriptUrl && !syncing) syncNow();
+    if (navigator.onLine && state.meta.scriptUrl && !syncing) pullFromSheets();
   }, AUTO_PULL_MS);
 
   render();
   if (state.meta.scriptUrl && navigator.onLine) {
     if (!state.meta.lastSync) {
-      // Fresh device or wiped state — pull everything from Sheets first, push nothing
       toast('Loading data from Google Sheets…');
-      syncNow(true);
+      pullFromSheets(0); // fresh/wiped device — pull everything, never pushes
     } else {
-      syncNow(); // normal incremental: push pending, pull since lastSync
+      pullFromSheets(); // normal: pull changes since lastSync
     }
   }
   setTimeout(checkAutoReport, 5000); // check after initial sync settles
