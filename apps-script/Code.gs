@@ -156,6 +156,13 @@ function doPost(e) {
     updateTrayStageStats();
     updateShelfStats();
 
+    // Update per-shelf summary sheets and history if the app sent a summary
+    if (body.summary && typeof body.summary === 'object') {
+      _updateShelfSummaries(body.summary);
+      _updateBirthHistory();
+      _updateDeathHistory();
+    }
+
     var response = { ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) };
 
     // Layer 4a: Google Drive daily JSON backup — runs once per calendar day
@@ -213,6 +220,188 @@ function _maybeWriteDriveBackup() {
     Logger.log('Drive backup written: ' + filename);
   } catch (err) {
     Logger.log('Drive backup failed (non-fatal): ' + err);
+  }
+}
+
+// ── Per-shelf summary sheets ──────────────────────────────────────────────────
+// Called on every uploadChanges() with the summary built by the app.
+// Creates / refreshes one sheet tab per shelf (e.g. "Shelf A", "Shelf B").
+// Columns: TRAY | SPECIES | ♂ MALES | ♀ FEMALES | GRAVID ♀ | LACTATING ♀ | [stage cols…] | TOTAL
+function _updateShelfSummaries(summary) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var HDR_BG = '#1a1a2e';
+
+    Object.keys(summary).forEach(function(shelfName) {
+      var trays = summary[shelfName];
+      if (!Array.isArray(trays)) return;
+
+      var tabName = 'Shelf ' + shelfName;
+      var sh = ss.getSheetByName(tabName);
+      if (!sh) {
+        sh = ss.insertSheet(tabName);
+      }
+
+      // Collect all dynamic stage column names across all trays
+      var stageNames = [];
+      var seenStage = {};
+      var fixedKeys = { name: true, species: true, males: true, females: true, gravid: true, lactating: true, total: true };
+      trays.forEach(function(t) {
+        Object.keys(t).forEach(function(k) {
+          if (!fixedKeys[k] && !seenStage[k]) { seenStage[k] = true; stageNames.push(k); }
+        });
+      });
+
+      // Build header row
+      var headers = ['TRAY', 'SPECIES', '♂ MALES', '♀ FEMALES', 'GRAVID ♀', 'LACTATING ♀']
+        .concat(stageNames.map(function(s) { return s.toUpperCase(); }))
+        .concat(['TOTAL']);
+
+      // Build data rows
+      var rows = trays.map(function(t) {
+        var row = [
+          t.name || '',
+          t.species || '',
+          t.males || 0,
+          t.females || 0,
+          t.gravid || 0,
+          t.lactating || 0
+        ];
+        stageNames.forEach(function(s) { row.push(t[s] || 0); });
+        row.push(t.total || 0);
+        return row;
+      });
+
+      // Clear existing content and rewrite
+      sh.clearContents();
+      var totalCols = headers.length;
+      var allValues = [headers].concat(rows);
+      sh.getRange(1, 1, allValues.length, totalCols).setValues(allValues);
+
+      // Style header row
+      var hdrRange = sh.getRange(1, 1, 1, totalCols);
+      hdrRange.setFontWeight('bold').setBackground(HDR_BG).setFontColor('#ffffff').setFontSize(10);
+      sh.setFrozenRows(1);
+
+      // Bold totals column
+      if (rows.length > 0) {
+        sh.getRange(2, totalCols, rows.length, 1).setFontWeight('bold');
+      }
+
+      // Auto-resize for readability
+      try { sh.autoResizeColumns(1, totalCols); } catch(e) {}
+    });
+  } catch (err) {
+    Logger.log('_updateShelfSummaries failed (non-fatal): ' + err);
+  }
+}
+
+// ── Birth History sheet ───────────────────────────────────────────────────────
+// Creates / refreshes a "Birth History" sheet tab.
+// Columns: DATE | TRAY | SPECIES | COUNT | NOTES
+// Sorted by date descending (newest first).
+function _updateBirthHistory() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tabName = 'Birth History';
+    var sh = ss.getSheetByName(tabName);
+    if (!sh) sh = ss.insertSheet(tabName);
+
+    var ctx = buildNameMaps();
+    var cohorts = _readSheet('cohorts'); // live only
+
+    // Sort by birthDate descending
+    cohorts.sort(function(a, b) {
+      var da = a.birthDate ? new Date(a.birthDate).getTime() : 0;
+      var db = b.birthDate ? new Date(b.birthDate).getTime() : 0;
+      return db - da;
+    });
+
+    var headers = ['DATE', 'TRAY', 'SPECIES', 'COUNT', 'NOTES'];
+    var rows = cohorts.map(function(c) {
+      var dateStr = '';
+      try {
+        if (c.birthDate) {
+          var d = new Date(c.birthDate);
+          dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        }
+      } catch(e) { dateStr = String(c.birthDate || ''); }
+      return [
+        dateStr,
+        ctx.trayName(c.trayId),
+        ctx.speciesName(c.speciesId),
+        Number(c.initialCount) || 0,
+        c.notes || ''
+      ];
+    });
+
+    sh.clearContents();
+    var allValues = [headers].concat(rows);
+    sh.getRange(1, 1, allValues.length, headers.length).setValues(allValues);
+    sh.getRange(1, 1, 1, headers.length)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    sh.setFrozenRows(1);
+    try { sh.autoResizeColumns(1, headers.length); } catch(e) {}
+  } catch (err) {
+    Logger.log('_updateBirthHistory failed (non-fatal): ' + err);
+  }
+}
+
+// ── Death History sheet ───────────────────────────────────────────────────────
+// Creates / refreshes a "Death History" sheet tab.
+// Shows only removals with reason = "Dead" / "dead" / "Death".
+// Columns: DATE | TRAY | STAGE | COUNT | CAUSE
+// Sorted by date descending (newest first).
+function _updateDeathHistory() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tabName = 'Death History';
+    var sh = ss.getSheetByName(tabName);
+    if (!sh) sh = ss.insertSheet(tabName);
+
+    var ctx = buildNameMaps();
+    var removals = _readSheet('removals'); // live only
+
+    // Filter to deaths only
+    var deaths = removals.filter(function(r) {
+      return String(r.reason || '').toLowerCase() === 'dead' ||
+             String(r.reason || '').toLowerCase() === 'death';
+    });
+
+    // Sort by date descending
+    deaths.sort(function(a, b) {
+      var da = a.date ? new Date(a.date).getTime() : 0;
+      var db = b.date ? new Date(b.date).getTime() : 0;
+      return db - da;
+    });
+
+    var headers = ['DATE', 'TRAY', 'STAGE', 'COUNT', 'CAUSE'];
+    var rows = deaths.map(function(r) {
+      var dateStr = '';
+      try {
+        if (r.date) {
+          var d = new Date(r.date);
+          dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        }
+      } catch(e) { dateStr = String(r.date || ''); }
+      return [
+        dateStr,
+        ctx.trayName(r.trayId),
+        r.stage || '',
+        Number(r.count) || 0,
+        r.cause || ''
+      ];
+    });
+
+    sh.clearContents();
+    var allValues = [headers].concat(rows);
+    sh.getRange(1, 1, allValues.length, headers.length).setValues(allValues);
+    sh.getRange(1, 1, 1, headers.length)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    sh.setFrozenRows(1);
+    try { sh.autoResizeColumns(1, headers.length); } catch(e) {}
+  } catch (err) {
+    Logger.log('_updateDeathHistory failed (non-fatal): ' + err);
   }
 }
 

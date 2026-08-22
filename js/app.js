@@ -3264,246 +3264,202 @@ function trayModal(shelfId, existing) {
 function trayDetailModal(trayId) {
   const tray = byId('trays', trayId);
   if (!tray) return;
-  const exactSpecies = byId('species', tray.speciesId);
-  const speciesMismatch = tray.speciesId && (!exactSpecies || exactSpecies.deleted);
   const sp = speciesOf(tray);
-  const cohorts = live('cohorts').filter(c => c.trayId === trayId)
-    .sort((a,b) => parseYMD(b.birthDate) - parseYMD(a.birthDate));
-
-  // Check for adult-stage animals (last stage = highest startDay)
   const today = new Date();
-  const lastStageName = sp?.stages?.length
-    ? [...sp.stages].sort((a,b) => (b.startDay||b.days||0)-(a.startDay||a.days||0))[0]?.name
-    : null;
-  const adultCount = trayAdultCount(tray, sp);
+
+  // Stages sorted by startDay, earliest first
+  const stages = sp?.stages ? [...sp.stages].sort((a, b) => a.startDay - b.startDay) : [];
+  const lastStageName = stages.length ? stages[stages.length - 1].name : 'Adult';
+
+  // Map: stage name → array of {c, net} for cohorts currently at that stage
+  const stageCohortsMap = {};
+  for (const c of live('cohorts').filter(c => c.trayId === trayId)) {
+    const { name } = stageIndexAt(c, today);
+    const net = cohortNet(c, today);
+    if (!stageCohortsMap[name]) stageCohortsMap[name] = [];
+    stageCohortsMap[name].push({ c, net });
+  }
+
+  const adultCount  = trayAdultCount(tray, sp);
+  const sex         = trayAdultSex(trayId, sp);
   const gravid      = tray.gravidFemales    || 0;
   const lactating   = tray.lactatingFemales || 0;
-  const rows = cohorts.map(c => {
-    const net = cohortNet(c);
-    const { name } = stageIndexAt(c);
-    const depleted = net <= 0;
-    const isAdultRow = !depleted && lastStageName && name === lastStageName;
-    const si = orderedStageNames().indexOf(name);
-    const infoLine = `started ${c.initialCount}${c.notes?' · '+esc(c.notes):''}`;
-    const sexInputs = ''; // sex tracked at tray level in Reproductive status section
-    return `<div class="cohort-row" style="${depleted?'opacity:.45':''}">
-      <div class="cohort-info">
-        <div class="cn">${net}
-          <span class="pill" style="background:${stageColor(si)}">${esc(name)}</span>
+  const gravidSince = tray.gravidSince      || '';
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const expectedBirthStr = (() => {
+    if (!gravidSince || !sp?.gestation) return '';
+    const d = addDays(parseYMD(gravidSince), sp.gestation);
+    const daysLeft = Math.round((d - today) / 86400000);
+    const label = d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    if (daysLeft > 0)   return `<div class="birth-pred">🐣 Expected: <b>${label}</b> (${daysLeft}d)</div>`;
+    if (daysLeft >= -3) return `<div class="birth-pred due">🐣 Birth due now!</div>`;
+    return `<div class="birth-pred overdue">🐣 Birth overdue by ${Math.abs(daysLeft)}d</div>`;
+  })();
+
+  const ratioHtml = (sp?.ratio && sex && (sex.males + sex.females) > 0) ? (() => {
+    const st = ratioStatus(sex.males, sex.females, sp.ratio);
+    const total = sex.males + sex.females;
+    const idealM = Math.round(total * sp.ratio.males / (sp.ratio.males + sp.ratio.females));
+    const idealF = total - idealM;
+    const badge = st === 'ok' ? `<span class="ratio-status-ok">✓ on target</span>`
+      : st === 'close' ? `<span class="ratio-status-close">~ ideal ♂${idealM}:♀${idealF}</span>`
+      : `<span class="ratio-status-warn">⚠ ideal ♂${idealM}:♀${idealF}</span>`;
+    return `<div class="ratio-section"><span class="ratio-label">Target ♂${sp.ratio.males}:♀${sp.ratio.females}</span> · ♂${sex.males} ♀${sex.females} ${badge}</div>`;
+  })() : '';
+
+  // ── Tab bar ───────────────────────────────────────────────────────────────
+  const tabsHtml = stages.map((st, i) => {
+    const cnt = st.name === lastStageName
+      ? adultCount
+      : (stageCohortsMap[st.name] || []).filter(x => x.net > 0).reduce((s, x) => s + x.net, 0);
+    return `<button class="stg-tab${i === 0 ? ' active' : ''}" data-stg="${esc(st.name)}">
+      ${esc(st.name)}<span class="stg-badge${cnt > 0 ? '' : ' empty'}">${cnt}</span>
+    </button>`;
+  }).join('') || `<button class="stg-tab active" data-stg="${esc(lastStageName)}">${esc(lastStageName)} <span class="stg-badge">${adultCount}</span></button>`;
+
+  // ── Adult panel ───────────────────────────────────────────────────────────
+  const femMax = sex ? sex.females : adultCount;
+  const adultPanel = `
+    <div class="stg-panel" data-panel="${esc(lastStageName)}">
+      <div class="stg-count">${adultCount}<span class="stg-unit"> ${esc(lastStageName)}${adultCount !== 1 ? 's' : ''}</span></div>
+
+      <div class="stg-section">
+        <div class="stg-sect-head">Sex breakdown</div>
+        <div class="sex-row">
+          <label class="sex-lbl"><span>♂ Males</span>
+            <input id="tray-sex-m" type="number" min="0" value="${tray.adultMales ?? ''}" placeholder="0" /></label>
+          <label class="sex-lbl"><span>♀ Females</span>
+            <input id="tray-sex-f" type="number" min="0" value="${tray.adultFemales ?? ''}" placeholder="0" /></label>
+          <button class="btn sm" data-save-sex="${trayId}" style="align-self:flex-end">Save</button>
         </div>
-        <div class="small muted">${infoLine}</div>
+        <div class="stg-hint small muted">♂ + ♀ must equal ${adultCount} total${sex ? ` · current ♂${sex.males} ♀${sex.females}` : ''}</div>
+        ${ratioHtml}
       </div>
-      <div class="cohort-remove">
-        ${sexInputs}
-        <button class="icon-btn" data-act="edit-cohort" data-id="${c.id}" data-trayid="${trayId}" title="Edit">✎</button>
-        <button class="icon-btn" data-act="del-cohort" data-id="${c.id}" title="Delete">🗑</button>
+
+      <div class="stg-section">
+        <div class="stg-sect-head">Female status</div>
+        <div class="sex-row">
+          <label class="sex-lbl"><span>Gravid ♀</span>
+            <input id="f-gravid" type="number" min="0" max="${femMax}" value="${gravid}" placeholder="0" /></label>
+          <label class="sex-lbl"><span>Lactating ♀</span>
+            <input id="f-lact" type="number" min="0" max="${femMax}" value="${lactating}" placeholder="0" /></label>
+          <button class="btn sm" id="save-status" style="align-self:flex-end">Save</button>
+        </div>
+        <label class="sex-lbl" style="margin-top:8px;max-width:180px">
+          <span>Mated / gravid since</span>
+          <input id="f-gravid-since" type="date" value="${gravidSince}" />
+        </label>
+        ${expectedBirthStr}
+        ${gravid + lactating > 0 ? `<div class="gravid-warn" style="margin-top:8px">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest</div>` : ''}
       </div>
+
+      ${adultCount > 0 ? `<button class="btn danger" style="width:100%;margin-top:4px" id="remove-adults-btn">Remove ${esc(lastStageName)}s</button>` : ''}
+    </div>`;
+
+  // ── Non-adult stage panels ────────────────────────────────────────────────
+  const nonAdultPanels = stages.filter(st => st.name !== lastStageName).map((st, i) => {
+    const allCohs = live('cohorts')
+      .filter(c => c.trayId === trayId && stageIndexAt(c, today).name === st.name)
+      .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
+    const liveCohs = allCohs.filter(c => cohortNet(c, today) > 0);
+    const count = liveCohs.reduce((s, c) => s + cohortNet(c, today), 0);
+
+    const cohortRows = allCohs.length ? allCohs.map(c => {
+      const net = cohortNet(c, today);
+      return `<div class="cohort-row${net <= 0 ? ' depleted' : ''}">
+        <div>
+          <span class="cn">${net}</span>
+          <span class="small muted"> · born ${fmtDate(parseYMD(c.birthDate))}${c.notes ? ' · ' + esc(c.notes) : ''}</span>
+        </div>
+        <div class="cohort-btns">
+          <button class="icon-btn" data-act="edit-cohort" data-id="${c.id}" data-trayid="${trayId}">✎</button>
+          <button class="icon-btn" data-act="del-cohort" data-id="${c.id}">🗑</button>
+        </div>
+      </div>`;
+    }).join('') : '<p class="muted small" style="padding:8px 0">No animals at this stage yet.</p>';
+
+    const addBtns = i === 0
+      ? `<button class="btn primary" data-act="add-litter" data-id="${trayId}">+ Born today</button>
+         <button class="btn" data-act="add-intake" data-id="${trayId}">+ Add intake</button>`
+      : `<button class="btn" data-act="add-intake" data-id="${trayId}">+ Add intake</button>`;
+
+    return `<div class="stg-panel" data-panel="${esc(st.name)}" style="display:none">
+      <div class="stg-count">${count}<span class="stg-unit"> ${esc(st.name)}${count !== 1 ? 's' : ''}</span></div>
+      <div class="stg-add-row">${addBtns}</div>
+      <div class="stg-cohort-list">${cohortRows}</div>
+      ${count > 0 ? `<button class="btn danger" style="width:100%;margin-top:4px" data-stg-remove="${esc(st.name)}">Remove ${esc(st.name)}s</button>` : ''}
     </div>`;
   }).join('');
 
-  const sex = trayAdultSex(trayId, sp);
-  const maxFemales = sex ? sex.females : adultCount;
-  const gravidSince = tray.gravidSince || '';
-  const expectedBirthStr = (() => {
-    if (!gravidSince || !sp?.gestation) return '';
-    const d = new Date(gravidSince);
-    d.setDate(d.getDate() + sp.gestation);
-    const daysLeft = Math.round((d - new Date()) / 86400000);
-    const label = d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
-    if (daysLeft > 0)   return `<div class="birth-prediction">🐣 Expected pinkies: <b>${label}</b> (in ${daysLeft}d)</div>`;
-    if (daysLeft >= -3) return `<div class="birth-prediction birth-due">🐣 Birth due now! (${label})</div>`;
-    return `<div class="birth-prediction birth-overdue">🐣 Birth overdue by ${Math.abs(daysLeft)}d — check tray</div>`;
-  })();
-  const gravidSection = adultCount > 0 ? `
-    <div class="gravid-section">
-      <div class="gravid-title">Reproductive status <span class="gravid-sub">(${adultCount} adults)</span></div>
-      <div class="gravid-row" style="margin-bottom:8px;padding-bottom:10px;border-bottom:1px solid var(--border,#2a2a44)">
-        <label class="gravid-field"><span>♂ Males</span>
-          <input type="number" id="tray-sex-m" min="0" max="${adultCount}" value="${tray.adultMales??''}" placeholder="0" /></label>
-        <label class="gravid-field"><span>♀ Females</span>
-          <input type="number" id="tray-sex-f" min="0" max="${adultCount}" value="${tray.adultFemales??''}" placeholder="0" /></label>
-        <button class="btn sm" data-save-sex="${trayId}">Save</button>
-      </div>
-      <div class="small muted" style="margin-bottom:10px">♂ + ♀ must equal ${adultCount} adults${sex ? ` · current: ♂${sex.males} ♀${sex.females}` : ''}</div>
-      <div class="gravid-row">
-        <label class="gravid-field">
-          <span>Gravid ♀</span>
-          <input type="number" id="f-gravid" min="0" max="${maxFemales}" value="${gravid}" placeholder="0" />
-        </label>
-        <label class="gravid-field">
-          <span>Lactating ♀</span>
-          <input type="number" id="f-lact" min="0" max="${maxFemales}" value="${lactating}" placeholder="0" />
-        </label>
-        <button class="btn sm" id="save-status">Save</button>
-      </div>
-      ${gravid > 0 ? `<label class="gravid-field" style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
-        <span>Mated / gravid since</span>
-        <input type="date" id="f-gravid-since" value="${gravidSince}" style="max-width:160px" />
-      </label>` : ''}
-      ${sp?.gestation && gravid > 0 && !gravidSince ? `<div class="gravid-gestation">Gestation: ${sp.gestation}d — set date above to predict birth</div>` : ''}
-      ${expectedBirthStr}
-      ${gravid + lactating > 0 ? `<div class="gravid-warn">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest</div>` : ''}
-    </div>` : '';
+  // ── Species mismatch banner ───────────────────────────────────────────────
+  const exactSpecies = byId('species', tray.speciesId);
+  const speciesMismatch = tray.speciesId && (!exactSpecies || exactSpecies.deleted);
+  const mismatchBanner = speciesMismatch
+    ? `<div class="species-mismatch-warn">⚠ Species not found — edit tray to fix.</div>` : '';
 
-  const ratioSection = sp?.ratio && sex !== null ? (() => {
-    const st = ratioStatus(sex.males, sex.females, sp.ratio);
-    const total = sex.males + sex.females;
-    if (!total) return '';
-    const idealM = Math.round(total * sp.ratio.males / (sp.ratio.males + sp.ratio.females));
-    const idealF = total - idealM;
-    const statusHtml = st === 'ok'
-      ? `<span class="ratio-status-ok">✓ on target</span>`
-      : st === 'close'
-        ? `<span class="ratio-status-close">~ close — ideal ♂${idealM} : ♀${idealF}</span>`
-        : st === 'off'
-          ? `<span class="ratio-status-warn">⚠ off target — ideal ♂${idealM} : ♀${idealF}</span>`
-          : '';
-    return `<div class="ratio-section">
-      <span class="ratio-label">Sex ratio target ♂${sp.ratio.males}:♀${sp.ratio.females}</span>
-      <span class="ratio-current">Current adults: ♂${sex.males} ♀${sex.females} ${statusHtml}</span>
-    </div>`;
-  })() : '';
+  const firstStageName = stages.length ? stages[0].name : lastStageName;
 
-  const mismatchBanner = speciesMismatch ? `
-    <div class="species-mismatch-warn">
-      ⚠ Species ID <code>${esc(tray.speciesId)}</code> not found.
-      Tap <b>Edit tray / species</b> below to fix.
-    </div>` : '';
-
-  const notesSection = `
-    <div class="tray-notes-section" style="margin-top:10px">
+  openModal(`${esc(tray.name)} · ${sp ? esc(sp.name) : '—'}`, `
+    ${mismatchBanner}
+    <div class="stg-tab-bar">${tabsHtml}</div>
+    ${adultPanel}
+    ${nonAdultPanels}
+    <hr class="hr" style="margin:14px 0 10px" />
+    <div class="tray-notes-section">
       <label class="field">
         <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Observations / Notes</span>
-        <textarea id="tray-notes-input" rows="2" placeholder="Record observations, temperature issues, health notes…" style="resize:vertical;min-height:48px;font-size:13px">${esc(tray.notes || '')}</textarea>
+        <textarea id="tray-notes-input" rows="2" placeholder="Temperature issues, health observations…" style="resize:vertical;min-height:44px;font-size:13px">${esc(tray.notes || '')}</textarea>
       </label>
       <button class="btn sm" id="save-tray-notes" style="margin-top:4px">Save notes</button>
-    </div>`;
-
-  openModal(`${esc(tray.name)} · ${sp?esc(sp.name):'—'}`, `
-    ${mismatchBanner}
-    <div class="gap" style="margin-bottom:4px">
-      <button class="btn primary" data-act="add-litter" data-id="${trayId}" style="flex:1">+ Born today</button>
-      <button class="btn primary" data-act="add-intake" data-id="${trayId}" style="flex:1">+ Add by stage</button>
-      <button class="btn danger" data-act="quick-tray-remove" data-id="${trayId}" style="flex:1">Remove</button>
     </div>
-    <div class="mt">${cohorts.length ? rows : '<p class="muted small">No litters yet.</p>'}</div>
-    ${ratioSection}
-    ${gravidSection}
-    ${notesSection}
-    <hr class="hr" />
-    <div class="gap">
-      <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" style="flex:1">✎ Edit tray / species</button>
-      <button class="btn danger" data-act="del-tray" data-id="${trayId}" style="flex:1">Delete tray</button>
+    <div class="gap" style="margin-top:10px">
+      <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" style="flex:1">✎ Edit tray</button>
+      <button class="btn danger" data-act="del-tray" data-id="${trayId}" style="flex:1">Delete</button>
     </div>
   `, root => {
-    $$('[data-act="do-remove"]', root).forEach(btn => {
-      btn.onclick = () => {
-        const id = btn.dataset.id;
-        const input = $(`[data-remove="${id}"]`, root);
-        const n = Number(input.value);
-        const c = byId('cohorts', id);
-        const net = cohortNet(c);
-        if (!n || n <= 0) return toast('Enter a count', true);
-        if (n > net) return toast(`Only ${net} available`, true);
-        const { name } = stageIndexAt(c);
-        const isAdult = lastStageName && name === lastStageName;
-        if (isAdult) {
-          closeModal();
-          setTimeout(() => openModal(`Remove ${esc(name)}`, `
-            <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — record sex and reason.</p>
-            <div style="display:flex;gap:12px;margin-bottom:16px">
-              <label class="gravid-field" style="flex:1"><span>♂ Males</span>
-                <input id="rmv-m" type="number" min="0" max="${n}" placeholder="0" /></label>
-              <label class="gravid-field" style="flex:1"><span>♀ Females</span>
-                <input id="rmv-f" type="number" min="0" max="${n}" placeholder="0" /></label>
-            </div>
-            <div class="field" style="margin-bottom:12px">
-              <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
-              <div class="reason-btns">
-                <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-                <button class="reason-btn" data-reason="Dead">Dead</button>
-                <button class="reason-btn" data-reason="Other">Other</button>
-              </div>
-            </div>
-            ${deathCauseHtml()}
-            <button class="btn primary block" data-save>Confirm removal</button>
-          `, root2 => {
-            $('#rmv-m', root2).focus();
-            wireReasonDeathToggle(root2);
-            wireCauseBtns(root2);
-            $('[data-save]', root2).onclick = () => {
-              const mRaw = $('#rmv-m', root2).value;
-              const fRaw = $('#rmv-f', root2).value;
-              const males   = mRaw !== '' ? Number(mRaw) : null;
-              const females = fRaw !== '' ? Number(fRaw) : null;
-              if (males !== null && females !== null && males + females > n)
-                return toast(`♂ + ♀ (${males+females}) exceeds count (${n})`, true);
-              const reason = $('.reason-btn:not(.cause-btn).active', root2)?.dataset.reason || 'Feeding';
-              const cause  = reason === 'Dead' ? ($('.cause-btn.active', root2)?.dataset.cause || 'Unknown') : undefined;
-              const photoFile = reason === 'Dead' ? ($('#death-photo', root2)?.files?.[0] || null) : null;
-              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, males, females, reason, cause });
-              upsertLocal('removals', r); touch('removals', r);
-              // Update tray sex counts
-              const t = byId('trays', trayId);
-              if (t) {
-                if (males !== null) t.adultMales = Math.max(0, (Number(t.adultMales) || 0) - males);
-                if (females !== null) t.adultFemales = Math.max(0, (Number(t.adultFemales) || 0) - females);
-                touch('trays', t);
-              }
-              closeModal(); trayDetailModal(trayId); render();
-              if (photoFile) uploadDeathPhoto(photoFile, trayId, byId('trays',trayId)?.name||trayId, toYMD(new Date()), cause);
-              toast(`Removed ${n} ${name} · ${reason}${cause ? ' · ' + cause : ''}`);
-            };
-          }), 10);
-        } else {
-          closeModal();
-          setTimeout(() => openModal(`Remove ${esc(name)}`, `
-            <p class="small muted" style="margin-bottom:14px">Removing <b>${n} ${esc(name)}</b> — select a reason.</p>
-            <div class="field" style="margin-bottom:12px">
-              <div class="reason-btns">
-                <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-                <button class="reason-btn" data-reason="Dead">Dead</button>
-                <button class="reason-btn" data-reason="Other">Other</button>
-              </div>
-            </div>
-            ${deathCauseHtml()}
-            <button class="btn primary block" data-save>Confirm removal</button>
-          `, root2 => {
-            wireReasonDeathToggle(root2);
-            wireCauseBtns(root2);
-            $('[data-save]', root2).onclick = () => {
-              const reason = $('.reason-btn:not(.cause-btn).active', root2)?.dataset.reason || 'Feeding';
-              const cause  = reason === 'Dead' ? ($('.cause-btn.active', root2)?.dataset.cause || 'Unknown') : undefined;
-              const photoFile = reason === 'Dead' ? ($('#death-photo', root2)?.files?.[0] || null) : null;
-              const r = rec('removals', { cohortId:id, trayId, date:toYMD(new Date()), stage:name, count:n, reason, cause });
-              upsertLocal('removals', r); touch('removals', r);
-              closeModal(); trayDetailModal(trayId); render();
-              if (photoFile) uploadDeathPhoto(photoFile, trayId, byId('trays',trayId)?.name||trayId, toYMD(new Date()), cause);
-              toast(`Removed ${n} ${name} · ${reason}${cause ? ' · ' + cause : ''}`);
-            };
-          }), 10);
-        }
-      };
+    // ── Tab switching ─────────────────────────────────────────────────────
+    const tabs   = $$('.stg-tab', root);
+    const panels = $$('.stg-panel', root);
+    const showTab = name => {
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.stg === name));
+      panels.forEach(p => {
+        const active = p.dataset.panel === name;
+        p.style.display = active ? '' : 'none';
+        p.classList.toggle('active', active);
+      });
+    };
+    tabs.forEach(t => t.addEventListener('click', () => showTab(t.dataset.stg)));
+    showTab(firstStageName); // show first stage on open
+
+    // ── Adult remove button ───────────────────────────────────────────────
+    const rmAdultsBtn = $('#remove-adults-btn', root);
+    if (rmAdultsBtn) rmAdultsBtn.onclick = () => { closeModal(); removeFromStageModal(trayId, lastStageName); };
+
+    // ── Non-adult remove buttons ──────────────────────────────────────────
+    $$('[data-stg-remove]', root).forEach(btn => {
+      btn.onclick = () => { closeModal(); removeFromStageModal(trayId, btn.dataset.stgRemove); };
     });
 
+    // ── Gravid / lactating save ───────────────────────────────────────────
     const saveStatusBtn = $('#save-status', root);
     if (saveStatusBtn) {
       saveStatusBtn.onclick = () => {
         const g = Number($('#f-gravid', root).value) || 0;
         const l = Number($('#f-lact',   root).value) || 0;
         const sexNow = trayAdultSex(trayId, sp);
-        const femalesMax = sexNow ? sexNow.females : adultCount;
-        if (g + l > femalesMax) return toast(`Gravid + Lactating (${g+l}) exceeds females (${femalesMax})`, true);
+        const femMax2 = sexNow ? sexNow.females : adultCount;
+        if (g + l > femMax2) return toast(`Gravid + Lactating (${g+l}) exceeds females (${femMax2})`, true);
         tray.gravidFemales    = g;
         tray.lactatingFemales = l;
-        const sinceVal = $('#f-gravid-since', root)?.value || '';
-        tray.gravidSince = g > 0 ? sinceVal : '';
+        tray.gravidSince = g > 0 ? ($('#f-gravid-since', root)?.value || '') : '';
         touch('trays', tray);
         toast('Status saved');
         closeModal(); trayDetailModal(trayId); render();
       };
     }
-    // Tray notes save
+
+    // ── Notes save ────────────────────────────────────────────────────────
     const saveNotesBtn = $('#save-tray-notes', root);
     if (saveNotesBtn) {
       saveNotesBtn.onclick = () => {
@@ -3512,6 +3468,111 @@ function trayDetailModal(trayId) {
         toast('Notes saved');
       };
     }
+  });
+}
+
+// Focused removal modal pre-filled for a specific stage (used by tray tab "Remove" buttons)
+function removeFromStageModal(trayId, stageName) {
+  const tray = byId('trays', trayId);
+  if (!tray) return;
+  const sp = speciesOf(tray);
+  const today = new Date();
+  const lastStageName = sp?.stages?.length
+    ? [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name : null;
+  const isAdult = stageName === lastStageName;
+
+  const available = isAdult
+    ? trayAdultCount(tray, sp)
+    : live('cohorts')
+        .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
+        .reduce((s, c) => s + cohortNet(c, today), 0);
+
+  if (!available) return toast(`No ${stageName}s to remove in this tray`, true);
+
+  const sexRowHtml = isAdult ? `
+    <div class="sex-row" style="margin-bottom:14px">
+      <label class="sex-lbl" style="flex:1"><span>♂ Males removed</span>
+        <input id="rsm-m" type="number" min="0" placeholder="0" /></label>
+      <label class="sex-lbl" style="flex:1"><span>♀ Females removed</span>
+        <input id="rsm-f" type="number" min="0" placeholder="0" /></label>
+    </div>
+    <div class="small muted" style="margin-bottom:12px">♂ + ♀ must equal the count above</div>` : '';
+
+  openModal(`Remove ${esc(stageName)}s — ${esc(tray.name)}`, `
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1"><span>Date</span>
+        <input id="rsm-date" type="date" value="${todayISO()}" /></label>
+      <label class="field" style="flex:1"><span>How many? (${available} available)</span>
+        <input id="rsm-count" type="number" min="1" max="${available}" placeholder="e.g. 3" /></label>
+    </div>
+    ${sexRowHtml}
+    <div class="field" style="margin-bottom:12px">
+      <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
+      <div class="reason-btns">
+        <button class="reason-btn active" data-reason="Feeding">Feeding</button>
+        <button class="reason-btn" data-reason="Frozen">Frozen</button>
+        <button class="reason-btn" data-reason="Dead">Dead</button>
+        <button class="reason-btn" data-reason="Other">Other</button>
+      </div>
+    </div>
+    ${deathCauseHtml(true)}
+    <button class="btn primary block" id="rsm-save">Confirm removal</button>
+  `, root => {
+    wireReasonDeathToggle(root);
+    wireCauseBtns(root);
+    $('#rsm-count', root).focus();
+
+    $('#rsm-save', root).onclick = () => {
+      const n = parseInt($('#rsm-count', root).value, 10);
+      const qDate = $('#rsm-date', root).value || todayISO();
+      if (!isValidDate(qDate)) return toast('Invalid date', true);
+      if (!n || n < 1) return toast('Enter a count', true);
+      if (n > available) return toast(`Only ${available} available`, true);
+
+      const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Feeding';
+      const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
+      const photoFile = reason === 'Dead' ? ($('#death-photo', root)?.files?.[0] || null) : null;
+
+      let sexMales = null, sexFemales = null;
+      if (isAdult) {
+        const mVal = $('#rsm-m', root)?.value;
+        const fVal = $('#rsm-f', root)?.value;
+        sexMales   = mVal !== '' && mVal != null ? Number(mVal) : null;
+        sexFemales = fVal !== '' && fVal != null ? Number(fVal) : null;
+        if (sexMales !== null && sexFemales !== null && sexMales + sexFemales !== n)
+          return toast(`♂ + ♀ (${sexMales+sexFemales}) must equal count (${n})`, true);
+      }
+
+      // FIFO: remove from oldest cohorts first
+      const matchCohorts = live('cohorts')
+        .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
+        .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
+
+      let left = n;
+      for (const c of matchCohorts) {
+        if (left <= 0) break;
+        const take = Math.min(left, cohortNet(c, today));
+        const r = rec('removals', { cohortId: c.id, trayId, date: qDate, stage: stageName, count: take,
+          males:   isAdult ? (sexMales   ?? 0) : undefined,
+          females: isAdult ? (sexFemales ?? 0) : undefined,
+          reason, cause });
+        upsertLocal('removals', r);
+        touch('removals', r);
+        left -= take;
+      }
+
+      // Adjust stored adult sex counts
+      if (isAdult && (sexMales !== null || sexFemales !== null)) {
+        if (sexMales   !== null) tray.adultMales   = Math.max(0, (Number(tray.adultMales)   || 0) - sexMales);
+        if (sexFemales !== null) tray.adultFemales = Math.max(0, (Number(tray.adultFemales) || 0) - sexFemales);
+        touch('trays', tray);
+      }
+
+      closeModal();
+      render();
+      if (photoFile) uploadDeathPhoto(photoFile, trayId, tray.name, normYMD(qDate), cause);
+      toast(`${n} ${stageName}${n !== 1 ? 's' : ''} removed · ${reason}${cause ? ' · ' + cause : ''}`);
+    };
   });
 }
 
@@ -4069,6 +4130,50 @@ async function pullFromSheets(since) {
   }
 }
 
+// Build per-shelf summary of current stage counts — sent to Sheets on upload
+function buildSummary() {
+  const today = new Date();
+  const summary = {};
+  for (const shelf of live('shelves').sort((a, b) => (a.sortOrder||0) - (b.sortOrder||0))) {
+    const trays = live('trays').filter(t => t.shelfId === shelf.id);
+    if (!trays.length) continue;
+    summary[shelf.name] = trays.map(tray => {
+      const sp = speciesOf(tray);
+      const stages = sp?.stages ? [...sp.stages].sort((a, b) => a.startDay - b.startDay) : [];
+      const lastStageName = stages.length ? stages[stages.length - 1].name : null;
+
+      // Tally cohort animals per non-adult stage
+      const stageCounts = {};
+      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+        const { name } = stageIndexAt(c, today);
+        if (name === lastStageName) continue; // adults counted from tray fields
+        const net = cohortNet(c, today);
+        if (net > 0) stageCounts[name] = (stageCounts[name] || 0) + net;
+      }
+
+      const adultM = Number(tray.adultMales) || 0;
+      const adultF = Number(tray.adultFemales) || 0;
+      const nonAdult = Object.values(stageCounts).reduce((s, v) => s + v, 0);
+
+      const entry = {
+        name: tray.name,
+        species: sp?.name || '',
+        males: adultM,
+        females: adultF,
+        gravid: Number(tray.gravidFemales) || 0,
+        lactating: Number(tray.lactatingFemales) || 0,
+        total: adultM + adultF + nonAdult
+      };
+      // Add each non-adult stage count by name
+      for (const st of stages.slice(0, -1)) {
+        entry[st.name] = stageCounts[st.name] || 0;
+      }
+      return entry;
+    });
+  }
+  return summary;
+}
+
 // Upload pending local changes TO Google Sheets. Only called by explicit user action.
 async function uploadChanges() {
   if (syncing) return;
@@ -4097,7 +4202,7 @@ async function uploadChanges() {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: state.meta.lastSync || 0, changes, key: state.meta.scriptApiKey || undefined }),
+      body: JSON.stringify({ since: state.meta.lastSync || 0, changes, summary: buildSummary(), key: state.meta.scriptApiKey || undefined }),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
