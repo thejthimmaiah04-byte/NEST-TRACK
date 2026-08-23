@@ -160,6 +160,7 @@ function doPost(e) {
     if (body.summary && typeof body.summary === 'object') {
       _updateShelfSummaries(body.summary);
       _updateBirthHistory();
+      _updateIntakeHistory();
       _updateDeathHistory();
     }
 
@@ -308,7 +309,11 @@ function _updateBirthHistory() {
     if (!sh) sh = ss.insertSheet(tabName);
 
     var ctx = buildNameMaps();
-    var cohorts = _readSheet('cohorts'); // live only
+    var allCohorts = _readSheet('cohorts'); // live only
+    // Exclude externally sourced intakes — they have their own sheet
+    var cohorts = allCohorts.filter(function(c) {
+      return !String(c.notes || '').match(/^Intake · /);
+    });
 
     // Sort by birthDate descending
     cohorts.sort(function(a, b) {
@@ -402,6 +407,64 @@ function _updateDeathHistory() {
     try { sh.autoResizeColumns(1, headers.length); } catch(e) {}
   } catch (err) {
     Logger.log('_updateDeathHistory failed (non-fatal): ' + err);
+  }
+}
+
+// ── Intake History sheet ──────────────────────────────────────────────────────
+// Creates / refreshes an "Intake History" sheet tab.
+// Shows only cohort records that were externally sourced (notes starts with "Intake · ").
+// Columns: DATE RECEIVED | TRAY | SPECIES | STAGE | COUNT | SOURCE
+// Sorted by date descending (newest first).
+function _updateIntakeHistory() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tabName = 'Intake History';
+    var sh = ss.getSheetByName(tabName);
+    if (!sh) sh = ss.insertSheet(tabName);
+
+    var ctx = buildNameMaps();
+    var allCohorts = _readSheet('cohorts');
+    var intakes = allCohorts.filter(function(c) {
+      return String(c.notes || '').match(/^Intake · /);
+    });
+
+    intakes.sort(function(a, b) {
+      var da = a.birthDate ? new Date(a.birthDate).getTime() : 0;
+      var db = b.birthDate ? new Date(b.birthDate).getTime() : 0;
+      return db - da;
+    });
+
+    var headers = ['DATE RECEIVED', 'TRAY', 'SPECIES', 'STAGE', 'COUNT', 'SOURCE'];
+    var rows = intakes.map(function(c) {
+      var notesStr = String(c.notes || '');
+      var stagePart = notesStr.replace(/^Intake · /, '').split(' — ')[0].trim();
+      var sourcePart = notesStr.indexOf(' — ') >= 0 ? notesStr.split(' — ').slice(1).join(' — ').trim() : '';
+      var dateStr = '';
+      try {
+        if (c.birthDate) {
+          var d = new Date(c.birthDate);
+          dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        }
+      } catch(e) { dateStr = String(c.birthDate || ''); }
+      return [
+        dateStr,
+        ctx.trayName(c.trayId),
+        ctx.speciesName(c.speciesId),
+        stagePart,
+        Number(c.initialCount) || 0,
+        sourcePart
+      ];
+    });
+
+    sh.clearContents();
+    var allValues = [headers].concat(rows);
+    sh.getRange(1, 1, allValues.length, headers.length).setValues(allValues);
+    sh.getRange(1, 1, 1, headers.length)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    sh.setFrozenRows(1);
+    try { sh.autoResizeColumns(1, headers.length); } catch(e) {}
+  } catch (err) {
+    Logger.log('_updateIntakeHistory failed (non-fatal): ' + err);
   }
 }
 

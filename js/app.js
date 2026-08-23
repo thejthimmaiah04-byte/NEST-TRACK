@@ -2895,6 +2895,33 @@ function getAppNotifications() {
     });
   }
 
+  // Hopper stage alert — fires for up to 2 days after a cohort enters Hopper stage
+  for (const tray of live('trays')) {
+    const sp = speciesOf(tray);
+    if (!sp?.stages?.length) continue;
+    const stages = [...sp.stages].sort((a, b) => a.startDay - b.startDay);
+    const hopperStage = stages.find(s => s.name.toLowerCase() === 'hopper');
+    if (!hopperStage) continue;
+    let newHoppers = 0;
+    for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+      const net = cohortNet(c, today);
+      if (net <= 0) continue;
+      const ageDays = daysBetween(c.birthDate, today);
+      if (isNaN(ageDays)) continue;
+      const daysAsHopper = ageDays - hopperStage.startDay;
+      if (daysAsHopper >= 0 && daysAsHopper <= 2) newHoppers += net;
+    }
+    if (newHoppers > 0) {
+      notifs.push({
+        id: 'hopper-' + tray.id,
+        type: 'info', icon: '🐇',
+        title: `${tray.name} — ${newHoppers} new hopper${newHoppers !== 1 ? 's' : ''}`,
+        body: `Animals just reached Hopper stage.`,
+        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
+      });
+    }
+  }
+
   // Pending changes
   const pc = pendingCount();
   if (pc > 0 && state.meta?.scriptUrl) {
@@ -3367,10 +3394,17 @@ function trayDetailModal(trayId) {
 
     const cohortRows = allCohs.length ? allCohs.map(c => {
       const net = cohortNet(c, today);
+      const isIntake = c.type === 'intake' || String(c.notes || '').startsWith('Intake · ');
+      const userNote = isIntake
+        ? String(c.notes || '').replace(/^Intake · [^—]*/, '').replace(/^—\s*/, '').trim()
+        : (c.notes || '');
+      const dateLabel = isIntake ? 'received' : 'born';
+      const intakeBadge = isIntake ? '<span class="intake-tag">INTAKE</span>' : '';
       return `<div class="cohort-row${net <= 0 ? ' depleted' : ''}">
         <div>
           <span class="cn">${net}</span>
-          <span class="small muted"> · born ${fmtDate(parseYMD(c.birthDate))}${c.notes ? ' · ' + esc(c.notes) : ''}</span>
+          ${intakeBadge}
+          <span class="small muted"> · ${dateLabel} ${fmtDate(parseYMD(c.birthDate))}${userNote ? ' · ' + esc(userNote) : ''}</span>
         </div>
         <div class="cohort-btns">
           <button class="icon-btn" data-act="edit-cohort" data-id="${c.id}" data-trayid="${trayId}">✎</button>
@@ -3634,14 +3668,16 @@ function intakeModal(trayId) {
     </div>` : ''}`;
   }).join('');
 
-  openModal(`Add to ${esc(tray.name)}`, `
-    <label class="field" style="margin-bottom:14px">
-      <span>Date added</span>
-      <input id="intake-date" type="date" value="${todayISO()}" />
-    </label>
-    <p class="small muted" style="margin-bottom:14px">Enter how many to add at each stage. Birth date is back-calculated from the stage.</p>
+  openModal(`Add intake — ${esc(tray.name)}`, `
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1"><span>Date received</span>
+        <input id="intake-date" type="date" value="${todayISO()}" /></label>
+      <label class="field" style="flex:1.6"><span>Source / supplier (optional)</span>
+        <input id="intake-source" type="text" placeholder="e.g. Supplier name, transfer…" /></label>
+    </div>
+    <p class="small muted" style="margin-bottom:14px">External animals — recorded separately from in-house births. Enter count per stage.</p>
     <div class="intake-list">${rows}</div>
-    <button class="btn primary block" id="intake-save" style="margin-top:16px">Add animals</button>
+    <button class="btn primary block" id="intake-save" style="margin-top:16px">Add intake</button>
   `, root => {
     $$('.intake-input', root).forEach(inp => {
       inp.addEventListener('input', () => {
@@ -3668,6 +3704,7 @@ function intakeModal(trayId) {
     $('#intake-save', root).onclick = () => {
       const inputs = $$('.intake-input', root);
       const intakeDate = parseYMD($('#intake-date', root).value || todayISO());
+      const source = ($('#intake-source', root)?.value || '').trim();
       let added = 0;
       for (const inp of inputs) {
         const n = Number(inp.value);
@@ -3692,11 +3729,12 @@ function intakeModal(trayId) {
           tray.lactatingFemales = l;
           touch('trays', tray);
         }
+        const noteStr = 'Intake · ' + stageName + (source ? ' — ' + source : '');
         const r = rec('cohorts', {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,
           males, females,
-          notes: `Intake · ${stageName}`,
+          notes: noteStr,
           type: 'intake'
         });
         upsertLocal('cohorts', r);

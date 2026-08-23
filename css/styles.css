@@ -822,6 +822,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .cohort-row:last-child { border-bottom: none; }
 .cohort-row.depleted { opacity: .38; }
 .cohort-btns { display: flex; gap: 4px; flex-shrink: 0; }
+.intake-tag { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; background: rgba(99,102,241,.18); color: #a5b4fc; border-radius: 4px; padding: 1px 5px; margin: 0 3px; vertical-align: middle; }
 .cohort-info { flex: 1; min-width: 0; }
 .cohort-info .cn { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 7px; }
 .cohort-remove { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
