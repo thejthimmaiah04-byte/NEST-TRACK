@@ -3395,16 +3395,21 @@ function trayDetailModal(trayId) {
     const cohortRows = allCohs.length ? allCohs.map(c => {
       const net = cohortNet(c, today);
       const isIntake = c.type === 'intake' || String(c.notes || '').startsWith('Intake · ');
+      const notesStr = String(c.notes || '');
+      // Format: 'Intake · stage · yyyy-mm-dd — source'  (or legacy without date)
+      const intakeMatch = notesStr.match(/^Intake · [^ ·]+ · (\d{4}-\d{2}-\d{2})(?:\s*—\s*(.*))?$/);
+      const receiptDate = intakeMatch ? parseYMD(intakeMatch[1]) : null;
       const userNote = isIntake
-        ? String(c.notes || '').replace(/^Intake · [^—]*/, '').replace(/^—\s*/, '').trim()
-        : (c.notes || '');
+        ? (intakeMatch ? (intakeMatch[2] || '').trim() : notesStr.replace(/^Intake · [^—]*/, '').replace(/^—\s*/, '').trim())
+        : notesStr;
+      const displayDate = isIntake ? (receiptDate || parseYMD(c.birthDate)) : parseYMD(c.birthDate);
       const dateLabel = isIntake ? 'received' : 'born';
       const intakeBadge = isIntake ? '<span class="intake-tag">INTAKE</span>' : '';
       return `<div class="cohort-row${net <= 0 ? ' depleted' : ''}">
         <div>
           <span class="cn">${net}</span>
           ${intakeBadge}
-          <span class="small muted"> · ${dateLabel} ${fmtDate(parseYMD(c.birthDate))}${userNote ? ' · ' + esc(userNote) : ''}</span>
+          <span class="small muted"> · ${dateLabel} ${fmtDate(displayDate)}${userNote ? ' · ' + esc(userNote) : ''}</span>
         </div>
         <div class="cohort-btns">
           <button class="icon-btn" data-act="edit-cohort" data-id="${c.id}" data-trayid="${trayId}">✎</button>
@@ -3415,8 +3420,8 @@ function trayDetailModal(trayId) {
 
     const addBtns = i === 0
       ? `<button class="btn primary" data-act="add-litter" data-id="${trayId}">+ Born today</button>
-         <button class="btn" data-act="add-intake" data-id="${trayId}">+ Add intake</button>`
-      : `<button class="btn" data-act="add-intake" data-id="${trayId}">+ Add intake</button>`;
+         <button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">+ Add intake</button>`
+      : `<button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">+ Add intake</button>`;
 
     return `<div class="stg-panel" data-panel="${esc(st.name)}" style="display:none">
       <div class="stg-count">${count}<span class="stg-unit"> ${esc(st.name)}${count !== 1 ? 's' : ''}</span></div>
@@ -3639,7 +3644,7 @@ function litterModal(trayId) {
 }
 
 /* ----- Add by stage (intake) ----- */
-function intakeModal(trayId) {
+function intakeModal(trayId, preStage) {
   const tray = byId('trays', trayId);
   if (!tray) return;
   const sp = speciesOf(tray);
@@ -3679,6 +3684,11 @@ function intakeModal(trayId) {
     <div class="intake-list">${rows}</div>
     <button class="btn primary block" id="intake-save" style="margin-top:16px">Add intake</button>
   `, root => {
+    // Pre-focus the row matching the stage the user tapped from
+    if (preStage) {
+      const preInp = Array.from($$('.intake-input', root)).find(i => i.dataset.stage === preStage);
+      if (preInp) { preInp.focus(); preInp.scrollIntoView?.({ block: 'center', behavior: 'smooth' }); }
+    }
     $$('.intake-input', root).forEach(inp => {
       inp.addEventListener('input', () => {
         const hasCount = Number(inp.value) > 0;
@@ -3729,7 +3739,8 @@ function intakeModal(trayId) {
           tray.lactatingFemales = l;
           touch('trays', tray);
         }
-        const noteStr = 'Intake · ' + stageName + (source ? ' — ' + source : '');
+        const intakeDateISO = _localYMDStr(intakeDate);
+        const noteStr = 'Intake · ' + stageName + ' · ' + intakeDateISO + (source ? ' — ' + source : '');
         const r = rec('cohorts', {
           trayId, speciesId: tray.speciesId,
           birthDate, initialCount: n,
@@ -3940,7 +3951,7 @@ function onClick(e) {
       removeRecord('cohorts',id);
       render(); if (trayId) trayDetailModal(trayId);
     });
-    case 'add-intake':   return intakeModal(id);
+    case 'add-intake':   return intakeModal(id, el.dataset.stage || null);
     case 'edit-cohort':  return editCohortModal(id, el.dataset.trayid);
     case 'remove-stage': return openRemoveByStage(el.dataset.stage, Number(el.dataset.sidx));
     case 'quick-tray-remove': { e.stopPropagation(); return quickTrayRemoval(id); }

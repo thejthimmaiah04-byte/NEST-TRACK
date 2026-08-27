@@ -437,17 +437,30 @@ function _updateIntakeHistory() {
     var headers = ['DATE RECEIVED', 'TRAY', 'SPECIES', 'STAGE', 'COUNT', 'SOURCE'];
     var rows = intakes.map(function(c) {
       var notesStr = String(c.notes || '');
-      var stagePart = notesStr.replace(/^Intake · /, '').split(' — ')[0].trim();
-      var sourcePart = notesStr.indexOf(' — ') >= 0 ? notesStr.split(' — ').slice(1).join(' — ').trim() : '';
-      var dateStr = '';
-      try {
-        if (c.birthDate) {
-          var d = new Date(c.birthDate);
-          dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        }
-      } catch(e) { dateStr = String(c.birthDate || ''); }
+      var stagePart = '', intakeDateStr = '', sourcePart = '';
+
+      // New format: 'Intake · stage · yyyy-mm-dd — source'
+      var newFmt = notesStr.match(/^Intake · ([^ ·]+(?:\s[^ ·]+)*) · (\d{4}-\d{2}-\d{2})(?:\s*—\s*(.*))?$/);
+      if (newFmt) {
+        stagePart     = newFmt[1] || '';
+        intakeDateStr = newFmt[2] || '';
+        sourcePart    = (newFmt[3] || '').trim();
+      } else {
+        // Legacy format: 'Intake · stage — source'
+        var legacy = notesStr.replace(/^Intake · /, '');
+        var dashIdx = legacy.indexOf(' — ');
+        stagePart  = dashIdx >= 0 ? legacy.slice(0, dashIdx).trim() : legacy.trim();
+        sourcePart = dashIdx >= 0 ? legacy.slice(dashIdx + 3).trim() : '';
+        // Fall back to back-calculated birthDate if no stored intakeDate
+        try {
+          if (c.birthDate) {
+            intakeDateStr = Utilities.formatDate(new Date(c.birthDate), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+          }
+        } catch(e) { intakeDateStr = String(c.birthDate || ''); }
+      }
+
       return [
-        dateStr,
+        intakeDateStr,
         ctx.trayName(c.trayId),
         ctx.speciesName(c.speciesId),
         stagePart,
