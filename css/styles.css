@@ -1065,6 +1065,45 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .sp-meta-chip { font-size: 11.5px; font-weight: 600; color: var(--muted);
   background: var(--surface-2); border-radius: 20px; padding: 3px 9px; }
 
+/* ---------- Maturity tab ---------- */
+.mat-card { margin-bottom: 18px; }
+
+.mat-bar-wrap { position: relative; padding-bottom: 22px; }
+.mat-bar {
+  display: flex; width: 100%; border-radius: 8px; overflow: hidden;
+  height: 52px; border: 1px solid var(--border);
+}
+.mat-seg {
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; transition: opacity .15s;
+  min-width: 0; flex-shrink: 0;
+}
+.mat-seg-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; padding: 0 6px;
+}
+.mat-ruler {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 20px;
+}
+.mat-tick {
+  position: absolute; top: 0; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center;
+}
+.mat-tick::before {
+  content: ''; display: block; width: 1px; height: 6px;
+  background: var(--border);
+}
+.mat-tick span {
+  font-size: 9.5px; color: var(--muted); margin-top: 1px;
+  white-space: nowrap;
+}
+.mat-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 7px; vertical-align: middle; flex-shrink: 0;
+}
+.mat-date { color: var(--accent); font-size: 12px; }
+
 /* Frozen stock section (Trays overview panel) */
 .frozen-section { margin: 14px 0 4px; }
 .frozen-section-title { font-size: 13px; font-weight: 700; color: #60a5fa;

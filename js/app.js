@@ -843,6 +843,7 @@ function render() {
   else if (activeTab === 'charts')    renderCharts();
   else if (activeTab === 'freezer')   renderFreezer();
   else if (activeTab === 'calendar')  renderCalendar();
+  else if (activeTab === 'maturity')  renderMaturity();
   else if (activeTab === 'species')   renderSpecies();
   else if (activeTab === 'settings')  { renderSettings(); renderVersionHistory(); }
   else if (activeTab === 'reports')   renderReports();
@@ -2771,6 +2772,111 @@ function renderCalendar() {
       ${totalRemovals > 0 ? `<span class="lg"><span class="sw" style="background:#f97316"></span>Removed (${totalRemovals})</span>` : ''}
       ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>Expected birth (${totalPredicted})</span>` : ''}
     </div>`;
+}
+
+/* ---------- Maturity ---------- */
+function renderMaturity() {
+  const el = $('#tab-maturity');
+  const list = live('species');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let html = `<div class="spread"><h2 class="section-title" style="margin:4px 0 0">Maturity timeline</h2></div>
+    <p class="small muted" style="margin-bottom:16px">How long each stage lasts and when animals born today will reach each stage.</p>`;
+
+  if (!list.length) {
+    el.innerHTML = html + emptyState('🧬', 'No species defined', 'Add a species under the Species tab to see its maturity timeline.');
+    return;
+  }
+
+  const STAGE_HEX_SOFT = ['rgba(251,113,133,.15)','rgba(250,204,21,.13)','rgba(148,163,184,.13)','rgba(226,201,126,.13)','rgba(251,146,60,.14)'];
+  const STAGE_BORDER   = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
+
+  for (const sp of list) {
+    const stages = [...(sp.stages || [])].sort((a, b) => a.startDay - b.startDay);
+    if (!stages.length) continue;
+
+    // Calculate durations and "born today" dates
+    const lastIdx = stages.length - 1;
+    const maxDay  = sp.lifespan || (stages[lastIdx].startDay + 60);
+    const totalSpan = maxDay;
+
+    // Timeline bar segments
+    const segments = stages.map((st, i) => {
+      const start = st.startDay;
+      const end   = i < lastIdx ? stages[i + 1].startDay : maxDay;
+      const dur   = end - start;
+      const pct   = ((dur / totalSpan) * 100).toFixed(2);
+      const color = STAGE_HEX_SOFT[i % STAGE_HEX_SOFT.length];
+      const border= STAGE_BORDER[i % STAGE_BORDER.length];
+      return `<div class="mat-seg" style="width:${pct}%;background:${color};border-bottom:3px solid ${border}" title="${esc(st.name)}: day ${start}–${end-1}">
+        <span class="mat-seg-label" style="color:${border}">${esc(st.name)}</span>
+      </div>`;
+    }).join('');
+
+    // Day ruler ticks (every ~7 days, snapped to stage boundaries)
+    const tickSet = new Set([0]);
+    stages.forEach(st => tickSet.add(st.startDay));
+    if (sp.lifespan) tickSet.add(maxDay);
+    const ticks = [...tickSet].sort((a, b) => a - b).map(d => {
+      const pct = ((d / totalSpan) * 100).toFixed(2);
+      return `<div class="mat-tick" style="left:${pct}%"><span>${d}d</span></div>`;
+    }).join('');
+
+    // Stage detail rows
+    const rows = stages.map((st, i) => {
+      const start = st.startDay;
+      const end   = i < lastIdx ? stages[i + 1].startDay : null;
+      const dur   = end !== null ? end - start : null;
+      const color = STAGE_BORDER[i % STAGE_BORDER.length];
+
+      // Born-today target date
+      const targetDate = new Date(today);
+      targetDate.setDate(targetDate.getDate() + start);
+      const targetStr = start === 0 ? 'Birth day' : targetDate.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+
+      const durLabel  = dur !== null ? `${dur} day${dur !== 1 ? 's' : ''}` : `${sp.lifespan ? sp.lifespan - start : '?'}+ days`;
+      const rangeLabel= end !== null ? `Day ${start} – Day ${end - 1}` : `Day ${start}+`;
+
+      return `<tr>
+        <td><span class="mat-dot" style="background:${color}"></span>${esc(st.name)}</td>
+        <td class="num">${rangeLabel}</td>
+        <td class="num">${durLabel}</td>
+        <td class="num mat-date">${targetStr}</td>
+      </tr>`;
+    }).join('');
+
+    // Summary chips
+    const gestation = sp.gestation ? `<span class="sp-meta-chip">Gestation: ${sp.gestation}d</span>` : '';
+    const lifespan  = sp.lifespan  ? `<span class="sp-meta-chip">Lifespan: ${sp.lifespan}d</span>` : '';
+    const ratio     = sp.ratio     ? `<span class="sp-meta-chip">Ratio: ♂${sp.ratio.males}:♀${sp.ratio.females}</span>` : '';
+
+    html += `<div class="card mat-card">
+      <div class="spread" style="margin-bottom:14px">
+        <b style="font-size:15px">${esc(sp.name)}</b>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${gestation}${lifespan}${ratio}</div>
+      </div>
+
+      <!-- Visual timeline bar -->
+      <div class="mat-bar-wrap">
+        <div class="mat-bar">${segments}</div>
+        <div class="mat-ruler">${ticks}</div>
+      </div>
+
+      <!-- Detail table -->
+      <table class="tbl mt" style="margin-top:18px">
+        <thead><tr>
+          <th>Stage</th>
+          <th class="num">Age range</th>
+          <th class="num">Duration</th>
+          <th class="num">Born today → reaches stage</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  el.innerHTML = html;
 }
 
 /* ---------- Species ---------- */
