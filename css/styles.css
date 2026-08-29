@@ -782,8 +782,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
   flex-shrink: 0;
 }
-.stg-tab.active  { background: var(--accent); color: #fff; }
+.stg-tab.active  { background: var(--stg-clr, var(--accent)); color: #fff; }
 .stg-tab:hover:not(.active) { color: var(--text); }
+
+/* Stage-specific palette — falls back to accent for custom stage names */
+.stg-tab[data-stg="Pinky"]  { --stg-clr: #db2777; }
+.stg-tab[data-stg="Fuzzy"]  { --stg-clr: #b45309; }
+.stg-tab[data-stg="Hopper"] { --stg-clr: #475569; }
+.stg-tab[data-stg="Adult"]  { --stg-clr: #92400e; }
 
 .stg-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -791,7 +797,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   font-size: 11px; font-weight: 700; line-height: 1;
   background: rgba(255,255,255,.25);
 }
-.stg-tab:not(.active) .stg-badge { background: var(--accent); color: #fff; }
+.stg-tab:not(.active) .stg-badge:not(.empty) { background: var(--stg-clr, var(--accent)); color: #fff; }
 .stg-tab:not(.active) .stg-badge.empty { background: var(--border); color: var(--muted); }
 .stg-badge.empty { opacity: .55; }
 
