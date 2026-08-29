@@ -4285,29 +4285,24 @@ async function pullFromSheets(since) {
   }
 }
 
-// Return shelf names whose trays/cohorts/removals have pending changes.
-function dirtyShelfNames() {
-  const names = new Set();
-  const shelfOf = trayId => {
-    const tray = byId('trays', trayId);
-    if (!tray) return null;
-    return byId('shelves', tray.shelfId);
-  };
-  for (const id of Object.keys(state.pending.shelves  || {})) { const s = byId('shelves', id);  if (s) names.add(s.name); }
-  for (const id of Object.keys(state.pending.trays    || {})) { const s = shelfOf(id);           if (s) names.add(s.name); }
-  for (const id of Object.keys(state.pending.cohorts  || {})) { const c = byId('cohorts', id);   if (c) { const s = shelfOf(c.trayId); if (s) names.add(s.name); } }
-  for (const id of Object.keys(state.pending.removals || {})) { const r = byId('removals', id);  if (r) { const c = byId('cohorts', r.cohortId); if (c) { const s = shelfOf(c.trayId); if (s) names.add(s.name); } } }
-  return names;
+// Return the set of tray IDs that have pending changes (directly or via cohorts/removals).
+// Only these trays will be included in the Sheets summary upload.
+function dirtyTrayIds() {
+  const ids = new Set();
+  for (const id of Object.keys(state.pending.trays    || {})) ids.add(id);
+  for (const id of Object.keys(state.pending.cohorts  || {})) { const c = byId('cohorts', id);  if (c?.trayId) ids.add(c.trayId); }
+  for (const id of Object.keys(state.pending.removals || {})) { const r = byId('removals', id); if (r) { const c = byId('cohorts', r.cohortId); if (c?.trayId) ids.add(c.trayId); } }
+  return ids;
 }
 
-// Build per-shelf summary of current stage counts — sent to Sheets on upload.
-// Only builds for shelves in the optional filter set; if null, builds all.
-function buildSummary(shelfFilter) {
+// Build per-shelf summary — only includes trays in the dirtyTrayIds set.
+// The backend row-level merge then updates only those rows, leaving all
+// other trays in the sheet completely untouched.
+function buildSummary(trayFilter) {
   const today = new Date();
   const summary = {};
   for (const shelf of live('shelves').sort((a, b) => (a.sortOrder||0) - (b.sortOrder||0))) {
-    if (shelfFilter && !shelfFilter.has(shelf.name)) continue;
-    const trays = live('trays').filter(t => t.shelfId === shelf.id);
+    const trays = live('trays').filter(t => t.shelfId === shelf.id && (!trayFilter || trayFilter.has(t.id)));
     if (!trays.length) continue;
     summary[shelf.name] = trays.map(tray => {
       const sp = speciesOf(tray);
@@ -4374,7 +4369,7 @@ async function uploadChanges() {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: state.meta.lastSync || 0, changes, summary: buildSummary(dirtyShelfNames()), key: state.meta.scriptApiKey || undefined }),
+      body: JSON.stringify({ since: state.meta.lastSync || 0, changes, summary: buildSummary(dirtyTrayIds()), key: state.meta.scriptApiKey || undefined }),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
