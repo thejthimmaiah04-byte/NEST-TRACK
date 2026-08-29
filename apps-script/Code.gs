@@ -226,7 +226,10 @@ function _maybeWriteDriveBackup() {
 
 // ── Per-shelf summary sheets ──────────────────────────────────────────────────
 // Called on every uploadChanges() with the summary built by the app.
-// Creates / refreshes one sheet tab per shelf (e.g. "Shelf A", "Shelf B").
+// Only receives shelves whose trays actually changed (app sends dirty shelves only).
+// Uses row-level merge: updates each tray's row in place; untouched trays are left
+// exactly as they are, so concurrent uploads from different devices don't clobber
+// each other even when they share the same shelf.
 // Columns: TRAY | SPECIES | ♂ MALES | ♀ FEMALES | GRAVID ♀ | LACTATING ♀ | [stage cols…] | TOTAL
 function _updateShelfSummaries(summary) {
   try {
@@ -235,61 +238,79 @@ function _updateShelfSummaries(summary) {
 
     Object.keys(summary).forEach(function(shelfName) {
       var trays = summary[shelfName];
-      if (!Array.isArray(trays)) return;
+      if (!Array.isArray(trays) || !trays.length) return;
 
       var tabName = 'Shelf ' + shelfName;
       var sh = ss.getSheetByName(tabName);
-      if (!sh) {
-        sh = ss.insertSheet(tabName);
-      }
+      if (!sh) sh = ss.insertSheet(tabName);
 
-      // Collect all dynamic stage column names across all trays
+      // Collect stage column names from the incoming trays
       var stageNames = [];
       var seenStage = {};
-      var fixedKeys = { name: true, species: true, males: true, females: true, gravid: true, lactating: true, total: true };
+      var fixedKeys = { name:1, species:1, males:1, females:1, gravid:1, lactating:1, total:1 };
       trays.forEach(function(t) {
         Object.keys(t).forEach(function(k) {
           if (!fixedKeys[k] && !seenStage[k]) { seenStage[k] = true; stageNames.push(k); }
         });
       });
 
-      // Build header row
-      var headers = ['TRAY', 'SPECIES', '♂ MALES', '♀ FEMALES', 'GRAVID ♀', 'LACTATING ♀']
-        .concat(stageNames.map(function(s) { return s.toUpperCase(); }))
+      var headers = ['TRAY','SPECIES','♂ MALES','♀ FEMALES','GRAVID ♀','LACTATING ♀']
+        .concat(stageNames.map(function(s){ return s.toUpperCase(); }))
         .concat(['TOTAL']);
-
-      // Build data rows
-      var rows = trays.map(function(t) {
-        var row = [
-          t.name || '',
-          t.species || '',
-          t.males || 0,
-          t.females || 0,
-          t.gravid || 0,
-          t.lactating || 0
-        ];
-        stageNames.forEach(function(s) { row.push(t[s] || 0); });
-        row.push(t.total || 0);
-        return row;
-      });
-
-      // Clear existing content and rewrite
-      sh.clearContents();
       var totalCols = headers.length;
-      var allValues = [headers].concat(rows);
-      sh.getRange(1, 1, allValues.length, totalCols).setValues(allValues);
 
-      // Style header row
-      var hdrRange = sh.getRange(1, 1, 1, totalCols);
-      hdrRange.setFontWeight('bold').setBackground(HDR_BG).setFontColor('#ffffff').setFontSize(10);
-      sh.setFrozenRows(1);
+      // ── Read existing sheet state ──────────────────────────────────────
+      var lastRow = sh.getLastRow();
+      var lastCol = sh.getLastColumn() || totalCols;
+      var trayRowMap = {};   // trayName → 1-based row number
+      var existingHeaders = [];
 
-      // Bold totals column
-      if (rows.length > 0) {
-        sh.getRange(2, totalCols, rows.length, 1).setFontWeight('bold');
+      if (lastRow >= 1 && lastCol >= 1) {
+        var existingData = sh.getRange(1, 1, lastRow, lastCol).getValues();
+        existingHeaders = existingData[0].map(String);
+        for (var i = 1; i < existingData.length; i++) {
+          var n = String(existingData[i][0]);
+          if (n) trayRowMap[n] = i + 1;
+        }
       }
 
-      // Auto-resize for readability
+      // ── Ensure header row is correct ───────────────────────────────────
+      var needsHeader = (lastRow === 0) ||
+        headers.length !== existingHeaders.length ||
+        headers.some(function(h, i){ return h !== existingHeaders[i]; });
+
+      if (needsHeader) {
+        sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+        var hdrRange = sh.getRange(1, 1, 1, headers.length);
+        hdrRange.setFontWeight('bold').setBackground(HDR_BG).setFontColor('#ffffff').setFontSize(10);
+        sh.setFrozenRows(1);
+        if (lastRow === 0) lastRow = 1;
+      }
+
+      // ── Merge each incoming tray row ───────────────────────────────────
+      trays.forEach(function(t) {
+        var rowValues = [t.name||'', t.species||'', t.males||0, t.females||0, t.gravid||0, t.lactating||0];
+        stageNames.forEach(function(s){ rowValues.push(t[s] || 0); });
+        rowValues.push(t.total || 0);
+
+        // Pad to match current sheet width if header just expanded
+        while (rowValues.length < totalCols) rowValues.push('');
+
+        var targetRow = trayRowMap[t.name];
+        if (targetRow) {
+          sh.getRange(targetRow, 1, 1, totalCols).setValues([rowValues]);
+        } else {
+          sh.appendRow(rowValues);
+          trayRowMap[t.name] = sh.getLastRow();
+        }
+      });
+
+      // Bold TOTAL column for all data rows
+      var finalLastRow = sh.getLastRow();
+      if (finalLastRow > 1) {
+        sh.getRange(2, totalCols, finalLastRow - 1, 1).setFontWeight('bold');
+      }
+
       try { sh.autoResizeColumns(1, totalCols); } catch(e) {}
     });
   } catch (err) {
