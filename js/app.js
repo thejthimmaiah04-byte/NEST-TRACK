@@ -4156,7 +4156,14 @@ function onClick(e) {
       saveState(); toast('Target cleared'); render(); return;
     }
     case 'wipe':   return confirmDelete('ALL local data', () => {
-      localStorage.removeItem(LS_KEY); location.reload();
+      localStorage.removeItem(LS_KEY);
+      // Also clear IndexedDB so the IDB-restore path doesn't bring data back
+      _openIDB().then(db => {
+        const tx = db.transaction(IDB_STORE, 'readwrite');
+        tx.objectStore(IDB_STORE).clear();
+        tx.oncomplete = () => location.reload();
+        tx.onerror    = () => location.reload();
+      }).catch(() => location.reload());
     });
 
     // Reports
