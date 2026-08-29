@@ -4348,7 +4348,11 @@ async function uploadChanges() {
   if (!navigator.onLine) { toast('Offline — connect to upload', true); return; }
 
   const pc = pendingCount();
-  if (pc === 0) { toast('Nothing to upload — all changes are already on Google Sheets'); return; }
+  if (pc === 0) {
+    toast('No pending changes — refreshing from Google Sheets…');
+    pullFromSheets();
+    return;
+  }
 
   syncing = true; renderSync();
 
@@ -5361,7 +5365,7 @@ function init() {
     }
   });
   setInterval(() => {
-    if (navigator.onLine && state.meta.scriptUrl && !syncing) pullFromSheets();
+    if (navigator.onLine && state.meta.scriptUrl && !syncing && pendingCount() === 0) pullFromSheets();
   }, AUTO_PULL_MS);
 
   render();
