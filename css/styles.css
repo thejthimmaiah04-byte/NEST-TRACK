@@ -208,7 +208,7 @@ html, body {
 
 .tab {
   border: none; background: transparent; color: var(--muted);
-  padding: 6px 15px; border-radius: 999px;
+  padding: 10px 15px; border-radius: 999px; min-height: 44px;
   font-size: 13.5px; font-weight: 600; font-family: inherit;
   cursor: pointer; white-space: nowrap; transition: all .14s;
 }
@@ -466,7 +466,7 @@ input, select, textarea {
   width: 100%; padding: 9px 12px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface-2); color: var(--text);
-  font-size: 14px; font-family: 'Inter', sans-serif;
+  font-size: 16px; font-family: 'Inter', sans-serif; /* 16px prevents iOS auto-zoom on focus */
   transition: border-color .13s, box-shadow .13s;
 }
 input:focus, select:focus, textarea:focus {
@@ -598,8 +598,8 @@ input:focus, select:focus, textarea:focus {
 
 /* Quick-remove button on tray card */
 .tray-rem-btn { background: none; border: 1px solid var(--danger); color: var(--danger);
-  border-radius: 6px; font-size: 11px; font-weight: 700; padding: 2px 7px; cursor: pointer;
-  transition: background .15s, color .15s; line-height: 1.5; }
+  border-radius: 6px; font-size: 12px; font-weight: 700; padding: 6px 12px; cursor: pointer;
+  transition: background .15s, color .15s; line-height: 1.5; min-height: 32px; touch-action: manipulation; }
 .tray-rem-btn:hover { background: var(--danger); color: #fff; }
 
 /* Floating action button */
@@ -782,14 +782,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   cursor: pointer; white-space: nowrap; transition: background .15s, color .15s;
   flex-shrink: 0;
 }
-.stg-tab.active  { background: var(--stg-clr, var(--accent)); color: #fff; }
+.stg-tab.active  { background: var(--stg-clr, var(--accent)); color: #0f0f0f; }
 .stg-tab:hover:not(.active) { color: var(--text); }
 
 /* Stage-specific palette — falls back to accent for custom stage names */
-.stg-tab[data-stg="Pinky"]  { --stg-clr: #db2777; }
-.stg-tab[data-stg="Fuzzy"]  { --stg-clr: #b45309; }
-.stg-tab[data-stg="Hopper"] { --stg-clr: #475569; }
-.stg-tab[data-stg="Adult"]  { --stg-clr: #92400e; }
+.stg-tab[data-stg="Pinky"]  { --stg-clr: #fb7185; }
+.stg-tab[data-stg="Fuzzy"]  { --stg-clr: #facc15; }
+.stg-tab[data-stg="Hopper"] { --stg-clr: #94a3b8; }
+.stg-tab[data-stg="Adult"]  { --stg-clr: #e2c97e; }
 
 .stg-badge {
   display: inline-flex; align-items: center; justify-content: center;
@@ -1559,3 +1559,65 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .rpt-sp-fc { display: block; width: 100%; margin-top: 14px; }
 .rpt-sp-fc #fc-wrap { margin: 0; }
 .rpt-sp-fc svg { display: block; width: 100%; }
+
+/* ── Safe-area insets (C-02 / C-03) ── */
+.fab   { bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important; }
+.toast { bottom: calc(92px + env(safe-area-inset-bottom, 0px)) !important; }
+#app   { padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px)); }
+
+/* ── Landscape compact chrome (M-04) ── */
+@media (max-height: 420px) and (orientation: landscape) {
+  .topbar                 { height: 40px; }
+  .tab                    { padding: 5px 12px; font-size: 12.5px; min-height: 36px; }
+  .tabs-wrap              { padding: 2px 0; }
+}
+
+/* ── Sticky modal footer (M-05) ── */
+.modal-footer {
+  position: sticky; bottom: 0;
+  background: var(--surface);
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  margin: 0 -18px -18px;
+  border-radius: 0 0 18px 18px;
+  z-index: 1;
+}
+
+/* ── Touch-action on interactive elements (L-04) ── */
+.btn, .tab, .tray, .shelf-card,
+.stg-tab, .fab, .icon-btn,
+.harvest-btn, .back-btn, .more-item { touch-action: manipulation; }
+
+/* ── More bottom sheet (H-02) ── */
+.more-sheet {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; flex-direction: column; justify-content: flex-end;
+}
+.more-sheet[hidden]        { display: none; }
+.more-sheet-backdrop       { position: absolute; inset: 0; background: rgba(0,0,0,.65); backdrop-filter: blur(3px); }
+.more-sheet-body           { position: relative; background: var(--surface); border-radius: 20px 20px 0 0;
+                              padding: 12px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+                              border-top: 1px solid var(--border); box-shadow: 0 -8px 32px rgba(0,0,0,.5); }
+.more-sheet-handle         { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.2); margin: 0 auto 16px; }
+.more-sheet-label          { font-size: 10px; font-weight: 700; letter-spacing: .1em;
+                              text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+.more-sheet-grid           { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+@media (max-width: 400px)  { .more-sheet-grid { grid-template-columns: repeat(3, 1fr); } }
+.more-item                 { display: flex; flex-direction: column; align-items: center; gap: 7px;
+                              padding: 14px 8px; border-radius: 12px;
+                              background: var(--surface-2); border: 1px solid var(--border);
+                              cursor: pointer; color: var(--text-2); font-size: 11.5px; font-weight: 600;
+                              transition: all .15s; }
+.more-item:hover, .more-item.active { background: var(--accent-soft); color: var(--accent); border-color: rgba(249,115,22,.25); }
+.more-item svg             { width: 22px; height: 22px; display: block; }
+.tab-more.secondary-active { background: var(--accent-soft) !important; color: var(--accent) !important; }
+
+/* ── Pull-to-refresh indicator (M-07) ── */
+.ptr-indicator {
+  position: fixed; top: 72px; left: 50%; transform: translateX(-50%);
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 12px; font-weight: 600;
+  padding: 6px 16px; border-radius: 99px;
+  z-index: 25; opacity: 0; pointer-events: none;
+  transition: opacity .2s; white-space: nowrap;
+}

@@ -794,8 +794,18 @@ let _modalPushed = false;
 
 function switchTab(name, pushHistory = true) {
   activeTab = name;
-  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  const primaryTabs = ['dashboard', 'trays', 'charts', 'reports'];
+  const isSecondary = !primaryTabs.includes(name);
+  $$('.tab').forEach(t => {
+    if (t.id === 'tab-more-btn') {
+      t.classList.remove('active');
+      t.classList.toggle('secondary-active', isSecondary);
+    } else {
+      t.classList.toggle('active', t.dataset.tab === name);
+    }
+  });
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  $$('.more-item').forEach(item => item.classList.toggle('active', item.dataset.tab === name));
   if (pushHistory) history.pushState({ tab: name }, '');
   const fab = document.querySelector('.fab');
   if (fab) fab.style.display = name === 'trays' ? '' : 'none';
@@ -1558,6 +1568,14 @@ function wireForeCastHover() {
   });
 
   svg.addEventListener('mouseleave', hide);
+
+  // Touch support for chart tooltip (M-03)
+  svg.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    svg.dispatchEvent(new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY, bubbles: true }));
+  }, { passive: false });
+  svg.addEventListener('touchend', () => { setTimeout(hide, 2200); }, { passive: true });
 }
 
 function renderCharts() {
@@ -1719,7 +1737,7 @@ function openRemoveByStage(stageName, stageIdx) {
       </label>
       <label class="field" style="flex:1">
         <span>How many to remove?</span>
-        <input id="rbs-count" type="number" min="1" max="${totalAvail}" placeholder="e.g. 10" />
+        <input id="rbs-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${totalAvail}" placeholder="e.g. 10" />
       </label>
     </div>
     <div class="field" style="margin-bottom:16px">
@@ -1856,14 +1874,14 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
     </p>
     <label class="field" style="margin-bottom:${isAdult ? '10px' : '16px'}">
       <span>How many from this tray?</span>
-      <input id="rbst-count" type="number" min="1" max="${avail}" value="${defCount}" />
+      <input id="rbst-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${avail}" value="${defCount}" />
     </label>
     ${isAdult ? `
     <div class="gap" style="margin-bottom:16px">
       <label class="field" style="flex:1"><span>&#9794; removed</span>
-        <input id="rbst-m" type="number" min="0" placeholder="—" /></label>
+        <input id="rbst-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="—" /></label>
       <label class="field" style="flex:1"><span>&#9792; removed</span>
-        <input id="rbst-f" type="number" min="0" placeholder="—" /></label>
+        <input id="rbst-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="—" /></label>
     </div>` : ''}
     ${reason === 'Dead' ? `<div class="field" style="margin-bottom:16px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Photo (optional)</span>
@@ -2018,7 +2036,7 @@ function useFrozenModal(stage) {
   openModal(`Use frozen · ${esc(stage)}`, `
     <p class="small muted" style="margin-bottom:14px">${available} frozen available.</p>
     <label class="field"><span>Count to use</span>
-      <input id="frozen-use-count" type="number" min="1" max="${available}" placeholder="1" /></label>
+      <input id="frozen-use-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${available}" placeholder="1" /></label>
     <button class="btn primary block" style="margin-top:14px" data-save>Confirm</button>
   `, root => {
     $('#frozen-use-count', root).focus();
@@ -2122,7 +2140,7 @@ function addToFreezerModal() {
     </div>
     <div class="fz-search-row">
       <select id="fz-stage">${stageOpts}</select>
-      <input id="fz-count" type="number" min="1" placeholder="How many?" />
+      <input id="fz-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="How many?" />
     </div>
     <div id="fz-results"></div>
   `, root => {
@@ -2296,9 +2314,9 @@ function quickTrayRemoval(trayId) {
       <p class="small" style="margin:0 0 8px;font-weight:500;color:var(--accent)">Which sex are you removing? (adults only)</p>
       <div style="display:flex;gap:12px">
         <label class="gravid-field" style="flex:1"><span>♂ Males</span>
-          <input id="qtr-sex-m" type="number" min="0" placeholder="0" /></label>
+          <input id="qtr-sex-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
         <label class="gravid-field" style="flex:1"><span>♀ Females</span>
-          <input id="qtr-sex-f" type="number" min="0" placeholder="0" /></label>
+          <input id="qtr-sex-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
       </div>
       <div class="small muted" style="margin-top:4px">♂ + ♀ must equal the count above</div>
     </div>` : '';
@@ -2316,7 +2334,7 @@ function quickTrayRemoval(trayId) {
     </div>
     <label class="field" style="margin-bottom:14px">
       <span>How many?</span>
-      <input id="qtr-count" type="number" min="1" placeholder="e.g. 3" />
+      <input id="qtr-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="e.g. 3" />
     </label>
     ${sexRowHtml}
     <div class="field" style="margin-bottom:12px">
@@ -2425,7 +2443,7 @@ function renderTrays() {
           <option value="">Stage…</option>
           ${stageOpts}
         </select>
-        <input id="harvest-count" type="number" min="1" placeholder="How many?" />
+        <input id="harvest-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="How many?" />
       </div>
       <div id="harvest-results"></div>
     </div>`;
@@ -3182,7 +3200,7 @@ function renderSettings() {
       <div class="field-row" style="flex-wrap:wrap;gap:10px">
         <label class="field" style="flex:1;min-width:120px">
           <span>Target count</span>
-          <input id="set-target-count" type="number" min="1" value="${state.meta.targetCount||''}" placeholder="e.g. 200" />
+          <input id="set-target-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${state.meta.targetCount||''}" placeholder="e.g. 200" />
         </label>
         <label class="field" style="flex:1;min-width:120px">
           <span>Stage</span>
@@ -3246,6 +3264,7 @@ function toast(msg, isErr = false) {
   t.textContent = msg;
   t.className = 'toast' + (isErr?' err':'');
   t.hidden = false;
+  if (navigator.vibrate) navigator.vibrate(isErr ? [20, 60, 20, 60, 20] : 40);
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; }, 2600);
 }
@@ -3281,7 +3300,7 @@ function newShelfModal() {
       <input id="f-shelf-name" placeholder="e.g. A or Top Rack" /></label>
     ${speciesField}
     <label class="field"><span>Number of trays to create</span>
-      <input id="f-tray-count" type="number" min="1" max="100" placeholder="e.g. 20" /></label>
+      <input id="f-tray-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="100" placeholder="e.g. 20" /></label>
     <button class="btn primary block" data-save>Create shelf + trays</button>
   `, root => {
     $('#f-shelf-name', root).focus();
@@ -3320,7 +3339,7 @@ function addTraysToShelfModal(shelfId) {
     : '';
   openModal(`Add trays to ${esc(shelf.name)}`, `
     <label class="field"><span>How many trays to add?</span>
-      <input id="f-count" type="number" min="1" max="100" placeholder="e.g. 5" /></label>
+      <input id="f-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="100" placeholder="e.g. 5" /></label>
     ${speciesField}
     <button class="btn primary block" data-save>Add trays</button>
   `, root => {
@@ -3461,9 +3480,9 @@ function trayDetailModal(trayId) {
         <div class="stg-sect-head">Sex breakdown</div>
         <div class="sex-row">
           <label class="sex-lbl"><span>♂ Males</span>
-            <input id="tray-sex-m" type="number" min="0" value="${tray.adultMales ?? ''}" placeholder="0" /></label>
+            <input id="tray-sex-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${tray.adultMales ?? ''}" placeholder="0" /></label>
           <label class="sex-lbl"><span>♀ Females</span>
-            <input id="tray-sex-f" type="number" min="0" value="${tray.adultFemales ?? ''}" placeholder="0" /></label>
+            <input id="tray-sex-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${tray.adultFemales ?? ''}" placeholder="0" /></label>
           <button class="btn sm" data-save-sex="${trayId}" style="align-self:flex-end">Save</button>
         </div>
         <div class="stg-hint small muted">♂ + ♀ must equal ${adultCount} total${sex ? ` · current ♂${sex.males} ♀${sex.females}` : ''}</div>
@@ -3474,9 +3493,9 @@ function trayDetailModal(trayId) {
         <div class="stg-sect-head">Female status</div>
         <div class="sex-row">
           <label class="sex-lbl"><span>Gravid ♀</span>
-            <input id="f-gravid" type="number" min="0" max="${femMax}" value="${gravid}" placeholder="0" /></label>
+            <input id="f-gravid" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${femMax}" value="${gravid}" placeholder="0" /></label>
           <label class="sex-lbl"><span>Lactating ♀</span>
-            <input id="f-lact" type="number" min="0" max="${femMax}" value="${lactating}" placeholder="0" /></label>
+            <input id="f-lact" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${femMax}" value="${lactating}" placeholder="0" /></label>
           <button class="btn sm" id="save-status" style="align-self:flex-end">Save</button>
         </div>
         <label class="sex-lbl" style="margin-top:8px;max-width:180px">
@@ -3637,9 +3656,9 @@ function removeFromStageModal(trayId, stageName) {
   const sexRowHtml = isAdult ? `
     <div class="sex-row" style="margin-bottom:14px">
       <label class="sex-lbl" style="flex:1"><span>♂ Males removed</span>
-        <input id="rsm-m" type="number" min="0" placeholder="0" /></label>
+        <input id="rsm-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
       <label class="sex-lbl" style="flex:1"><span>♀ Females removed</span>
-        <input id="rsm-f" type="number" min="0" placeholder="0" /></label>
+        <input id="rsm-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
     </div>
     <div class="small muted" style="margin-bottom:12px">♂ + ♀ must equal the count above</div>` : '';
 
@@ -3648,7 +3667,7 @@ function removeFromStageModal(trayId, stageName) {
       <label class="field" style="flex:1"><span>Date</span>
         <input id="rsm-date" type="date" value="${todayISO()}" /></label>
       <label class="field" style="flex:1"><span>How many? (${available} available)</span>
-        <input id="rsm-count" type="number" min="1" max="${available}" placeholder="e.g. 3" /></label>
+        <input id="rsm-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${available}" placeholder="e.g. 3" /></label>
     </div>
     ${sexRowHtml}
     <div class="field" style="margin-bottom:12px">
@@ -3729,7 +3748,7 @@ function litterModal(trayId) {
     <div class="field-row">
       <label class="field"><span>Birth date</span><input id="f-date" type="date" value="${todayISO()}" /></label>
 
-      <label class="field"><span>Count</span><input id="f-count" type="number" min="1" placeholder="e.g. 8" /></label>
+      <label class="field"><span>Count</span><input id="f-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="e.g. 8" /></label>
     </div>
     <label class="field"><span>Notes (optional)</span><input id="f-notes" placeholder="e.g. dam #4" /></label>
     <button class="btn primary block" data-save>Add litter</button>
@@ -3766,16 +3785,16 @@ function intakeModal(trayId, preStage) {
       <span class="intake-dot" style="background:${hex}"></span>
       <span class="intake-name">${esc(st.name)}</span>
       <span class="intake-day small muted">day ${st.startDay}+</span>
-      <input type="number" class="intake-input" min="0" placeholder="0"
+      <input type="number" inputmode="numeric" pattern="[0-9]*" class="intake-input" min="0" placeholder="0"
         data-startday="${st.startDay}" data-stage="${esc(st.name)}" data-row="${i}" data-adult="${isAdult?'1':'0'}" />
     </div>
     <div class="sex-sub" id="isex-${i}" style="display:none">
-      <label class="sex-label">♂ <input type="number" class="sex-male" min="0" placeholder="—" data-row="${i}" /></label>
-      <label class="sex-label">♀ <input type="number" class="sex-female" min="0" placeholder="—" data-row="${i}" /></label>
+      <label class="sex-label">♂ <input type="number" inputmode="numeric" pattern="[0-9]*" class="sex-male" min="0" placeholder="—" data-row="${i}" /></label>
+      <label class="sex-label">♀ <input type="number" inputmode="numeric" pattern="[0-9]*" class="sex-female" min="0" placeholder="—" data-row="${i}" /></label>
     </div>
     ${isAdult ? `<div class="sex-sub gravid-sub-intake" id="igrv-${i}" style="display:none">
-      <label class="sex-label">Gravid ♀ <input type="number" class="grv-gravid" min="0" placeholder="0" /></label>
-      <label class="sex-label">Lactating ♀ <input type="number" class="grv-lact" min="0" placeholder="0" /></label>
+      <label class="sex-label">Gravid ♀ <input type="number" inputmode="numeric" pattern="[0-9]*" class="grv-gravid" min="0" placeholder="0" /></label>
+      <label class="sex-label">Lactating ♀ <input type="number" inputmode="numeric" pattern="[0-9]*" class="grv-lact" min="0" placeholder="0" /></label>
     </div>` : ''}`;
   }).join('');
 
@@ -3881,13 +3900,13 @@ function editCohortModal(cohortId, trayId) {
       <label class="field"><span>Birth date</span>
         <input id="f-date" type="date" value="${ymdToInput(toYMD(parseYMD(c.birthDate)))}" /></label>
       <label class="field"><span>Initial count</span>
-        <input id="f-count" type="number" min="${Math.max(1, alreadyRemoved)}" value="${c.initialCount}" /></label>
+        <input id="f-count" type="number" inputmode="numeric" pattern="[0-9]*" min="${Math.max(1, alreadyRemoved)}" value="${c.initialCount}" /></label>
     </div>
     <div class="field-row">
       <label class="field"><span>♂ Males (optional)</span>
-        <input id="f-males" type="number" min="0" value="${c.males ?? ''}" placeholder="—" /></label>
+        <input id="f-males" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${c.males ?? ''}" placeholder="—" /></label>
       <label class="field"><span>♀ Females (optional)</span>
-        <input id="f-females" type="number" min="0" value="${c.females ?? ''}" placeholder="—" /></label>
+        <input id="f-females" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${c.females ?? ''}" placeholder="—" /></label>
     </div>
     <label class="field"><span>Notes (optional)</span>
       <input id="f-notes" value="${esc(c.notes || '')}" placeholder="e.g. dam #4" /></label>
@@ -3927,7 +3946,7 @@ function speciesModal(existing) {
   const stageRows = stages => stages.map((st,i) => `
     <div class="stage-row">
       <input type="text"   value="${esc(st.name)}"   data-sname placeholder="Stage name" />
-      <input type="number" value="${st.startDay}" data-sday  placeholder="Start day" min="0" />
+      <input type="number" inputmode="numeric" pattern="[0-9]*" value="${st.startDay}" data-sday  placeholder="Start day" min="0" />
       <button class="icon-btn" data-del-stage="${i}">✕</button>
     </div>`).join('');
 
@@ -3939,16 +3958,16 @@ function speciesModal(existing) {
     <label class="field"><span>Target sex ratio (adults) <span class="muted" style="font-weight:400;font-size:11px">♂ : ♀ per breeding group</span></span>
       <div style="display:flex;gap:8px;align-items:center">
         <span class="small">♂</span>
-        <input id="f-ratio-m" type="number" min="1" value="${sp.ratio?.males??1}" style="width:70px;text-align:center" />
+        <input id="f-ratio-m" type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${sp.ratio?.males??1}" style="width:70px;text-align:center" />
         <span class="small muted">:</span>
         <span class="small">♀</span>
-        <input id="f-ratio-f" type="number" min="1" value="${sp.ratio?.females??1}" style="width:70px;text-align:center" />
+        <input id="f-ratio-f" type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${sp.ratio?.females??1}" style="width:70px;text-align:center" />
       </div>
     </label>
     <label class="field"><span>Gestation period (days)</span>
-      <input id="f-gestation" type="number" min="1" value="${sp.gestation||''}" placeholder="e.g. 21" /></label>
+      <input id="f-gestation" type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${sp.gestation||''}" placeholder="e.g. 21" /></label>
     <label class="field"><span>Natural lifespan (days)</span>
-      <input id="f-lifespan" type="number" min="1" value="${sp.lifespan||''}" placeholder="e.g. 730 = 2 years" /></label>
+      <input id="f-lifespan" type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${sp.lifespan||''}" placeholder="e.g. 730 = 2 years" /></label>
     <p class="small muted" style="margin:-8px 0 10px">Used to show a natural death curve on the forecast and to prioritise oldest animals in harvest search.</p>
     <span class="small muted">Stages — name and the age in days it enters that stage (0 = birth).</span>
     <div class="stage-rows mt" id="stage-rows">${stageRows(sp.stages)}</div>
@@ -5392,6 +5411,114 @@ function init() {
   fab.onclick = () => { showTrayFabMenu(); };
   fab.style.display = activeTab === 'trays' ? '' : 'none';
   document.body.appendChild(fab);
+
+  // More sheet (H-02)
+  const moreSheet = document.getElementById('more-sheet');
+  const moreSheetBd = document.getElementById('more-sheet-bd');
+  const moreBtn = document.getElementById('tab-more-btn');
+  if (moreBtn) moreBtn.addEventListener('click', () => { if (moreSheet) moreSheet.hidden = false; });
+  if (moreSheetBd) moreSheetBd.addEventListener('click', () => { moreSheet.hidden = true; });
+  $$('.more-item').forEach(item => item.addEventListener('click', () => {
+    switchTab(item.dataset.tab);
+    if (moreSheet) moreSheet.hidden = true;
+  }));
+
+  // Swipe left/right to navigate primary tabs (M-06)
+  (function initSwipe() {
+    const primaryTabs = ['dashboard', 'trays', 'charts', 'reports'];
+    const appEl = document.getElementById('app');
+    let tx = 0, ty = 0, swiping = false;
+    appEl.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      tx = e.touches[0].clientX; ty = e.touches[0].clientY; swiping = true;
+    }, { passive: true });
+    appEl.addEventListener('touchmove', e => {
+      if (!swiping) return;
+      if (Math.abs(e.touches[0].clientY - ty) > Math.abs(e.touches[0].clientX - tx) + 12) swiping = false;
+    }, { passive: true });
+    appEl.addEventListener('touchend', e => {
+      if (!swiping) return;
+      swiping = false;
+      const dx = e.changedTouches[0].clientX - tx;
+      const dy = e.changedTouches[0].clientY - ty;
+      if (Math.abs(dx) > 60 && Math.abs(dy) < 40) {
+        const i = primaryTabs.indexOf(activeTab);
+        if (i === -1) return;
+        if (dx < 0 && i < primaryTabs.length - 1) switchTab(primaryTabs[i + 1]);
+        if (dx > 0 && i > 0) switchTab(primaryTabs[i - 1]);
+      }
+    }, { passive: true });
+  })();
+
+  // Pull-to-refresh (M-07)
+  (function initPTR() {
+    const appEl = document.getElementById('app');
+    let startY = 0, pulling = false, ptr = null;
+    function getPtr() {
+      if (!ptr) { ptr = document.createElement('div'); ptr.className = 'ptr-indicator'; document.body.appendChild(ptr); }
+      return ptr;
+    }
+    appEl.addEventListener('touchstart', e => {
+      if (appEl.scrollTop === 0 && e.touches.length === 1) { startY = e.touches[0].clientY; pulling = true; }
+    }, { passive: true });
+    appEl.addEventListener('touchmove', e => {
+      if (!pulling) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > 10) {
+        const ind = getPtr();
+        ind.style.opacity = Math.min(dy / 72, 1);
+        ind.textContent = dy > 72 ? '↻ Release to sync' : '↻ Pull to sync';
+      }
+    }, { passive: true });
+    appEl.addEventListener('touchend', e => {
+      if (!pulling) return;
+      pulling = false;
+      const dy = e.changedTouches[0].clientY - startY;
+      if (ptr) ptr.style.opacity = '0';
+      if (dy > 72) {
+        if (state.meta.scriptUrl && navigator.onLine) {
+          toast('Syncing…');
+          pullFromSheets().then(() => toast('Sync complete'));
+        } else if (pendingCount() > 0) {
+          uploadChanges();
+        } else {
+          toast('Up to date');
+        }
+      }
+    }, { passive: true });
+  })();
+
+  // Long-press on tray cards → quick-action sheet (L-02)
+  (function initLongPress() {
+    let lpt = null, lx = 0, ly = 0;
+    function cancelLp() { clearTimeout(lpt); lpt = null; }
+    document.addEventListener('touchstart', e => {
+      const el = e.target.closest('[data-act="open-tray"]');
+      if (!el) return;
+      const trayId = el.dataset.id;
+      lx = e.touches[0].clientX; ly = e.touches[0].clientY;
+      lpt = setTimeout(() => {
+        lpt = null;
+        if (navigator.vibrate) navigator.vibrate(60);
+        const tray = byId('trays', trayId);
+        if (!tray) return;
+        openModal(tray.name || 'Tray', `
+          <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Quick actions</p>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <button class="btn" data-act="open-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">Open tray detail</button>
+            <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">✎ Edit tray</button>
+            <button class="btn danger" data-act="del-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">Delete tray</button>
+          </div>`);
+      }, 500);
+    }, { passive: true });
+    document.addEventListener('touchend',   cancelLp, { passive: true });
+    document.addEventListener('touchcancel', cancelLp, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (!lpt) return;
+      const dx = e.touches[0].clientX - lx, dy = e.touches[0].clientY - ly;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelLp();
+    }, { passive: true });
+  })();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
