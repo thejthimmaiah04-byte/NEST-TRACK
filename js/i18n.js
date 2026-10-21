@@ -267,6 +267,12 @@ const I18N = {
   lang_picker_prompt: { en: 'Choose your language', kn: 'ನಿಮ್ಮ ಭಾಷೆ ಆಯ್ಕೆ ಮಾಡಿ' },
   lang_en_sub:        { en: 'Continue in English',  kn: 'Continue in English' },
   lang_kn_sub:        { en: 'ಕನ್ನಡದಲ್ಲಿ ಮುಂದುವರಿಸಿ',  kn: 'ಕನ್ನಡದಲ್ಲಿ ಮುಂದುವರಿಸಿ' },
+
+  // ── Stage name transliterations ──────────────────────────────
+  stage_Pinky:   { en: 'Pinky',  kn: 'ಪಿಂಕಿ' },
+  stage_Fuzzy:   { en: 'Fuzzy',  kn: 'ಫಜ್ಜಿ' },
+  stage_Hopper:  { en: 'Hopper', kn: 'ಹಾಪರ್' },
+  stage_Adult:   { en: 'Adult',  kn: 'ಅಡಲ್ಟ್' },
 };
 
 /* ── Public helpers ──────────────────────────────────────────── */
@@ -284,6 +290,15 @@ function t(key, ...subs) {
   let s = (row && (row[l] || row.en)) || key;
   subs.forEach((v, i) => { s = s.replace('{' + i + '}', v); });
   return s;
+}
+
+/**
+ * Translate a known stage name (Pinky/Fuzzy/Hopper/Adult) to the current
+ * language. Passes unknown / custom stage names through unchanged.
+ */
+function tStage(name) {
+  const key = 'stage_' + name;
+  return I18N[key] ? t(key) : name;
 }
 
 /**

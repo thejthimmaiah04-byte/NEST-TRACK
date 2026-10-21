@@ -633,7 +633,7 @@ function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
       <title>${esc(nm)}: ${count}</title></rect>`;
     bars += `<text x="${cx}" y="${by - 6}" class="g-dt" text-anchor="middle" font-weight="700" fill="${color}">${count}</text>`;
     xLabels += `<text x="${cx}" y="${PT + drawH + xLabelH - 4}"
-      class="g-dt" text-anchor="middle">${esc(nm)}</text>`;
+      class="g-dt" text-anchor="middle">${esc(tStage(nm))}</text>`;
   });
 
   return `<div class="gantt-wrap">
@@ -775,7 +775,7 @@ function renderRemovalInsights(rates) {
       const hex = STAGE_HEX[i % STAGE_HEX.length];
       return `<span class="insight-chip">
         <span class="insight-dot" style="background:${hex}"></span>
-        <span class="insight-stage">${esc(nm)}</span>
+        <span class="insight-stage">${esc(tStage(nm))}</span>
         <span class="insight-rate">~${rates.get(nm).toFixed(1)}/wk</span>
       </span>`;
     });
@@ -1145,7 +1145,7 @@ function renderDashboard() {
         role="button" tabindex="0" title="Remove ${esc(nm)}">
       <span class="stage-edge" style="background:${stageColor(i)}"></span>
       <div class="n">${v}</div>
-      <div class="l">${esc(nm)}</div>
+      <div class="l">${esc(tStage(nm))}</div>
       ${sexLine}
       ${frozenBadge}
       <div class="stat-stage-hint">tap to remove</div>
@@ -1260,7 +1260,7 @@ function renderLegend(names) {
   return `<div class="legend">${names.map((nm, i) => {
     const active = vis.has(nm);
     return `<button class="lg-btn${active ? ' active' : ''}" data-stage="${esc(nm)}" style="--sw:${stageColor(i)}">
-      <span class="sw" style="background:${stageColor(i)}"></span>${esc(nm)}
+      <span class="sw" style="background:${stageColor(i)}"></span>${esc(tStage(nm))}
     </button>`;
   }).join('')}</div>`;
 }
@@ -1330,7 +1330,7 @@ function renderStageDistributionGrid(totals, names) {
     return `<div class="dist-cell" data-s="${i}">
       <span class="dist-edge" style="background:${hex}"></span>
       <div class="dist-n" style="color:${hex}">${v}</div>
-      <div class="dist-name">${esc(nm)}</div>
+      <div class="dist-name">${esc(tStage(nm))}</div>
       <div class="dist-bar-wrap">
         <div class="dist-bar" style="width:${pct}%;background:${hex}"></div>
       </div>
@@ -1458,7 +1458,7 @@ function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterO
   const legend = active.map(nm => {
     const color = STAGE_HEX[stageNames.indexOf(nm) % STAGE_HEX.length];
     return `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:20px">
-      <span style="font-size:11px;font-weight:600;color:var(--text)">${esc(nm)}</span>
+      <span style="font-size:11px;font-weight:600;color:var(--text)">${esc(tStage(nm))}</span>
       <svg width="22" height="10" viewBox="0 0 22 10" style="flex-shrink:0">
         <line x1="0" y1="5" x2="22" y2="5" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
@@ -1541,7 +1541,7 @@ function wireForeCastHover() {
       if (v === 0) continue;
       html += `<div class="fc-tt-row">
         <span class="fc-tt-dot" style="background:${st.color}"></span>
-        <span class="fc-tt-nm">${esc(st.name)}</span>
+        <span class="fc-tt-nm">${esc(tStage(st.name))}</span>
         <span class="fc-tt-val">${v}</span>
       </div>`;
     }
@@ -2254,7 +2254,7 @@ function renderFreezer() {
     cards += `<div class="freezer-card">
       <span class="freezer-card-edge" style="background:${color}"></span>
       <div class="freezer-card-body">
-        <div class="freezer-stage">${esc(nm)}</div>
+        <div class="freezer-stage">${esc(tStage(nm))}</div>
         <div class="freezer-count">${count}</div>
         <div class="freezer-label">in freezer</div>
       </div>
@@ -2305,7 +2305,7 @@ function quickTrayRemoval(trayId) {
   if (!stageMap.size) return toast(t('no_live_animals'), true);
 
   const stageOpts = [...stageMap.entries()]
-    .map(([nm, cnt]) => `<option value="${esc(nm)}">${esc(nm)} (${cnt} available)</option>`)
+    .map(([nm, cnt]) => `<option value="${esc(nm)}">${esc(tStage(nm))} (${cnt} available)</option>`)
     .join('');
 
   const sexRowHtml = lastStageName ? `
@@ -2421,7 +2421,7 @@ function renderTrays() {
   const names = orderedStageNames();
 
   // Harvest search card (always visible)
-  const stageOpts   = names.map(nm => `<option value="${esc(nm)}">${esc(nm)}</option>`).join('');
+  const stageOpts   = names.map(nm => `<option value="${esc(nm)}">${esc(tStage(nm))}</option>`).join('');
   const speciesOpts = live('species').map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   let html = `
     <div class="harvest-card card">
@@ -2827,7 +2827,7 @@ function renderMaturity() {
       const color = STAGE_HEX_SOFT[i % STAGE_HEX_SOFT.length];
       const border= STAGE_BORDER[i % STAGE_BORDER.length];
       return `<div class="mat-seg" style="width:${pct}%;background:${color};border-bottom:3px solid ${border}" title="${esc(st.name)}: day ${start}–${end-1}">
-        <span class="mat-seg-label" style="color:${border}">${esc(st.name)}</span>
+        <span class="mat-seg-label" style="color:${border}">${esc(tStage(st.name))}</span>
       </div>`;
     }).join('');
 
@@ -2856,7 +2856,7 @@ function renderMaturity() {
       const rangeLabel= end !== null ? `Day ${start} – Day ${end - 1}` : `Day ${start}+`;
 
       return `<tr>
-        <td><span class="mat-dot" style="background:${color}"></span>${esc(st.name)}</td>
+        <td><span class="mat-dot" style="background:${color}"></span>${esc(tStage(st.name))}</td>
         <td class="num">${rangeLabel}</td>
         <td class="num">${durLabel}</td>
         <td class="num mat-date">${targetStr}</td>
@@ -2910,7 +2910,7 @@ function renderSpecies() {
     const stages = [...(sp.stages||[])].sort((a,b)=>a.startDay-b.startDay);
     const rows = stages.map((st,i) => {
       const next = stages[i+1];
-      return `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${stageColor(i)};margin-right:7px;vertical-align:middle"></span>${esc(st.name)}</td>
+      return `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${stageColor(i)};margin-right:7px;vertical-align:middle"></span>${esc(tStage(st.name))}</td>
         <td class="num">${next ? `${st.startDay}–${next.startDay-1} d` : `${st.startDay}+ d`}</td></tr>`;
     }).join('');
     html += `<div class="card">
@@ -3204,7 +3204,7 @@ function renderSettings() {
           <span>${t('stage')}</span>
           <select id="set-target-stage">
             <option value="">${t('any_stage')}</option>
-            ${orderedStageNames().map(nm => `<option value="${esc(nm)}" ${state.meta.targetStage===nm?'selected':''}>${esc(nm)}</option>`).join('')}
+            ${orderedStageNames().map(nm => `<option value="${esc(nm)}" ${state.meta.targetStage===nm?'selected':''}>${esc(tStage(nm))}</option>`).join('')}
           </select>
         </label>
         <label class="field" style="flex:1;min-width:140px">
@@ -3473,9 +3473,9 @@ function trayDetailModal(trayId) {
       ? adultCount
       : (stageCohortsMap[st.name] || []).filter(x => x.net > 0).reduce((s, x) => s + x.net, 0);
     return `<button class="stg-tab${i === 0 ? ' active' : ''}" data-stg="${esc(st.name)}">
-      ${esc(st.name)}<span class="stg-badge${cnt > 0 ? '' : ' empty'}">${cnt}</span>
+      ${esc(tStage(st.name))}<span class="stg-badge${cnt > 0 ? '' : ' empty'}">${cnt}</span>
     </button>`;
-  }).join('') || `<button class="stg-tab active" data-stg="${esc(lastStageName)}">${esc(lastStageName)} <span class="stg-badge">${adultCount}</span></button>`;
+  }).join('') || `<button class="stg-tab active" data-stg="${esc(lastStageName)}">${esc(tStage(lastStageName))} <span class="stg-badge">${adultCount}</span></button>`;
 
   // ── Adult panel ───────────────────────────────────────────────────────────
   const femMax = sex ? sex.females : adultCount;
@@ -3556,10 +3556,10 @@ function trayDetailModal(trayId) {
       : `<button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">+ Add intake</button>`;
 
     return `<div class="stg-panel" data-panel="${esc(st.name)}" style="display:none">
-      <div class="stg-count">${count}<span class="stg-unit"> ${esc(st.name)}${count !== 1 ? 's' : ''}</span></div>
+      <div class="stg-count">${count}<span class="stg-unit"> ${esc(tStage(st.name))}${count !== 1 ? 's' : ''}</span></div>
       <div class="stg-add-row">${addBtns}</div>
       <div class="stg-cohort-list">${cohortRows}</div>
-      ${count > 0 ? `<button class="btn danger" style="width:100%;margin-top:4px" data-stg-remove="${esc(st.name)}">Remove ${esc(st.name)}s</button>` : ''}
+      ${count > 0 ? `<button class="btn danger" style="width:100%;margin-top:4px" data-stg-remove="${esc(st.name)}">Remove ${esc(tStage(st.name))}s</button>` : ''}
     </div>`;
   }).join('');
 
@@ -3790,7 +3790,7 @@ function intakeModal(trayId, preStage) {
     const isAdult = i === lastStageIdx;
     return `<div class="intake-row">
       <span class="intake-dot" style="background:${hex}"></span>
-      <span class="intake-name">${esc(st.name)}</span>
+      <span class="intake-name">${esc(tStage(st.name))}</span>
       <span class="intake-day small muted">day ${st.startDay}+</span>
       <input type="number" inputmode="numeric" pattern="[0-9]*" class="intake-input" min="0" placeholder="0"
         data-startday="${st.startDay}" data-stage="${esc(st.name)}" data-row="${i}" data-adult="${isAdult?'1':'0'}" />
@@ -4539,7 +4539,7 @@ function renderReports() {
     if (!count) return '';
     return `<div class="rpt-pill" style="border-color:${STAGE_HEX[i%STAGE_HEX.length]}66;background:${STAGE_HEX[i%STAGE_HEX.length]}14">
       <span class="rpt-pill-n" style="color:${STAGE_HEX[i%STAGE_HEX.length]}">${count.toLocaleString()}</span>
-      <span class="rpt-pill-l">${esc(nm)}</span>
+      <span class="rpt-pill-l">${esc(tStage(nm))}</span>
     </div>`;
   }).filter(Boolean).join('');
 
@@ -4683,7 +4683,7 @@ function renderReports() {
     const spPills = stages.map((st, i) => {
       const cnt = spTot.get(st.name) || 0;
       if (!cnt) return '';
-      return `<span class="rpt-sp-pill" style="background:${STAGE_HEX[i%STAGE_HEX.length]}22;color:${STAGE_HEX[i%STAGE_HEX.length]};border:1px solid ${STAGE_HEX[i%STAGE_HEX.length]}55">${esc(st.name)}: ${cnt}</span>`;
+      return `<span class="rpt-sp-pill" style="background:${STAGE_HEX[i%STAGE_HEX.length]}22;color:${STAGE_HEX[i%STAGE_HEX.length]};border:1px solid ${STAGE_HEX[i%STAGE_HEX.length]}55">${esc(tStage(st.name))}: ${cnt}</span>`;
     }).filter(Boolean).join('');
 
     let spM = 0, spF = 0;
