@@ -1091,40 +1091,39 @@ function renderDashboard() {
     if (noSpecies || noShelves || noTrays) {
       const step1Done = !noSpecies, step2Done = step1Done && !noShelves, step3Done = step2Done && !noTrays;
       el.innerHTML = `
-        <h2 class="section-title" style="margin:4px 0 16px">Welcome to RAT-TRACK</h2>
+        <h2 class="section-title" style="margin:4px 0 16px">${t('welcome_title')}</h2>
         <div class="card" style="margin-bottom:16px">
-          <p class="small" style="margin:0 0 14px;color:var(--muted)">Complete these steps to start tracking your colony:</p>
+          <p class="small" style="margin:0 0 14px;color:var(--muted)">${t('onb_intro')}</p>
           <div class="onboarding-steps">
             <div class="onb-step ${step1Done?'done':'active'}">
               <span class="onb-num">${step1Done?'✓':'1'}</span>
               <div class="onb-body">
-                <div class="onb-title">Add a species</div>
-                <div class="onb-sub">Define stages (Pinky, Fuzzy, Hopper, Adult…), gestation, lifespan</div>
+                <div class="onb-title">${t('add_species')}</div>
+                <div class="onb-sub">${t('onb_1_sub')}</div>
               </div>
-              ${!step1Done ? `<button class="btn primary sm" data-act="add-species">Add species</button>` : ''}
+              ${!step1Done ? `<button class="btn primary sm" data-act="add-species">${t('add_species')}</button>` : ''}
             </div>
             <div class="onb-step ${step2Done?'done':step1Done?'active':'locked'}">
               <span class="onb-num">${step2Done?'✓':'2'}</span>
               <div class="onb-body">
-                <div class="onb-title">Add a shelf</div>
-                <div class="onb-sub">Group trays by shelf / rack location</div>
+                <div class="onb-title">${t('add_shelf')}</div>
+                <div class="onb-sub">${t('onb_2_sub')}</div>
               </div>
-              ${step1Done && !step2Done ? `<button class="btn primary sm" data-act="add-shelf">Add shelf</button>` : ''}
+              ${step1Done && !step2Done ? `<button class="btn primary sm" data-act="add-shelf">${t('add_shelf')}</button>` : ''}
             </div>
             <div class="onb-step ${step3Done?'done':step2Done?'active':'locked'}">
               <span class="onb-num">${step3Done?'✓':'3'}</span>
               <div class="onb-body">
-                <div class="onb-title">Add trays &amp; record first litter</div>
-                <div class="onb-sub">Go to Trays tab → tap a shelf → Add tray → Born today</div>
+                <div class="onb-title">${t('onb_3_title')}</div>
+                <div class="onb-sub">${t('onb_3_sub')}</div>
               </div>
-              ${step2Done && !step3Done ? `<button class="btn sm" onclick="switchTab('trays')">Go to Trays</button>` : ''}
+              ${step2Done && !step3Done ? `<button class="btn sm" onclick="switchTab('trays')">${t('go_to_trays')}</button>` : ''}
             </div>
           </div>
         </div>`;
       return;
     }
-    el.innerHTML = emptyState('🪹',t('es_no_litters'),
-      'Go to the <b>Trays</b> tab and add a litter to a tray to start tracking.');
+    el.innerHTML = emptyState('🪹',t('es_no_litters'),t('es_no_litters_goto'));
     return;
   }
 
@@ -1139,7 +1138,7 @@ function renderDashboard() {
       ? `<div class="sex-info"><span>♂ ${m}</span><span>♀ ${f}</span></div>`
       : '';
     const frozenBadge = fz > 0
-      ? `<div class="stage-frozen-badge">❄ ${fz} frozen</div>`
+      ? `<div class="stage-frozen-badge">${t('frozen_badge', fz)}</div>`
       : '';
     return `<div class="stat-stage stat-stage-btn" data-s="${i}"
         data-act="remove-stage" data-stage="${esc(nm)}" data-sidx="${i}"
@@ -1160,7 +1159,7 @@ function renderDashboard() {
   let filterSel = '';
   if (speciesList.length > 1) {
     filterSel = `<select id="dash-filter" style="max-width:180px">
-      <option value="all">All species</option>
+      <option value="all">${t('all_species_opt')}</option>
       ${speciesList.map(s => `<option value="${s.id}" ${s.id===dashFilterSpecies?'selected':''}>${esc(s.name)}</option>`).join('')}
     </select>`;
   }
@@ -1168,7 +1167,7 @@ function renderDashboard() {
   const recs = computeShuffleRecommendations();
   const recsHtml = recs.length ? `
     <div class="rec-section-head">
-      <h2 class="section-title" style="margin:0">Recommendations</h2>
+      <h2 class="section-title" style="margin:0">${t('recommendations')}</h2>
       <span class="rec-count-badge">${recs.length}</span>
     </div>
     <div class="rec-rows">
@@ -1176,7 +1175,7 @@ function renderDashboard() {
       const sexIcon = r.sex;
       const isTransfer = sexIcon === '♂' || sexIcon === '♀';
       const urgency = sexIcon === '♂' ? 'urgent' : sexIcon === '♀' ? 'moderate' : 'info';
-      const urgencyLabel = sexIcon === '♂' ? 'Urgent' : sexIcon === '♀' ? 'Moderate' : sexIcon === '⏰' ? 'Aging' : sexIcon === '🤰' ? 'Overdue' : 'Action';
+      const urgencyLabel = sexIcon === '♂' ? t('urgent_lbl') : sexIcon === '♀' ? t('moderate_lbl') : sexIcon === '⏰' ? t('aging_lbl') : sexIcon === '🤰' ? t('overdue_lbl') : t('action_lbl');
       if (r.noCheckbox) {
         const actAttr = r.trayId ? `data-act="open-tray-from-rec" data-trayid="${esc(r.trayId)}"` : '';
         return `
@@ -1187,7 +1186,7 @@ function renderDashboard() {
               <span class="rec-row-action">${sexIcon} ${esc(r.to?.name || '')}</span>
             </div>
             <div class="rec-row-detail">${esc(r.detail)}</div>
-            ${r.trayId ? `<button class="btn sm" style="margin-top:6px" ${actAttr}>${esc(r.actionLabel||'View')}</button>` : ''}
+            ${r.trayId ? `<button class="btn sm" style="margin-top:6px" ${actAttr}>${esc(r.actionLabel||t('view_btn'))}</button>` : ''}
           </div>
         </div>`;
       }
@@ -1199,7 +1198,7 @@ function renderDashboard() {
         <div class="rec-row-body">
           <div class="rec-row-top">
             <span class="rec-pill ${urgency}">${urgencyLabel}</span>
-            <span class="rec-row-action">Move ${r.count}${r.sex}</span>
+            <span class="rec-row-action">${t('move')} ${r.count}${r.sex}</span>
             <span class="rec-tray">${esc(r.from?.name||'')}</span>
             <span class="rec-arrow">→</span>
             <span class="rec-tray">${esc(r.to?.name||'')}</span>
@@ -1212,11 +1211,11 @@ function renderDashboard() {
 
   el.innerHTML = `
     <div class="spread">
-      <h2 class="section-title" style="margin:4px 0 0">Right now</h2>
+      <h2 class="section-title" style="margin:4px 0 0">${t('right_now')}</h2>
       ${filterSel}
     </div>
     <div class="stats-grid mt">${stats}</div>
-    <p class="small muted" style="margin-top:8px;text-align:center">Tap a stage card to record a removal</p>
+    <p class="small muted" style="margin-top:8px;text-align:center">${t('tap_stage_remove')}</p>
     ${recsHtml}`;
 
   const df = $('#dash-filter');
@@ -1607,7 +1606,7 @@ function renderCharts() {
   const forecast = renderPopulationForecast(chartFilterShelf, chartFilterTray);
 
   el.innerHTML = `
-    <h2 class="section-title" style="margin-bottom:10px">Stage distribution</h2>
+    <h2 class="section-title" style="margin-bottom:10px">${t('stage_distribution')}</h2>
     <div class="card" style="padding:14px">
       <div class="dist-combined">
         ${renderDonutChart(totals, names)}
@@ -1615,15 +1614,15 @@ function renderCharts() {
       </div>
     </div>
 
-    <h2 class="section-title" style="margin-top:26px;margin-bottom:10px">Individuals by stage</h2>
+    <h2 class="section-title" style="margin-top:26px;margin-bottom:10px">${t('individuals_by_stage')}</h2>
     <div class="card" style="padding:14px 10px 10px">
       <div class="chart-filter-row">
         <select id="cft-shelf">
-          <option value="all" ${chartFilterShelf === 'all' ? 'selected' : ''}>All shelves</option>
+          <option value="all" ${chartFilterShelf === 'all' ? 'selected' : ''}>${t('all_shelves')}</option>
           ${shelfOpts}
         </select>
         <select id="cft-tray">
-          <option value="all" ${chartFilterTray === 'all' ? 'selected' : ''}>All trays</option>
+          <option value="all" ${chartFilterTray === 'all' ? 'selected' : ''}>${t('all_trays')}</option>
           ${trayOpts}
         </select>
       </div>
@@ -1632,8 +1631,8 @@ function renderCharts() {
     </div>
 
     ${forecast ? `
-    <h2 class="section-title" style="margin-top:26px;margin-bottom:4px">Population forecast — next 90 days</h2>
-    <p class="small muted" style="margin:0 0 10px">Projects current animals through stages. Assumes no future removals.</p>
+    <h2 class="section-title" style="margin-top:26px;margin-bottom:4px">${t('pop_forecast')}</h2>
+    <p class="small muted" style="margin:0 0 10px">${t('pop_forecast_sub')}</p>
     <div class="card" style="padding:14px 10px 10px">
       ${forecast}
     </div>` : ''}`;
@@ -2273,10 +2272,10 @@ function renderFreezer() {
 
   el.innerHTML = `
     <div class="spread">
-      <h2 class="section-title" style="margin:4px 0 0">Freezer</h2>
+      <h2 class="section-title" style="margin:4px 0 0">${t('freezer_title')}</h2>
       <button class="btn sm primary" data-act="fz-add">+ Add</button>
     </div>
-    <p class="small muted" style="margin:4px 0 14px">${total} individual${total !== 1 ? 's' : ''} in stock</p>
+    <p class="small muted" style="margin:4px 0 14px">${t('fz_in_stock', total, total !== 1 ? 's' : '')}</p>
     <div class="freezer-grid">${cards}</div>
     <p class="small muted" style="margin-top:14px;text-align:center">
       Tap <b>Use</b> to record feeding from the freezer.<br>
@@ -2428,7 +2427,7 @@ function renderTrays() {
     <div class="harvest-card card">
       <div class="harvest-header">
         <span class="harvest-icon">🔍</span>
-        <span class="harvest-label">Find &amp; Harvest</span>
+        <span class="harvest-label">${t('find_harvest')}</span>
       </div>
       <input id="tray-search" type="search" placeholder="Search tray by name (e.g. D-30)…"
         style="width:100%;margin-bottom:10px;padding:8px 10px;background:var(--surface-2,#242424);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none" />
@@ -2436,14 +2435,14 @@ function renderTrays() {
       <hr class="hr" style="margin:10px 0" />
       <div class="harvest-row">
         <select id="harvest-species">
-          <option value="all">All species</option>
+          <option value="all">${t('all_species_opt')}</option>
           ${speciesOpts}
         </select>
         <select id="harvest-stage">
-          <option value="">Stage…</option>
+          <option value="">${t('stage_opt')}</option>
           ${stageOpts}
         </select>
-        <input id="harvest-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="How many?" />
+        <input id="harvest-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="${t('how_many_q')}" />
       </div>
       <div id="harvest-results"></div>
     </div>`;
@@ -2468,7 +2467,7 @@ function renderTrays() {
     const stock = frozenStock();
     if (stock.length) {
       html += `<div class="frozen-section">
-        <h3 class="frozen-section-title">❄ Frozen Stock</h3>
+        <h3 class="frozen-section-title">${t('frozen_stock')}</h3>
         ${stock.map(({ sp, count }) => `
           <div class="frozen-card">
             <div class="frozen-card-info">
@@ -2479,7 +2478,7 @@ function renderTrays() {
           </div>`).join('')}
       </div>`;
     }
-    html += `<h2 class="section-title" style="margin:14px 0 10px">Shelves</h2>
+    html += `<h2 class="section-title" style="margin:14px 0 10px">${t('shelves_title')}</h2>
       <div class="shelf-grid">`;
     for (const shelf of shelves) {
       const trays = live('trays').filter(t => t.shelfId === shelf.id);
@@ -2799,8 +2798,8 @@ function renderMaturity() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  let html = `<div class="spread"><h2 class="section-title" style="margin:4px 0 0">Maturity timeline</h2></div>
-    <p class="small muted" style="margin-bottom:16px">How long each stage lasts and when animals born today will reach each stage.</p>`;
+  let html = `<div class="spread"><h2 class="section-title" style="margin:4px 0 0">${t('maturity_timeline')}</h2></div>
+    <p class="small muted" style="margin-bottom:16px">${t('maturity_subtitle')}</p>`;
 
   if (!list.length) {
     el.innerHTML = html + emptyState('🧬', t('es_no_species'), t('es_no_species_sub'));
@@ -2901,9 +2900,9 @@ function renderMaturity() {
 function renderSpecies() {
   const el = $('#tab-species');
   const list = live('species');
-  let html = `<div class="spread"><h2 class="section-title" style="margin:4px 0 0">Species & stage timing</h2>
-    <button class="btn sm primary" data-act="add-species">+ Species</button></div>
-    <p class="small muted">The age (in days) at which an animal <b>enters</b> each stage. All counts and forecasts are calculated from this.</p>`;
+  let html = `<div class="spread"><h2 class="section-title" style="margin:4px 0 0">${t('species_stage_timing')}</h2>
+    <button class="btn sm primary" data-act="add-species">+ ${t('tab_species')}</button></div>
+    <p class="small muted">${t('species_stage_subtitle')}</p>`;
 
   if (!list.length) html += emptyState('🧬',t('es_no_species'),t('es_no_species2_sub'));
 
@@ -3138,7 +3137,7 @@ function renderSettings() {
   const pc   = pendingCount();
 
   el.innerHTML = `
-    <h2 class="section-title" style="margin:4px 0 10px">Google Sheet sync</h2>
+    <h2 class="section-title" style="margin:4px 0 10px">${t('google_sync')}</h2>
     <div class="card">
       <label class="field">
         <span>Apps Script Web App URL</span>
@@ -3158,13 +3157,13 @@ function renderSettings() {
       <p class="small muted" style="margin:8px 0 0">Use <b>Full re-sync</b> after editing data directly in Google Sheets — the normal sync only picks up new changes.</p>
       <hr class="hr" />
       <div class="small muted">
-        <div class="spread"><span>Sync status</span><span>${syncing?'Syncing…':syncError?'Error':pc>0?`${pc} queued`:url?'Up to date':'No URL set'}</span></div>
-        <div class="spread mt"><span>Last sync</span><span>${last}</span></div>
-        <div class="spread mt"><span>Network</span><span>${navigator.onLine?'Online':'Offline'}</span></div>
+        <div class="spread"><span>${t('sync_status')}</span><span>${syncing?t('syncing'):syncError?t('sync_error'):pc>0?`${pc} ${t('sync')}`:url?t('up_to_date'):t('no_url_set')}</span></div>
+        <div class="spread mt"><span>${t('last_sync')}</span><span>${last}</span></div>
+        <div class="spread mt"><span>${t('network')}</span><span>${navigator.onLine?t('online'):t('offline')}</span></div>
       </div>
     </div>
 
-    <h2 class="section-title">Backup &amp; Export</h2>
+    <h2 class="section-title">${t('backup_export')}</h2>
     <div class="card">
       <div class="gap" style="flex-wrap:wrap">
         <button class="btn" data-act="export">Export JSON</button>
@@ -3176,13 +3175,13 @@ function renderSettings() {
       <p class="small muted mt">JSON = full backup for re-import. CSV = spreadsheet-friendly export for reporting.</p>
     </div>
 
-    <h2 class="section-title">Version history</h2>
+    <h2 class="section-title">${t('version_history')}</h2>
     <div class="card">
       <p class="small muted" style="margin:0 0 10px">A snapshot is saved automatically before every change. Restore any of the last ${HIST_MAX} saves instantly — no sync required.</p>
       <div id="version-history-list"></div>
     </div>
 
-    <h2 class="section-title">Notifications</h2>
+    <h2 class="section-title">${t('notif_section')}</h2>
     <div class="card">
       <p class="small muted" style="margin:0 0 10px">Get alerts when births are due or overdue. Requires browser permission.</p>
       <div class="gap">
@@ -3194,28 +3193,27 @@ function renderSettings() {
       </div>
     </div>
 
-    <h2 class="section-title">Population Target</h2>
+    <h2 class="section-title">${t('pop_target')}</h2>
     <div class="card">
-      <p class="small muted" style="margin:0 0 12px">Set a target so the forecast chart shows whether you're on track.</p>
       <div class="field-row" style="flex-wrap:wrap;gap:10px">
         <label class="field" style="flex:1;min-width:120px">
-          <span>Target count</span>
+          <span>${t('target_count')}</span>
           <input id="set-target-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" value="${state.meta.targetCount||''}" placeholder="e.g. 200" />
         </label>
         <label class="field" style="flex:1;min-width:120px">
-          <span>Stage</span>
+          <span>${t('stage')}</span>
           <select id="set-target-stage">
-            <option value="">Any stage</option>
+            <option value="">${t('any_stage')}</option>
             ${orderedStageNames().map(nm => `<option value="${esc(nm)}" ${state.meta.targetStage===nm?'selected':''}>${esc(nm)}</option>`).join('')}
           </select>
         </label>
         <label class="field" style="flex:1;min-width:140px">
-          <span>Target date</span>
+          <span>${t('target_date')}</span>
           <input id="set-target-date" type="date" value="${ymdToInput(state.meta.targetDate||'')}" />
         </label>
       </div>
-      <button class="btn primary" data-act="save-target" style="margin-top:8px">Save target</button>
-      ${state.meta.targetCount ? `<button class="btn" data-act="clear-target" style="margin-top:8px">Clear target</button>` : ''}
+      <button class="btn primary" data-act="save-target" style="margin-top:8px">${t('save_target')}</button>
+      ${state.meta.targetCount ? `<button class="btn" data-act="clear-target" style="margin-top:8px">${t('clear_target')}</button>` : ''}
     </div>
 
     <h2 class="section-title">${t('change_language')} / Language</h2>
@@ -3227,9 +3225,9 @@ function renderSettings() {
       </div>
     </div>
 
-    <h2 class="section-title">Danger zone</h2>
+    <h2 class="section-title">${t('danger_zone')}</h2>
     <div class="card">
-      <button class="btn danger" data-act="wipe">Erase all local data</button>
+      <button class="btn danger" data-act="wipe">${t('erase_all')}</button>
     </div>`;
 }
 
@@ -4494,7 +4492,7 @@ function renderReports() {
   const curMonth = now.getMonth(); // 0-based
 
   if (!live('cohorts').length) {
-    el.innerHTML = `<h2 class="section-title" style="margin:4px 0 20px">Reports</h2>` +
+    el.innerHTML = `<h2 class="section-title" style="margin:4px 0 20px">${t('tab_reports')}</h2>` +
       emptyState('&#128202;', t('es_no_data'), t('es_no_data_sub'));
     return;
   }
@@ -4531,7 +4529,7 @@ function renderReports() {
   }
   const sexRatioLine = (totalMales + totalFemales > 0)
     ? `<div class="spread rpt-sex-row">
-         <span class="small muted">Overall sex ratio</span>
+         <span class="small muted">${t('overall_sex_ratio')}</span>
          <span class="small">&#9794; ${totalMales} &nbsp;&#9792; ${totalFemales}
            ${totalMales && totalFemales ? `<span class="muted"> &nbsp;1 : ${(totalFemales/totalMales).toFixed(1)}</span>` : ''}</span>
        </div>` : '';
@@ -4639,36 +4637,36 @@ function renderReports() {
   const deathRateLabel = deathRate < 1 ? 'excellent' : deathRate < 3 ? 'monitor' : 'high — investigate';
 
   const prodHtml = `
-    <h2 class="section-title" style="margin:0 0 10px">Productivity</h2>
+    <h2 class="section-title" style="margin:0 0 10px">${t('productivity')}</h2>
     <div class="card" style="margin-bottom:20px">
       <div class="rpt-prod-grid">
         ${avgLitterSize != null ? `
         <div class="rpt-prod-item">
           <span class="rpt-prod-n" style="color:var(--accent)">${avgLitterSize.toFixed(1)}</span>
-          <span class="rpt-prod-l">Avg litter size</span>
+          <span class="rpt-prod-l">${t('avg_litter_size')}</span>
           <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, avgLitterSize/15*100).toFixed(0)}%;background:var(--accent)"></div></div>
         </div>` : ''}
         ${yieldRate != null ? `
         <div class="rpt-prod-item">
           <span class="rpt-prod-n" style="color:var(--ok)">${yieldRate.toFixed(1)}<span style="font-size:14px;font-weight:500">%</span></span>
-          <span class="rpt-prod-l">Yield rate (fed / alive)</span>
+          <span class="rpt-prod-l">${t('yield_rate')}</span>
           <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, yieldRate*3).toFixed(0)}%;background:var(--ok)"></div></div>
         </div>` : ''}
         <div class="rpt-prod-item">
           <span class="rpt-prod-n" style="color:#2dd4bf">${totalFrozenStock}</span>
-          <span class="rpt-prod-l">Freezer stock</span>
+          <span class="rpt-prod-l">${t('freezer_stock')}</span>
           <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, totalFrozenStock/200*100).toFixed(0)}%;background:#2dd4bf"></div></div>
         </div>
         ${avgHarvestAge != null ? `
         <div class="rpt-prod-item">
           <span class="rpt-prod-n" style="color:var(--info,#818cf8)">${avgHarvestAge}<span style="font-size:14px;font-weight:500">d</span></span>
-          <span class="rpt-prod-l">Avg age at harvest</span>
+          <span class="rpt-prod-l">${t('avg_harvest_age')}</span>
           <div class="rpt-prod-bar"><div class="rpt-prod-fill" style="width:${Math.min(100, avgHarvestAge/90*100).toFixed(0)}%;background:var(--info,#818cf8)"></div></div>
         </div>` : ''}
       </div>
       <hr class="hr" style="margin:14px 0" />
       <div style="display:flex;align-items:center;gap:10px">
-        <span class="small" style="color:var(--muted);white-space:nowrap;min-width:70px">Death rate</span>
+        <span class="small" style="color:var(--muted);white-space:nowrap;min-width:70px">${t('death_rate')}</span>
         <div style="flex:1;background:var(--surface-2);border-radius:4px;height:8px;overflow:hidden">
           <div style="width:${deathBarPct.toFixed(1)}%;background:${deathRateColor};height:100%;border-radius:4px;transition:width .4s"></div>
         </div>
@@ -4739,19 +4737,19 @@ function renderReports() {
   /* ── Render ───────────────────────────────────────────────────── */
   el.innerHTML = `
     <!-- ① Colony Snapshot -->
-    <h2 class="section-title" style="margin:4px 0 14px">Colony Snapshot &mdash; ${MONTH_NAMES[curMonth]} ${curYear}</h2>
+    <h2 class="section-title" style="margin:4px 0 14px">${t('colony_snapshot', MONTH_NAMES[curMonth], curYear)}</h2>
     <div class="card" style="margin-bottom:20px">
       <div class="rpt-total-row">
         <span class="rpt-total-n">${total.toLocaleString()}</span>
-        <span class="small muted">total alive</span>
+        <span class="small muted">${t('total_alive')}</span>
       </div>
       <div class="rpt-pills-grid">${stagePills}</div>
       <hr class="hr" />
       <div class="rpt-month-grid">
-        <div class="rpt-mstat"><span class="rpt-mstat-n ok">${birthsThisMonth}</span><span class="rpt-mstat-l">Births</span></div>
-        <div class="rpt-mstat"><span class="rpt-mstat-n danger">${deaths}</span><span class="rpt-mstat-l">Deaths</span></div>
-        <div class="rpt-mstat"><span class="rpt-mstat-n" style="color:var(--accent)">${harvested}</span><span class="rpt-mstat-l">Harvested</span></div>
-        <div class="rpt-mstat"><span class="rpt-mstat-n" style="color:#2dd4bf">${frozenThisMonth}</span><span class="rpt-mstat-l">Frozen</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n ok">${birthsThisMonth}</span><span class="rpt-mstat-l">${t('births_label')}</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n danger">${deaths}</span><span class="rpt-mstat-l">${t('deaths_label')}</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n" style="color:var(--accent)">${harvested}</span><span class="rpt-mstat-l">${t('harvested_label')}</span></div>
+        <div class="rpt-mstat"><span class="rpt-mstat-n" style="color:#2dd4bf">${frozenThisMonth}</span><span class="rpt-mstat-l">${t('frozen_label')}</span></div>
       </div>
       ${sexRatioLine ? `<hr class="hr" />${sexRatioLine}` : ''}
     </div>
@@ -4761,22 +4759,22 @@ function renderReports() {
 
     <!-- ③ Removals & Deaths -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 12px">
-      <h2 class="section-title" style="margin:0">Removals &amp; Deaths</h2>
+      <h2 class="section-title" style="margin:0">${t('removals_deaths')}</h2>
       ${state.meta.scriptUrl ? `<button class="btn sm" data-act="pull-sheets" style="flex-shrink:0">&#8635; Pull from sheet</button>` : ''}
     </div>
     <div class="card" style="margin-bottom:16px">${remTable}</div>
 
     <!-- ② Deaths by Cause (this month) -->
-    <h2 class="section-title" style="margin:0 0 10px">Deaths by Cause — ${MONTH_NAMES[curMonth]}</h2>
+    <h2 class="section-title" style="margin:0 0 10px">${t('deaths_by_cause', MONTH_NAMES[curMonth])}</h2>
     <div class="card" style="margin-bottom:20px">${deathTable}</div>
 
     <!-- ③ Species Breakdown -->
     ${live('species').length ? `
-    <h2 class="section-title" style="margin:0 0 12px">Species Breakdown</h2>
+    <h2 class="section-title" style="margin:0 0 12px">${t('species_breakdown')}</h2>
     <div class="rpt-sp-grid" style="margin-bottom:20px">${spCards || '<div class="card"><p class="small muted" style="margin:0">No live animals.</p></div>'}</div>` : ''}
 
     <!-- ④ Auto-Reports & Email -->
-    <h2 class="section-title" style="margin:0 0 12px">Auto-Reports &amp; Email</h2>
+    <h2 class="section-title" style="margin:0 0 12px">${t('auto_reports')}</h2>
     <div class="card">
       <label class="field" style="margin-bottom:6px">
         <span>Email recipients</span>
