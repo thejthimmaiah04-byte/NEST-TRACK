@@ -2755,7 +2755,7 @@ function renderCalendar() {
             <div class="cal-ev-sub">${esc(e.sub)}</div>
           </div>
         </div>`).join('')
-    : `<p class="muted small" style="margin:0;padding:6px 0">No events on this day.</p>`;
+    : `<p class="muted small" style="margin:0;padding:6px 0">${t('no_events_day')}</p>`;
 
   // Legend — count animals, not events
   const allEvs = Object.values(evMap).flat();
@@ -2783,11 +2783,11 @@ function renderCalendar() {
     </div>
 
     <div class="legend" style="margin-top:14px">
-      <span class="lg"><span class="sw" style="background:var(--ok)"></span>Births (${totalBirths})</span>
-      ${totalIntakes > 0 ? `<span class="lg"><span class="sw" style="background:#60a5fa"></span>Intake (${totalIntakes})</span>` : ''}
-      ${totalDeaths > 0 ? `<span class="lg"><span class="sw" style="background:#dc2626"></span>Deaths (${totalDeaths})</span>` : ''}
-      ${totalRemovals > 0 ? `<span class="lg"><span class="sw" style="background:#f97316"></span>Removed (${totalRemovals})</span>` : ''}
-      ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>Expected birth (${totalPredicted})</span>` : ''}
+      <span class="lg"><span class="sw" style="background:var(--ok)"></span>${t('births_label')} (${totalBirths})</span>
+      ${totalIntakes > 0 ? `<span class="lg"><span class="sw" style="background:#60a5fa"></span>${t('intake_label')} (${totalIntakes})</span>` : ''}
+      ${totalDeaths > 0 ? `<span class="lg"><span class="sw" style="background:#dc2626"></span>${t('deaths_label')} (${totalDeaths})</span>` : ''}
+      ${totalRemovals > 0 ? `<span class="lg"><span class="sw" style="background:#f97316"></span>${t('removed_label')} (${totalRemovals})</span>` : ''}
+      ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>${t('expected_birth')} (${totalPredicted})</span>` : ''}
     </div>`;
 }
 
