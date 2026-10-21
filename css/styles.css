@@ -197,8 +197,8 @@ html, body {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   /* Fade mask — signals more tabs are scrollable */
-  -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
-  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 .tabs {
   display: flex; gap: 2px; padding: 7px 12px;
