@@ -1123,7 +1123,7 @@ function renderDashboard() {
         </div>`;
       return;
     }
-    el.innerHTML = emptyState('🪹','No litters logged yet',
+    el.innerHTML = emptyState('🪹',t('es_no_litters'),
       'Go to the <b>Trays</b> tab and add a litter to a tray to start tracking.');
     return;
   }
@@ -1581,7 +1581,7 @@ function wireForeCastHover() {
 function renderCharts() {
   const el = $('#tab-charts');
   if (live('cohorts').length === 0) {
-    el.innerHTML = emptyState('📊', 'No data yet',
+    el.innerHTML = emptyState('📊', t('es_no_data'),
       'Add animals to your trays to start seeing charts.');
     return;
   }
@@ -1758,8 +1758,8 @@ function openRemoveByStage(stageName, stageIdx) {
       const needed = parseInt($('#rbs-count', root).value, 10);
       const reason = $('.reason-btn.active', root)?.dataset.reason || 'Feeding';
       const date   = $('#rbs-date', root).value || todayISO();
-      if (!isValidDate(date)) return toast('Invalid date — check year', true);
-      if (!needed || needed < 1) return toast('Enter a count', true);
+      if (!isValidDate(date)) return toast(t('invalid_date'), true);
+      if (!needed || needed < 1) return toast(t('enter_count'), true);
       _rbsShowTrays(stageName, stageIdx, needed, reason, undefined, date);
     };
     $('#rbs-next', root).onclick = go;
@@ -1899,7 +1899,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
 
     $('#rbst-save', root).onclick = () => {
       const n = parseInt($('#rbst-count', root).value, 10);
-      if (!n || n < 1)  return toast('Enter a count', true);
+      if (!n || n < 1)  return toast(t('enter_count'), true);
       if (n > avail)    return toast(`Max ${avail} available in this tray`, true);
 
       const mRaw = $('#rbst-m', root)?.value;
@@ -2042,7 +2042,7 @@ function useFrozenModal(stage) {
     $('#frozen-use-count', root).focus();
     $('[data-save]', root).onclick = () => {
       const n = Number($('#frozen-use-count', root).value);
-      if (!n || n < 1) return toast('Enter a count', true);
+      if (!n || n < 1) return toast(t('enter_count'), true);
       if (n > available) return toast(`Only ${available} frozen available`, true);
       // find a speciesId from any matching frozen removal
       const spId = live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)
@@ -2128,11 +2128,11 @@ function addToFreezerModal() {
   const allStages = orderedStageNames().filter(s =>
     live('cohorts').some(c => cohortNet(c) > 0 && stageIndexAt(c, today).name === s)
   );
-  if (!allStages.length) return toast('No trays with live animals', true);
+  if (!allStages.length) return toast(t('no_live_trays'), true);
 
   const stageOpts = allStages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
 
-  openModal('Freeze from Tray', `
+  openModal(t('freeze_from_tray'), `
     <div class="reason-btns fz-sex-row">
       <button class="reason-btn" data-sex="Male">♂ Male</button>
       <button class="reason-btn active" data-sex="Both">Both</button>
@@ -2267,7 +2267,7 @@ function renderFreezer() {
   }
 
   if (!stageList.length) {
-    el.innerHTML = emptyState('❄', 'Freezer is empty', 'Remove animals from a tray with reason <b>Frozen</b> to add them here.');
+    el.innerHTML = emptyState('❄', t('es_freezer'), t('es_freezer_sub'));
     return;
   }
 
@@ -2303,7 +2303,7 @@ function quickTrayRemoval(trayId) {
   // Adult count from sex tally (authoritative) or cohort fallback
   const adultRemCount = trayAdultCount(tray, sp);
   if (adultRemCount > 0 && lastStageName) stageMap.set(lastStageName, adultRemCount);
-  if (!stageMap.size) return toast('No live animals in this tray', true);
+  if (!stageMap.size) return toast(t('no_live_animals'), true);
 
   const stageOpts = [...stageMap.entries()]
     .map(([nm, cnt]) => `<option value="${esc(nm)}">${esc(nm)} (${cnt} available)</option>`)
@@ -2367,9 +2367,9 @@ function quickTrayRemoval(trayId) {
       const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
       const photoFile = reason === 'Dead' ? ($('#death-photo', root)?.files?.[0] || null) : null;
       const qDate = $('#qtr-date', root).value || todayISO();
-      if (!isValidDate(qDate)) return toast('Invalid date — check year', true);
+      if (!isValidDate(qDate)) return toast(t('invalid_date'), true);
       const avail = stageMap.get(stageName) || 0;
-      if (!n || n < 1) return toast('Enter a count', true);
+      if (!n || n < 1) return toast(t('enter_count'), true);
       if (n > avail) return toast(`Only ${avail} available in this stage`, true);
 
       const isAdultRem = stageName === lastStageName;
@@ -2449,7 +2449,7 @@ function renderTrays() {
     </div>`;
 
   if (!shelves.length) {
-    html += emptyState('🗄️', 'No shelves yet', 'Tap + to add your first shelf and trays.');
+    html += emptyState('🗄️', t('es_no_shelves'), t('es_no_shelves_sub'));
     el.innerHTML = html;
     const spEl2    = $('#harvest-species', el);
     const stageEl2 = $('#harvest-stage', el);
@@ -2803,7 +2803,7 @@ function renderMaturity() {
     <p class="small muted" style="margin-bottom:16px">How long each stage lasts and when animals born today will reach each stage.</p>`;
 
   if (!list.length) {
-    el.innerHTML = html + emptyState('🧬', 'No species defined', 'Add a species under the Species tab to see its maturity timeline.');
+    el.innerHTML = html + emptyState('🧬', t('es_no_species'), t('es_no_species_sub'));
     return;
   }
 
@@ -2905,7 +2905,7 @@ function renderSpecies() {
     <button class="btn sm primary" data-act="add-species">+ Species</button></div>
     <p class="small muted">The age (in days) at which an animal <b>enters</b> each stage. All counts and forecasts are calculated from this.</p>`;
 
-  if (!list.length) html += emptyState('🧬','No species defined','Add a species and its stage day-thresholds.');
+  if (!list.length) html += emptyState('🧬',t('es_no_species'),t('es_no_species2_sub'));
 
   for (const sp of list) {
     const stages = [...(sp.stages||[])].sort((a,b)=>a.startDay-b.startDay);
@@ -2965,7 +2965,7 @@ function renderRecentlyDeleted() {
       </div>
     </div>`;
   }).join('');
-  openModal('Recently deleted', `
+  openModal(t('recently_deleted'), `
     <p class="small muted" style="margin-bottom:12px">Records deleted within the last 30 days. Restoring re-adds them to the live app.</p>
     <div class="deleted-list">${rows}</div>
   `);
@@ -2976,9 +2976,9 @@ function requestNotificationPermission() {
   Notification.requestPermission().then(p => {
     state.meta.notificationsGranted = p === 'granted';
     saveState();
-    if (p === 'granted') toast('Notifications enabled');
-    else if (p === 'denied') toast('Notifications blocked — enable in browser settings', true);
-    else toast('Notification permission dismissed');
+    if (p === 'granted') toast(t('notif_enabled'));
+    else if (p === 'denied') toast(t('notif_blocked'), true);
+    else toast(t('notif_dismissed'));
     renderSettings();
   });
 }
@@ -3218,6 +3218,15 @@ function renderSettings() {
       ${state.meta.targetCount ? `<button class="btn" data-act="clear-target" style="margin-top:8px">Clear target</button>` : ''}
     </div>
 
+    <h2 class="section-title">${t('change_language')} / Language</h2>
+    <div class="card">
+      <p class="small muted" style="margin:0 0 12px">Currently: <b>${getLang() === 'kn' ? 'ಕನ್ನಡ' : 'English'}</b></p>
+      <div class="gap">
+        <button class="btn${getLang()==='en'?' primary':''}" onclick="selectLang('en')">English</button>
+        <button class="btn kn${getLang()==='kn'?' primary':''}" onclick="selectLang('kn')">ಕನ್ನಡ</button>
+      </div>
+    </div>
+
     <h2 class="section-title">Danger zone</h2>
     <div class="card">
       <button class="btn danger" data-act="wipe">Erase all local data</button>
@@ -3272,7 +3281,7 @@ function toast(msg, isErr = false) {
 /* ----- Shelf ----- */
 function shelfModal(existing) {
   // rename-only — creation goes through newShelfModal()
-  openModal('Rename shelf', `
+  openModal(t('rename_shelf'), `
     <label class="field"><span>Shelf name</span>
       <input id="f-name" value="${esc(existing.name||'')}" placeholder="e.g. A or Top Rack" /></label>
     <button class="btn primary block" data-save>Save</button>
@@ -3280,7 +3289,7 @@ function shelfModal(existing) {
     $('#f-name', root).focus();
     $('[data-save]', root).onclick = () => {
       const name = $('#f-name', root).value.trim();
-      if (!name) return toast('Enter a name', true);
+      if (!name) return toast(t('enter_name'), true);
       const duplicate = live('shelves').find(s => s.id !== existing.id && s.name.toLowerCase() === name.toLowerCase());
       if (duplicate) return toast(`A shelf named "${name}" already exists`, true);
       existing.name = name; touch('shelves', existing);
@@ -3295,7 +3304,7 @@ function newShelfModal() {
   const speciesField = speciesList.length
     ? `<label class="field"><span>Species for all trays</span><select id="f-species">${opts}</select></label>`
     : `<p class="small muted" style="margin:0 0 14px">No species yet — you can set species per tray later.</p>`;
-  openModal('Add shelf', `
+  openModal(t('add_shelf'), `
     <label class="field"><span>Shelf name</span>
       <input id="f-shelf-name" placeholder="e.g. A or Top Rack" /></label>
     ${speciesField}
@@ -3308,9 +3317,9 @@ function newShelfModal() {
       const name = $('#f-shelf-name', root).value.trim();
       const speciesId = speciesList.length ? ($('#f-species', root)?.value || null) : null;
       const trayCount = parseInt($('#f-tray-count', root).value, 10);
-      if (!name)                             return toast('Enter a shelf name', true);
+      if (!name)                             return toast(t('enter_shelf_name'), true);
       if (live('shelves').some(s => s.name.toLowerCase() === name.toLowerCase())) return toast(`A shelf named "${name}" already exists`, true);
-      if (!trayCount || trayCount < 1 || trayCount > 100) return toast('Enter 1–100 trays', true);
+      if (!trayCount || trayCount < 1 || trayCount > 100) return toast(t('enter_1_100'), true);
       const shelf = rec('shelves', { name, sortOrder: live('shelves').length });
       upsertLocal('shelves', shelf); touch('shelves', shelf);
       for (let i = 0; i < trayCount; i++) {
@@ -3347,7 +3356,7 @@ function addTraysToShelfModal(shelfId) {
     $('[data-save]', root).onclick = () => {
       const count = parseInt($('#f-count', root).value, 10);
       const speciesId = speciesList.length ? ($('#f-species', root)?.value || null) : null;
-      if (!count || count < 1 || count > 100) return toast('Enter 1–100', true);
+      if (!count || count < 1 || count > 100) return toast(t('enter_1_100_b'), true);
       for (let i = 0; i < count; i++) {
         const trayId = genTrayId(shelfId);
         const tray = rec('trays', { id: trayId, shelfId, name: trayId, speciesId });
@@ -3375,7 +3384,7 @@ function showTrayFabMenu() {
   document.getElementById('fmi-tray').onclick  = () => {
     menu.remove();
     if (!selectedShelfId || !byId('shelves', selectedShelfId)) {
-      toast('Select a shelf first', true); return;
+      toast(t('select_shelf'), true); return;
     }
     addTraysToShelfModal(selectedShelfId);
   };
@@ -3386,14 +3395,14 @@ function showTrayFabMenu() {
 /* ----- Tray ----- */
 function trayModal(shelfId, existing) {
   const speciesList = live('species');
-  if (!speciesList.length) return toast('Add a species first', true);
+  if (!speciesList.length) return toast(t('no_species_first'), true);
   const t = existing || {};
   const suggestedId = existing ? existing.id : genTrayId(shelfId); // e.g. "A-1"
   // If tray's speciesId doesn't match any live species, fall back to first
   const resolvedSpeciesId = speciesList.find(s => s.id === t.speciesId)?.id || speciesList[0]?.id;
   const opts = speciesList.map(s =>
     `<option value="${s.id}" ${s.id===resolvedSpeciesId?'selected':''}>${esc(s.name)} [${esc(s.id)}]</option>`).join('');
-  openModal(existing?'Edit tray':'Add tray', `
+  openModal(existing?t('edit_tray'):t('add_tray'), `
     <label class="field"><span>Tray name</span>
       <input id="f-name" value="${esc(t.name || suggestedId)}" placeholder="e.g. A-1" /></label>
     <label class="field"><span>Species</span>
@@ -3404,7 +3413,7 @@ function trayModal(shelfId, existing) {
     $('[data-save]', root).onclick = () => {
       const name = $('#f-name', root).value.trim();
       const speciesId = $('#f-species', root).value;
-      if (!name) return toast('Enter a name', true);
+      if (!name) return toast(t('enter_name'), true);
       if (existing) { existing.name=name; existing.speciesId=speciesId; touch('trays',existing); }
       else { const r=rec('trays',{id:suggestedId, shelfId, name, speciesId}); upsertLocal('trays',r); touch('trays',r); }
       closeModal(); render();
@@ -3618,7 +3627,7 @@ function trayDetailModal(trayId) {
         tray.lactatingFemales = l;
         tray.gravidSince = g > 0 ? ($('#f-gravid-since', root)?.value || '') : '';
         touch('trays', tray);
-        toast('Status saved');
+        toast(t('status_saved'));
         closeModal(); trayDetailModal(trayId); render();
       };
     }
@@ -3629,7 +3638,7 @@ function trayDetailModal(trayId) {
       saveNotesBtn.onclick = () => {
         tray.notes = $('#tray-notes-input', root).value.trim();
         touch('trays', tray);
-        toast('Notes saved');
+        toast(t('notes_saved'));
       };
     }
   });
@@ -3690,7 +3699,7 @@ function removeFromStageModal(trayId, stageName) {
       const n = parseInt($('#rsm-count', root).value, 10);
       const qDate = $('#rsm-date', root).value || todayISO();
       if (!isValidDate(qDate)) return toast('Invalid date', true);
-      if (!n || n < 1) return toast('Enter a count', true);
+      if (!n || n < 1) return toast(t('enter_count'), true);
       if (n > available) return toast(`Only ${available} available`, true);
 
       const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Feeding';
@@ -3743,7 +3752,7 @@ function removeFromStageModal(trayId, stageName) {
 function litterModal(trayId) {
   const tray = byId('trays', trayId);
   const sp = speciesOf(tray);
-  openModal('Add litter', `
+  openModal(t('add_litter_title'), `
     <p class="small muted">Into <b>${esc(tray.name)}</b> (${sp?esc(sp.name):'—'})</p>
     <div class="field-row">
       <label class="field"><span>Birth date</span><input id="f-date" type="date" value="${todayISO()}" /></label>
@@ -3758,11 +3767,11 @@ function litterModal(trayId) {
       const birthDate = $('#f-date', root).value;
       const initialCount = Number($('#f-count', root).value);
       const notes = $('#f-notes', root).value.trim();
-      if (!birthDate) return toast('Pick a birth date', true);
-      if (!initialCount || initialCount <= 0) return toast('Enter a count', true);
+      if (!birthDate) return toast(t('pick_birth_date'), true);
+      if (!initialCount || initialCount <= 0) return toast(t('enter_count'), true);
       const r = rec('cohorts',{trayId, speciesId:tray.speciesId, birthDate, initialCount, notes, type:'birth'});
       upsertLocal('cohorts',r); touch('cohorts',r);
-      toast('Litter added');
+      toast(t('litter_added'));
       closeModal(); trayDetailModal(trayId); render();
     };
   });
@@ -3773,7 +3782,7 @@ function intakeModal(trayId, preStage) {
   const tray = byId('trays', trayId);
   if (!tray) return;
   const sp = speciesOf(tray);
-  if (!sp?.stages?.length) return toast('No stages defined for this species', true);
+  if (!sp?.stages?.length) return toast(t('no_stages_sp'), true);
 
   const stages = [...sp.stages].sort((a, b) => a.startDay - b.startDay);
 
@@ -3894,7 +3903,7 @@ function editCohortModal(cohortId, trayId) {
   const tray = byId('trays', trayId);
   const net = cohortNet(c);
   const alreadyRemoved = (Number(c.initialCount) || 0) - net;
-  openModal('Edit litter', `
+  openModal(t('edit_litter'), `
     <p class="small muted" style="margin-bottom:14px">In <b>${esc(tray?.name || '')}</b></p>
     <div class="field-row">
       <label class="field"><span>Birth date</span>
@@ -3920,8 +3929,8 @@ function editCohortModal(cohortId, trayId) {
       const fVal = $('#f-females', root).value;
       const males   = mVal !== '' ? Number(mVal) : null;
       const females = fVal !== '' ? Number(fVal) : null;
-      if (!birthDate) return toast('Pick a birth date', true);
-      if (!initialCount || initialCount <= 0) return toast('Enter a count', true);
+      if (!birthDate) return toast(t('pick_birth_date'), true);
+      if (!initialCount || initialCount <= 0) return toast(t('enter_count'), true);
       if (initialCount < alreadyRemoved) return toast(`${alreadyRemoved} already removed — count must be at least ${alreadyRemoved}`, true);
       if (males !== null && females !== null && males + females > initialCount)
         return toast(`♂ + ♀ (${males + females}) exceeds count (${initialCount})`, true);
@@ -3950,7 +3959,7 @@ function speciesModal(existing) {
       <button class="icon-btn" data-del-stage="${i}">✕</button>
     </div>`).join('');
 
-  openModal(existing?'Edit species':'Add species', `
+  openModal(existing?t('edit_species'):t('add_species'), `
     <label class="field"><span>Species name</span>
       <input id="f-name" value="${esc(sp.name)}" placeholder="e.g. Mouse, Rat, Quail" /></label>
     <label class="field"><span>Species ID <span class="muted" style="font-weight:400;font-size:11px">(used to link trays — edit only to fix a mismatch)</span></span>
@@ -4200,7 +4209,7 @@ function cascadeDeleteTray(trayId) {
 }
 
 function confirmDelete(what, fn) {
-  openModal('Confirm delete', `
+  openModal(t('confirm_del'), `
     <p>Delete this ${esc(what)}? This cannot be undone.</p>
     <div class="gap mt">
       <button class="btn danger" data-yes>Delete</button>
@@ -4375,7 +4384,7 @@ async function uploadChanges() {
 
   const pc = pendingCount();
   if (pc === 0) {
-    toast('No pending changes — refreshing from Google Sheets…');
+    toast(t('no_pending'));
     pullFromSheets();
     return;
   }
@@ -4448,12 +4457,12 @@ function renderSync() {
   const pc = pendingCount();
   let cls='dot', label;
   let syncEl = dot.closest('.sync') || txt.closest('.sync');
-  if (!state.meta.scriptUrl) { cls+=' pending'; label='Local only'; }
-  else if (syncing)           { cls+=' syncing'; label='Syncing…'; }
-  else if (!navigator.onLine) { cls+=' offline';  label=pc?`Offline · ${pc} unsaved`:'Offline'; }
-  else if (syncError)         { cls+=' error';    label='Sync error'; }
-  else if (pc > 0)            { cls+=' pending';  label=`${pc} unsaved`; }
-  else                        { cls+=' ok';       label='Up to date'; }
+  if (!state.meta.scriptUrl) { cls+=' pending'; label=t('local_only'); }
+  else if (syncing)           { cls+=' syncing'; label=t('syncing'); }
+  else if (!navigator.onLine) { cls+=' offline';  label=pc?t('offline_n_unsaved',pc):t('offline'); }
+  else if (syncError)         { cls+=' error';    label=t('sync_error'); }
+  else if (pc > 0)            { cls+=' pending';  label=t('n_unsaved',pc); }
+  else                        { cls+=' ok';       label=t('up_to_date'); }
   dot.className=cls; txt.textContent=label;
   if (syncEl) syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
 
@@ -4464,7 +4473,7 @@ function renderSync() {
     const showBanner = pc > 0 && state.meta.scriptUrl;
     banner.hidden = !showBanner;
     if (showBanner) {
-      bannerTxt.textContent = `${pc} unsaved change${pc !== 1 ? 's' : ''} — upload before closing`;
+      bannerTxt.textContent = t('pending_banner', pc, pc !== 1 ? 's' : '');
     }
   }
 
@@ -4474,8 +4483,8 @@ function renderSync() {
 /* ------------------------------------------------------------------ *
  *  Reports
  * ------------------------------------------------------------------ */
-const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+let MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 let _reportHTML = '';
 
 function renderReports() {
@@ -4486,7 +4495,7 @@ function renderReports() {
 
   if (!live('cohorts').length) {
     el.innerHTML = `<h2 class="section-title" style="margin:4px 0 20px">Reports</h2>` +
-      emptyState('&#128202;', 'No data yet', 'Add species and litters first, then come back here for your colony summary.');
+      emptyState('&#128202;', t('es_no_data'), t('es_no_data_sub'));
     return;
   }
 
@@ -5355,6 +5364,43 @@ function checkAutoReport() {
 /* ------------------------------------------------------------------ *
  *  Boot
  * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ *  i18n — apply current language to static DOM elements
+ * ------------------------------------------------------------------ */
+function applyTranslations() {
+  // Tab buttons (nav bar)
+  $$('[data-tab]').forEach(el => {
+    const key = 'tab_' + el.dataset.tab;
+    if (I18N[key]) el.textContent = t(key);
+  });
+  // "More ···" button
+  const moreBtn = document.getElementById('tab-more-btn');
+  if (moreBtn) moreBtn.textContent = t('tab_more');
+  // More-sheet item labels
+  $$('.more-item span').forEach(span => {
+    const tab = span.closest('.more-item')?.dataset.tab;
+    if (tab && I18N['tab_' + tab]) span.textContent = t('tab_' + tab);
+  });
+  // "More sections" heading
+  const moreLabel = document.querySelector('.more-sheet-label');
+  if (moreLabel) moreLabel.textContent = t('more_sections');
+  // Pending-banner upload button
+  $$('[data-act="upload-changes"]').forEach(btn => { btn.textContent = t('upload_changes'); });
+  // Notifications panel title
+  const notifTitle = document.querySelector('.notif-panel-title');
+  if (notifTitle) notifTitle.textContent = t('tab_notifications');
+  // Tray search placeholder
+  const traySearch = document.getElementById('tray-search');
+  if (traySearch) traySearch.placeholder = t('search_trays');
+  // Update month arrays for reports/charts
+  MONTH_NAMES = [t('mon_jan'),t('mon_feb'),t('mon_mar'),t('mon_apr'),t('mon_may'),t('mon_jun'),
+                 t('mon_jul'),t('mon_aug'),t('mon_sep'),t('mon_oct'),t('mon_nov'),t('mon_dec')];
+  MONTH_SHORT = [t('mon_jan_s'),t('mon_feb_s'),t('mon_mar_s'),t('mon_apr_s'),t('mon_may_s'),t('mon_jun_s'),
+                 t('mon_jul_s'),t('mon_aug_s'),t('mon_sep_s'),t('mon_oct_s'),t('mon_nov_s'),t('mon_dec_s')];
+  // Set html lang attribute for CSS font targeting
+  document.documentElement.lang = getLang();
+}
+
 function init() {
   loadState();
   migrateTraySexData();
@@ -5395,9 +5441,10 @@ function init() {
   }, AUTO_PULL_MS);
 
   render();
+  applyTranslations();
   if (state.meta.scriptUrl && navigator.onLine) {
     if (!state.meta.lastSync) {
-      toast('Loading data from Google Sheets…');
+      toast(t('loading_sheets'));
       pullFromSheets(0); // fresh/wiped device — pull everything, never pushes
     } else {
       pullFromSheets(); // normal: pull changes since lastSync
@@ -5467,7 +5514,7 @@ function init() {
       if (dy > 10) {
         const ind = getPtr();
         ind.style.opacity = Math.min(dy / 72, 1);
-        ind.textContent = dy > 72 ? '↻ Release to sync' : '↻ Pull to sync';
+        ind.textContent = dy > 72 ? t('ptr_release') : t('ptr_pull');
       }
     }, { passive: true });
     appEl.addEventListener('touchend', e => {
@@ -5477,8 +5524,8 @@ function init() {
       if (ptr) ptr.style.opacity = '0';
       if (dy > 72) {
         if (state.meta.scriptUrl && navigator.onLine) {
-          toast('Syncing…');
-          pullFromSheets().then(() => toast('Sync complete'));
+          toast(t('syncing'));
+          pullFromSheets().then(() => toast(t('sync_ok')));
         } else if (pendingCount() > 0) {
           uploadChanges();
         } else {
@@ -5502,12 +5549,12 @@ function init() {
         if (navigator.vibrate) navigator.vibrate(60);
         const tray = byId('trays', trayId);
         if (!tray) return;
-        openModal(tray.name || 'Tray', `
-          <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Quick actions</p>
+        openModal(tray.name || t('tray'), `
+          <p style="color:var(--muted);font-size:13px;margin-bottom:16px">${t('quick_actions')}</p>
           <div style="display:flex;flex-direction:column;gap:10px">
-            <button class="btn" data-act="open-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">Open tray detail</button>
-            <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">✎ Edit tray</button>
-            <button class="btn danger" data-act="del-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">Delete tray</button>
+            <button class="btn" data-act="open-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">${t('open_tray_detail')}</button>
+            <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">${t('edit_tray_btn')}</button>
+            <button class="btn danger" data-act="del-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">${t('del_tray')}</button>
           </div>`);
       }, 500);
     }, { passive: true });
@@ -5523,4 +5570,11 @@ function init() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  if (!localStorage.getItem('rbm.lang')) {
+    // First open — show language picker; init() fires inside selectLang()
+    document.getElementById('lang-picker').hidden = false;
+  } else {
+    init();
+  }
+});

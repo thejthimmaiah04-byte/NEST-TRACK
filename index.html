@@ -13,8 +13,8 @@
   <link rel="icon" href="icons/icon.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/styles.css?v=105" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Kannada:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css?v=106" />
 </head>
 <body>
   <header class="topbar">
@@ -88,6 +88,27 @@
 
   <div id="toast" class="toast" hidden></div>
 
+  <!-- Language picker — shown on first open if rbm.lang is not set -->
+  <div id="lang-picker" class="lang-picker-screen" hidden>
+    <div class="lang-picker-card">
+      <img src="RODENT APP LOGO.jpg" class="lang-picker-logo" alt="RAT-TRACK" />
+      <h1 class="lang-picker-title">RAT-TRACK</h1>
+      <p class="lang-picker-tagline">Rodent Breeding Monitor</p>
+      <div class="lang-picker-rule"></div>
+      <p class="lang-picker-prompt">Choose your language · ನಿಮ್ಮ ಭಾಷೆ ಆಯ್ಕೆ ಮಾಡಿ</p>
+      <div class="lang-picker-btns">
+        <button class="lang-btn" onclick="selectLang('en')">
+          <span class="lang-btn-name">English</span>
+          <span class="lang-btn-sub">Continue in English</span>
+        </button>
+        <button class="lang-btn" onclick="selectLang('kn')">
+          <span class="lang-btn-name">ಕನ್ನಡ</span>
+          <span class="lang-btn-sub">ಕನ್ನಡದಲ್ಲಿ ಮುಂದುವರಿಸಿ</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- More sheet (H-02) -->
   <div id="more-sheet" class="more-sheet" hidden>
     <div class="more-sheet-backdrop" id="more-sheet-bd"></div>
@@ -129,6 +150,7 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=105"></script>
+  <script src="js/i18n.js?v=106"></script>
+  <script src="js/app.js?v=106"></script>
 </body>
 </html>
