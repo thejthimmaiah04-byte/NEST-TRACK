@@ -258,7 +258,7 @@ const I18N = {
   removed_label:     { en: 'Removed',                   kn: 'ತೆಗೆದ' },
   expected_birth:    { en: 'Expected birth',            kn: 'ನಿರೀಕ್ಷಿತ ಜನನ' },
   harvested_label:   { en: 'Harvested',                 kn: 'ಕಟಾವು' },
-  frozen_label:      { en: 'Frozen',                    kn: 'ಫ್ರೋಜನ್' },
+  frozen_label:      { en: 'Freeze',                    kn: 'ಫ್ರೀಜ್ ಮಾಡಿ' },
   overall_sex_ratio: { en: 'Overall sex ratio',         kn: 'ಒಟ್ಟು ಲಿಂಗ ಅನುಪಾತ' },
   avg_litter_size:   { en: 'Avg litter size',           kn: 'ಸರಾಸರಿ ಮರಿ ಗಾತ್ರ' },
   yield_rate:        { en: 'Yield rate (fed / alive)',  kn: 'ಇಳುವರಿ ದರ (ತಿಂದ / ಜೀವಂತ)' },

@@ -1800,7 +1800,7 @@ function openRemoveByStage(stageName, stageIdx) {
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason for removal</span>
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-        <button class="reason-btn" data-reason="Frozen">Frozen</button>
+        <button class="reason-btn" data-reason="Frozen">${t('frozen_label')}</button>
       </div>
     </div>
     <button class="btn primary block" id="rbs-next">Find trays ›</button>
@@ -2429,7 +2429,7 @@ function quickTrayRemoval(trayId) {
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-        <button class="reason-btn" data-reason="Frozen">Frozen</button>
+        <button class="reason-btn" data-reason="Frozen">${t('frozen_label')}</button>
         <button class="reason-btn" data-reason="Dead">Dead</button>
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
@@ -3770,7 +3770,7 @@ function removeFromStageModal(trayId, stageName) {
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
       <div class="reason-btns">
         <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-        <button class="reason-btn" data-reason="Frozen">Frozen</button>
+        <button class="reason-btn" data-reason="Frozen">${t('frozen_label')}</button>
         <button class="reason-btn" data-reason="Dead">Dead</button>
         <button class="reason-btn" data-reason="Other">Other</button>
       </div>
