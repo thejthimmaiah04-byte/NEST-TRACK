@@ -3456,7 +3456,7 @@ function trayDetailModal(trayId) {
     return `<div class="birth-pred overdue">🐣 Birth overdue by ${Math.abs(daysLeft)}d</div>`;
   })();
 
-  const ratioHtml = (sp?.ratio && sex && (sex.males + sex.females) > 0) ? (() => {
+  const ratioHtml = (sp?.ratio?.males != null && sp?.ratio?.females != null && sex && (sex.males + sex.females) > 0) ? (() => {
     const st = ratioStatus(sex.males, sex.females, sp.ratio);
     const total = sex.males + sex.females;
     const idealM = Math.round(total * sp.ratio.males / (sp.ratio.males + sp.ratio.females));
@@ -4415,10 +4415,13 @@ async function uploadChanges() {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    // Merge any remote updates that arrived alongside the upload response
+    // Merge any remote updates that arrived alongside the upload response.
+    // Skip records we just uploaded — our local version is the truth; the server
+    // may echo back stale data with a newer server timestamp which would corrupt it.
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
         if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
+        if (sentSnapshot[e]?.[remote.id]) continue; // we just sent this record — never overwrite with server echo
         const local = byId(e, remote.id);
         if (!local || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
       }
