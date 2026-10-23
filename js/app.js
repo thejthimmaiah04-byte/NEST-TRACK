@@ -287,24 +287,23 @@ function frozenStock() {
     .filter(x => x.count > 0);
 }
 
-// Green = ratio within 15% of target; Yellow = within 40%; Red = no males or ratio off
+// Green = ideal (1♂ : target♀); Yellow = workable (1♂ : target±1♀); Red = everything else
+// Red triggers: no males, no females, more than 1 male, ratio too far off
 function ratioStatus(males, females, ratio) {
-  if (males === 0) return 'off';
-  if (!ratio) return 'ok';
-  // Handle legacy string format from old Sheets serialisation: "{males=1.0, females=3.0}"
+  if (!males || males === 0) return 'off';   // no males → red
+  if (!females || females === 0) return 'off'; // no females → red
+  if (males > 1) return 'off';               // more than 1 male → red
+  // Parse legacy string format: "{males=1.0, females=3.0}"
   if (typeof ratio === 'string') {
     const m = ratio.match(/males[=:](\d+\.?\d*)/);
     const f = ratio.match(/females[=:](\d+\.?\d*)/);
     if (m && f) ratio = { males: parseFloat(m[1]), females: parseFloat(f[1]) };
-    else return 'ok';
+    else ratio = null;
   }
-  const targetRatio = ratio.females / (ratio.males || 1); // target females per male
-  const actual = females / males;
-  if (!females) return males > 0 ? 'close' : 'off';
-  const dev = Math.abs(targetRatio - actual) / targetRatio;
-  if (dev <= 0.15) return 'ok';
-  if (dev <= 0.40) return 'close';
-  return 'off';
+  const target = ratio ? Math.round(ratio.females / (ratio.males || 1)) : 3;
+  if (females === target)     return 'ok';    // ideal → green
+  if (females === target - 1 || females === target + 1) return 'close'; // ±1 → yellow
+  return 'off';                              // too far off → red
 }
 function stageColor(i) { return `var(${STAGE_COLORS[i % STAGE_COLORS.length]})`; }
 
