@@ -524,6 +524,25 @@ function stageTotalsAt(atDate = new Date(), filter = () => true, forecastMode = 
       total += net;
     }
   }
+
+  // Also count adults in trays that have no cohorts but have tray-level sex data
+  if (!forecastMode) {
+    for (const tray of live('trays')) {
+      if (adultTraysCounted.has(tray.id)) continue;
+      if (tray.adultMales == null && tray.adultFemales == null) continue;
+      const sp = byId('species', tray.speciesId);
+      if (!sp?.stages?.length) continue;
+      if (!filter({ speciesId: tray.speciesId, trayId: tray.id })) continue;
+      const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
+      if (!lastStage) continue;
+      const adultCount = trayAdultCount(tray, sp);
+      if (adultCount <= 0) continue;
+      totals.set(lastStage, (totals.get(lastStage) || 0) + adultCount);
+      total += adultCount;
+      adultTraysCounted.add(tray.id);
+    }
+  }
+
   return { totals, total };
 }
 
@@ -1076,12 +1095,28 @@ function renderDashboard() {
 
   // Sex totals per stage
   const stageMales = new Map(), stageFemales = new Map();
+  const sexCountedTrays = new Set();
   for (const c of live('cohorts')) {
     if (!filter(c) || cohortNet(c) <= 0) continue;
     if (c.males == null && c.females == null) continue;
     const { name } = stageIndexAt(c, new Date());
     if (c.males)   stageMales.set(name,   (stageMales.get(name)   || 0) + Number(c.males));
     if (c.females) stageFemales.set(name, (stageFemales.get(name) || 0) + Number(c.females));
+    sexCountedTrays.add(c.trayId);
+  }
+  // Also include tray-level sex data for trays with no cohorts
+  for (const tray of live('trays')) {
+    if (sexCountedTrays.has(tray.id)) continue;
+    if (tray.adultMales == null && tray.adultFemales == null) continue;
+    const sp = byId('species', tray.speciesId);
+    if (!sp?.stages?.length) continue;
+    if (!filter({ speciesId: tray.speciesId, trayId: tray.id })) continue;
+    const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
+    if (!lastStage) continue;
+    const m = Number(tray.adultMales) || 0;
+    const f = Number(tray.adultFemales) || 0;
+    if (m) stageMales.set(lastStage,   (stageMales.get(lastStage)   || 0) + m);
+    if (f) stageFemales.set(lastStage, (stageFemales.get(lastStage) || 0) + f);
   }
 
   if (live('cohorts').length === 0) {
