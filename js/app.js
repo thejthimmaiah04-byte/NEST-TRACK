@@ -2335,28 +2335,23 @@ function renderFreezer() {
 
   const total = totalFrozen();
 
+  if (!stageList.length) {
+    el.innerHTML = emptyState('❄', t('es_freezer'), t('es_freezer_sub'));
+    return;
+  }
+
   let cards = '';
   for (const nm of stageList) {
     const count = frozen.get(nm) || 0;
     const i = names.indexOf(nm);
     const color = stageColor(i >= 0 ? i : 0);
-    cards += `<div class="freezer-card">
-      <span class="freezer-card-edge" style="background:${color}"></span>
-      <div class="freezer-card-body">
-        <div class="freezer-stage">${esc(tStage(nm))}</div>
-        <div class="freezer-count">${count}</div>
-        <div class="freezer-label">in freezer</div>
-      </div>
-      <div class="freezer-card-actions">
-        <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}"
-          ${count < 1 ? 'disabled' : ''}>Use</button>
-      </div>
+    cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+      <span class="stage-edge" style="background:${color}"></span>
+      <div class="n">${count}</div>
+      <div class="l">${esc(tStage(nm))} · ${t('fz_in_freezer')}</div>
+      <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}"
+        style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
     </div>`;
-  }
-
-  if (!stageList.length) {
-    el.innerHTML = emptyState('❄', t('es_freezer'), t('es_freezer_sub'));
-    return;
   }
 
   el.innerHTML = `
@@ -2364,8 +2359,13 @@ function renderFreezer() {
       <h2 class="section-title" style="margin:4px 0 0">${t('freezer_title')}</h2>
       <button class="btn sm primary" data-act="fz-add">+ Add</button>
     </div>
-    <p class="small muted" style="margin:4px 0 14px">${t('fz_in_stock', total, total !== 1 ? 's' : '')}</p>
-    <div class="freezer-grid">${cards}</div>
+    <div class="stats-grid" style="margin-top:12px">
+      <div class="stat-hero">
+        <div class="n">${total}</div>
+        <div class="l">${t('fz_total_label')}</div>
+      </div>
+      ${cards}
+    </div>
     <p class="small muted" style="margin-top:14px;text-align:center">
       Tap <b>Use</b> to record feeding from the freezer.<br>
       To freeze from a specific tray, use Remove → Frozen inside that tray.
