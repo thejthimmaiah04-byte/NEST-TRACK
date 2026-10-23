@@ -31,7 +31,7 @@ var SCHEMAS = {
   frozen_uses: ['id', 'speciesId', 'stage', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals', 'frozen_uses'];
-var JSON_FIELDS = { stages: true };
+var JSON_FIELDS = { stages: true, ratio: true };
 
 // ── Column header labels  (_ prefix = will be hidden) ────────────────────────
 var COL_LABEL_OVERRIDES = {
@@ -710,7 +710,8 @@ function hydrate(entity, row) {
     } else if (c === 'deleted') {
       v = (v === true || v === 'true' || v === 'TRUE');
     } else if (['initialCount','count','sortOrder','males','females',
-                'updatedAt','syncedAt','lifespan','gestation','gravidFemales','lactatingFemales'].indexOf(c) >= 0) {
+                'updatedAt','syncedAt','lifespan','gestation','gravidFemales','lactatingFemales',
+                'adultMales','adultFemales'].indexOf(c) >= 0) {
       v = (v === '' || v == null) ? 0 : Number(v);
     }
     obj[c] = v;
@@ -787,10 +788,10 @@ function updateTrayStageStats() {
   var fixedCols = SCHEMAS.trays.length + (EXTRA.trays || []).length; // 10
   function findOrCreateCol(label) {
     var lc = sh.getLastColumn();
-    if (lc > 0) {
-      var hdrs = sh.getRange(1, 1, 1, lc).getValues()[0];
+    if (lc > fixedCols) {
+      var hdrs = sh.getRange(1, fixedCols + 1, 1, lc - fixedCols).getValues()[0];
       for (var hi = 0; hi < hdrs.length; hi++) {
-        if (String(hdrs[hi]) === label) return hi + 1;
+        if (String(hdrs[hi]) === label) return fixedCols + 1 + hi;
       }
     }
     var nc = sh.getLastColumn() + 1;
