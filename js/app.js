@@ -3640,9 +3640,9 @@ function trayDetailModal(trayId) {
     }).join('') : '<p class="muted small" style="padding:8px 0">No animals at this stage yet.</p>';
 
     const addBtns = i === 0
-      ? `<button class="btn primary" data-act="add-litter" data-id="${trayId}">+ Born today</button>
-         <button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">+ Add intake</button>`
-      : `<button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">+ Add intake</button>`;
+      ? `<button class="btn primary" data-act="add-litter" data-id="${trayId}">${t('add_litter_btn')}</button>
+         <button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">${t('add_intake_btn')}</button>`
+      : `<button class="btn" data-act="add-intake" data-id="${trayId}" data-stage="${esc(st.name)}">${t('add_intake_btn')}</button>`;
 
     return `<div class="stg-panel" data-panel="${esc(st.name)}" style="display:none">
       <div class="stg-count">${count}<span class="stg-unit"> ${esc(tStage(st.name))}${count !== 1 ? 's' : ''}</span></div>
@@ -3671,11 +3671,11 @@ function trayDetailModal(trayId) {
         <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Observations / Notes</span>
         <textarea id="tray-notes-input" rows="2" placeholder="Temperature issues, health observations…" style="resize:vertical;min-height:44px;font-size:13px">${esc(tray.notes || '')}</textarea>
       </label>
-      <button class="btn sm" id="save-tray-notes" style="margin-top:4px">Save notes</button>
+      <button class="btn sm" id="save-tray-notes" style="margin-top:4px">${t('save_notes')}</button>
     </div>
     <div class="gap" style="margin-top:10px">
-      <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" style="flex:1">✎ Edit tray</button>
-      <button class="btn danger" data-act="del-tray" data-id="${trayId}" style="flex:1">Delete</button>
+      <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" style="flex:1">${t('edit_tray_btn')}</button>
+      <button class="btn danger" data-act="del-tray" data-id="${trayId}" style="flex:1">${t('delete')}</button>
     </div>
   `, root => {
     // ── Tab switching ─────────────────────────────────────────────────────
@@ -4155,7 +4155,7 @@ function onClick(e) {
     case 'back-shelves': selectedShelfId = null; renderTrays(); return;
     case 'add-shelf':   return newShelfModal();
     case 'edit-shelf':  return shelfModal(byId('shelves',id));
-    case 'del-shelf':   return confirmDelete('shelf', () => {
+    case 'del-shelf':   return confirmDeleteMsg(t('del_shelf_confirm'), () => {
       live('trays').filter(t=>t.shelfId===id).forEach(t=>cascadeDeleteTray(t.id));
       removeRecord('shelves',id);
       if (selectedShelfId === id) selectedShelfId = null;
@@ -4164,7 +4164,7 @@ function onClick(e) {
     case 'add-tray':    return trayModal(id);
     case 'edit-tray':   { const t = byId('trays', id); if (t) { closeModal(); setTimeout(() => trayModal(t.shelfId, t), 10); } return; }
     case 'open-tray':   return trayDetailModal(id);
-    case 'del-tray':    closeModal(); return confirmDelete('tray and its litters', () => { cascadeDeleteTray(id); render(); });
+    case 'del-tray':    closeModal(); return confirmDeleteMsg(t('del_tray_confirm'), () => { cascadeDeleteTray(id); render(); });
     case 'add-litter':  return litterModal(id);
     case 'del-cohort':  return confirmDelete('litter', () => {
       const trayId = byId('cohorts',id)?.trayId;
@@ -4299,8 +4299,18 @@ function confirmDelete(what, fn) {
   openModal(t('confirm_del'), `
     <p>Delete this ${esc(what)}? This cannot be undone.</p>
     <div class="gap mt">
-      <button class="btn danger" data-yes>Delete</button>
-      <button class="btn" data-close>Cancel</button>
+      <button class="btn danger" data-yes>${t('delete')}</button>
+      <button class="btn" data-close>${t('cancel')}</button>
+    </div>
+  `, root => { $('[data-yes]',root).onclick = () => { closeModal(); fn(); }; });
+}
+
+function confirmDeleteMsg(msg, fn) {
+  openModal(t('confirm_del'), `
+    <p>${esc(msg)}</p>
+    <div class="gap mt">
+      <button class="btn danger" data-yes>${t('delete')}</button>
+      <button class="btn" data-close>${t('cancel')}</button>
     </div>
   `, root => { $('[data-yes]',root).onclick = () => { closeModal(); fn(); }; });
 }
