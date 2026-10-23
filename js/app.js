@@ -4297,7 +4297,8 @@ async function pullFromSheets(since) {
       for (const remote of (data.changes?.[e] || [])) {
         if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
         const local = byId(e, remote.id);
-        if (!local || fullPull || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
+        const hasPending = !!state.pending[e]?.[remote.id]; // never overwrite unsaved local edits
+        if (!hasPending && (!local || fullPull || (remote.updatedAt||0) >= (local.updatedAt||0))) upsertLocal(e, Object.assign({}, local || {}, remote));
       }
     }
     state.meta.lastSync = data.serverTime || now();
@@ -5427,11 +5428,11 @@ function init() {
   if (notifBack)  notifBack.addEventListener('click',  closeNotifPanel);
 
   // Auto-sync triggers
-  window.addEventListener('online',  () => { renderSync(); pullFromSheets(); });
+  window.addEventListener('online',  () => { renderSync(); if (pendingCount() === 0) pullFromSheets(); });
   window.addEventListener('offline', renderSync);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && navigator.onLine && state.meta.scriptUrl) {
-      pullFromSheets(); // pull latest when returning to app
+    if (document.visibilityState === 'visible' && navigator.onLine && state.meta.scriptUrl && pendingCount() === 0) {
+      pullFromSheets(); // pull latest when returning to app (skip if local edits are pending)
     }
   });
   setInterval(() => {
