@@ -820,7 +820,7 @@ let _modalPushed = false;
 
 function switchTab(name, pushHistory = true) {
   activeTab = name;
-  const primaryTabs = ['dashboard', 'trays', 'charts', 'reports'];
+  const primaryTabs = ['dashboard', 'trays', 'charts', 'freezer'];
   const isSecondary = !primaryTabs.includes(name);
   $$('.tab').forEach(t => {
     if (t.id === 'tab-more-btn') {
@@ -5573,7 +5573,7 @@ function init() {
 
   // Swipe left/right to navigate primary tabs (M-06)
   (function initSwipe() {
-    const primaryTabs = ['dashboard', 'trays', 'charts', 'reports'];
+    const primaryTabs = ['dashboard', 'trays', 'charts', 'freezer'];
     const appEl = document.getElementById('app');
     let tx = 0, ty = 0, swiping = false;
     appEl.addEventListener('touchstart', e => {
