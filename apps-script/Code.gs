@@ -646,7 +646,12 @@ function upsertRecords(entity, incoming, serverNow) {
     var existingRow = data.index[String(r.id)];
     var existing    = existingRow ? data.rows[existingRow - 2] : null;
 
-    if (existing && Number(existing.updatedAt) > Number(r.updatedAt)) return;
+    if (existing) {
+      var existingUpd = Number(existing.updatedAt) || 0;
+      var incomingUpd = Number(r.updatedAt) || 0;
+      if (existingUpd > incomingUpd) return;
+      if (existingUpd === incomingUpd && existing.syncedAt) return; // tie → server wins
+    }
 
     r.syncedAt = serverNow;
     var rowValues = cols.map(function(c) {

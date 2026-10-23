@@ -21,11 +21,12 @@ const HIST_MAX  = 10;        // rolling window — one slot per day, 10 days
 function _openIDB() {
   if (_idb) return Promise.resolve(_idb);
   return new Promise((res, rej) => {
-    const req = indexedDB.open(IDB_NAME, 2); // v2 adds history store
+    const req = indexedDB.open(IDB_NAME, 3); // v3: IDB_HIST uses out-of-line (dateKey) keys
     req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-      if (!db.objectStoreNames.contains(IDB_HIST))  db.createObjectStore(IDB_HIST, { keyPath: 'savedAt' });
+      if (db.objectStoreNames.contains(IDB_HIST)) db.deleteObjectStore(IDB_HIST);
+      db.createObjectStore(IDB_HIST); // out-of-line key (dateKey string)
     };
     req.onsuccess = e => { _idb = e.target.result; res(_idb); };
     req.onerror   = () => rej(req.error);
@@ -104,7 +105,7 @@ function renderVersionHistory() {
             <span class="ver-time">${dateLabel}</span>
             <span class="ver-ago">${timeLabel}</span>
           </div>
-          <button class="btn sm" data-act="restore-version" data-ts="${e.savedAt}">Restore</button>
+          <button class="btn sm" data-act="restore-version" data-datekey="${esc(e.dateKey || today)}">Restore</button>
         </div>`;
       }).join('');
     };
@@ -959,6 +960,7 @@ function computeShuffleRecommendations() {
   // Pass 4 — gravid females overdue (gravidSince + gestation < today)
   for (const tray of live('trays')) {
     if (!tray.gravidFemales || !tray.gravidSince) continue;
+    if (isNaN(new Date(tray.gravidSince).getTime())) continue;
     const sp = speciesOf(tray);
     const gestation = sp?.gestation || 21;
     const dueDate = addDays(parseYMD(tray.gravidSince), gestation);
@@ -1383,7 +1385,7 @@ function renderStageDistributionGrid(totals, names) {
 }
 
 function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterOverride = null) {
-  const DAYS = 90, STEP = 2; // sample every 2 days → 46 points
+  const DAYS = Math.round((state.meta.forecastWeeks || 8) * 7), STEP = 2; // sample every 2 days
   const today = new Date(); today.setHours(0,0,0,0);
 
   // Build cohort filter matching current shelf/tray selection
@@ -1755,16 +1757,30 @@ function uploadDeathPhoto(file, trayId, trayName, date, cause) {
         fileName: safeName + '_' + date,
         cause: (cause || 'Unknown').toLowerCase()
       })
-    }).catch(() => {}); // fire-and-forget; failure is non-critical
+    }).catch(err => { console.error('Photo upload failed:', err); toast('Photo upload failed — check connection', true); });
   };
   reader.readAsDataURL(file);
 }
 
 function openRemoveByStage(stageName, stageIdx) {
   const today = new Date();
-  const totalAvail = live('cohorts')
+  const cohortTrayIds = new Set(
+    live('cohorts')
+      .filter(c => cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
+      .map(c => c.trayId)
+  );
+  let totalAvail = live('cohorts')
     .filter(c => cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
     .reduce((s, c) => s + cohortNet(c, today), 0);
+  // Also count trays with no cohorts in this stage but tray-level adult sex data
+  for (const tray of live('trays')) {
+    if (cohortTrayIds.has(tray.id)) continue;
+    const sp = byId('species', tray.speciesId);
+    if (!sp?.stages?.length) continue;
+    const lastStage = [...sp.stages].sort((a,b) => (b.startDay||0)-(a.startDay||0))[0]?.name;
+    if (lastStage !== stageName) continue;
+    totalAvail += trayAdultCount(tray, sp);
+  }
 
   if (totalAvail <= 0) return toast(`No active ${stageName} to remove`, true);
 
@@ -1832,6 +1848,22 @@ function _rbsShowTrays(stageName, stageIdx, needed, reason, cause, date) {
     const unavail  = isAdult ? ((tray.gravidFemales || 0) + (tray.lactatingFemales || 0)) : 0;
     const available = Math.max(0, count - unavail);
     matches.push({ tray, count, available, oldestDate });
+  }
+  // Also include trays with no cohorts in this stage but tray-level adult sex data
+  if (isAdult) {
+    const cohortTrayIdsHere = new Set(matches.map(m => m.tray.id));
+    for (const tray of live('trays')) {
+      if (cohortTrayIdsHere.has(tray.id)) continue;
+      const sp = byId('species', tray.speciesId);
+      if (!sp?.stages?.length) continue;
+      const lastStage = [...sp.stages].sort((a,b) => (b.startDay||0)-(a.startDay||0))[0]?.name;
+      if (lastStage !== stageName) continue;
+      const count = trayAdultCount(tray, sp);
+      if (count <= 0) continue;
+      const unavail = (tray.gravidFemales || 0) + (tray.lactatingFemales || 0);
+      const available = Math.max(0, count - unavail);
+      matches.push({ tray, count, available, oldestDate: null, noCohortsAdult: true });
+    }
   }
   matches.sort((a, b) => (a.oldestDate || 0) - (b.oldestDate || 0));
 
@@ -1968,6 +2000,22 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
         touch('removals', r);
         left -= take;
         first = false;
+      }
+
+      // Sync tray-level sex counts with the removal
+      if (isAdult && tray && (tray.adultMales != null || tray.adultFemales != null)) {
+        if (left === n) {
+          // No-cohort tray: decrement directly from total removed
+          const rM = males != null ? males : Math.floor(n / 2);
+          const rF = females != null ? females : (n - Math.floor(n / 2));
+          if (tray.adultMales != null)   tray.adultMales   = Math.max(0, (tray.adultMales   || 0) - rM);
+          if (tray.adultFemales != null) tray.adultFemales = Math.max(0, (tray.adultFemales || 0) - rF);
+        } else if (males != null || females != null) {
+          // Cohort tray: keep sex counts in sync if sex was specified
+          if (males != null && tray.adultMales != null)     tray.adultMales   = Math.max(0, (tray.adultMales   || 0) - males);
+          if (females != null && tray.adultFemales != null) tray.adultFemales = Math.max(0, (tray.adultFemales || 0) - females);
+        }
+        touch('trays', tray);
       }
 
       closeModal();
@@ -4184,9 +4232,9 @@ function onClick(e) {
       return;
     }
     case 'restore-version': {
-      const ts = Number(el.dataset.ts);
+      const dateKey = el.dataset.datekey;
       _openIDB().then(db => {
-        const req = db.transaction(IDB_HIST, 'readonly').objectStore(IDB_HIST).get(ts);
+        const req = db.transaction(IDB_HIST, 'readonly').objectStore(IDB_HIST).get(dateKey);
         req.onsuccess = () => {
           const entry = req.result;
           if (!entry) { toast('Version not found', true); return; }
@@ -4202,7 +4250,7 @@ function onClick(e) {
             for (const r of (state[e] || [])) if (!r.deleted) state.pending[e][r.id] = r.updatedAt || 0;
           }
           saveState();
-          toast('Restored to ' + new Date(ts).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }));
+          toast('Restored to snapshot: ' + (entry.dateKey || dateKey));
           render();
           renderSync();
         };
