@@ -291,6 +291,13 @@ function frozenStock() {
 function ratioStatus(males, females, ratio) {
   if (males === 0) return 'off';
   if (!ratio) return 'ok';
+  // Handle legacy string format from old Sheets serialisation: "{males=1.0, females=3.0}"
+  if (typeof ratio === 'string') {
+    const m = ratio.match(/males[=:](\d+\.?\d*)/);
+    const f = ratio.match(/females[=:](\d+\.?\d*)/);
+    if (m && f) ratio = { males: parseFloat(m[1]), females: parseFloat(f[1]) };
+    else return 'ok';
+  }
   const targetRatio = ratio.females / (ratio.males || 1); // target females per male
   const actual = females / males;
   if (!females) return males > 0 ? 'close' : 'off';

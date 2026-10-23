@@ -706,7 +706,15 @@ function hydrate(entity, row) {
   SCHEMAS[entity].forEach(function(c) {
     var v = row[c];
     if (JSON_FIELDS[c]) {
-      try { v = JSON.parse(v || '[]'); } catch(e) { v = []; }
+      try {
+        if (typeof v === 'string' && v.indexOf('=') >= 0 && v.charAt(0) === '{') {
+          // Legacy Java-toString format: {males=1.0, females=3.0} — convert to JSON object
+          var mM = v.match(/males[=:]([0-9.]+)/), fM = v.match(/females[=:]([0-9.]+)/);
+          v = (mM && fM) ? { males: parseFloat(mM[1]), females: parseFloat(fM[1]) } : [];
+        } else {
+          v = JSON.parse(v || '[]');
+        }
+      } catch(e) { v = []; }
     } else if (c === 'deleted') {
       v = (v === true || v === 'true' || v === 'TRUE');
     } else if (['initialCount','count','sortOrder','males','females',
