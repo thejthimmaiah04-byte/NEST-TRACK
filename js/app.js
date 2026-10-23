@@ -16,7 +16,7 @@ const IDB_NAME  = 'rattrack-v1';
 const IDB_STORE = 'state';
 let _idb = null;
 const IDB_HIST  = 'history'; // object store name for version snapshots
-const HIST_MAX  = 50;        // rolling window — oldest pruned when exceeded
+const HIST_MAX  = 10;        // rolling window — one slot per day, 10 days
 
 function _openIDB() {
   if (_idb) return Promise.resolve(_idb);
@@ -32,42 +32,39 @@ function _openIDB() {
   });
 }
 
-/* ── Version history (local rolling snapshots) ────────────────────────────── *
- * Before every touch() the current state is captured. Writes are debounced   *
- * 1.5 s so rapid back-to-back edits count as one snapshot. Keeps last 50.   */
-let _preChangeRaw   = null; // state captured before this batch of changes
-let _snapshotTimer  = null;
+/* ── Version history (daily snapshots) ────────────────────────────────────── *
+ * One slot per calendar day. Today's slot is overwritten on every save so it *
+ * always reflects the latest state of the day. Keeps last 10 days.           */
+let _snapshotTimer = null;
+
+function _todayKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
 
 function scheduleVersionSnapshot(label) {
-  // Capture the pre-change state only once per debounce window
-  if (!_preChangeRaw) {
-    try { _preChangeRaw = localStorage.getItem(LS_KEY); } catch(e) {}
-  }
   clearTimeout(_snapshotTimer);
   _snapshotTimer = setTimeout(() => _commitSnapshot(label), 1500);
 }
 
 function _commitSnapshot(label) {
-  const raw = _preChangeRaw;
-  _preChangeRaw  = null;
   _snapshotTimer = null;
+  let raw;
+  try { raw = localStorage.getItem(LS_KEY); } catch(e) {}
   if (!raw) return;
-  const entry = { savedAt: Date.now(), label: label || 'change', state: raw };
+  const dateKey = _todayKey();
+  const entry = { dateKey, savedAt: Date.now(), label: label || 'change', state: raw };
   _openIDB().then(db => {
     const tx    = db.transaction(IDB_HIST, 'readwrite');
     const store = tx.objectStore(IDB_HIST);
-    store.put(entry);
-    // Prune oldest if over cap
-    const countReq = store.count();
-    countReq.onsuccess = () => {
-      if (countReq.result <= HIST_MAX) return;
-      const excess = countReq.result - HIST_MAX;
-      const cur = store.openCursor(); // ascending order (oldest first)
-      let pruned = 0;
-      cur.onsuccess = e => {
-        const c = e.target.result;
-        if (c && pruned < excess) { c.delete(); pruned++; c.continue(); }
-      };
+    // Overwrite today's slot (keyed by dateKey)
+    store.put(entry, dateKey);
+    // Prune days beyond rolling 10-day window
+    const allReq = store.getAllKeys();
+    allReq.onsuccess = () => {
+      const keys = (allReq.result || []).slice().sort(); // ascending date strings
+      const excess = keys.length - HIST_MAX;
+      if (excess > 0) keys.slice(0, excess).forEach(k => store.delete(k));
     };
   }).catch(() => {});
 }
@@ -90,19 +87,22 @@ function renderVersionHistory() {
     req.onsuccess = () => {
       const entries = (req.result || []).slice().reverse(); // newest first
       if (!entries.length) {
-        container.innerHTML = '<p class="small muted">No history yet — snapshots build as you make changes.</p>';
+        container.innerHTML = '<p class="small muted">No history yet — a daily snapshot is saved automatically.</p>';
         return;
       }
-      const nowMs = Date.now();
+      const today = _todayKey();
       container.innerHTML = entries.map(e => {
-        const t   = new Date(e.savedAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-        const ago = _timeAgo(nowMs - e.savedAt);
-        const lbl = esc(e.label || 'change');
+        const dateKey = e.dateKey || today;
+        const isToday = dateKey === today;
+        const d = new Date(e.savedAt);
+        const dateLabel = isToday
+          ? 'Today'
+          : d.toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
+        const timeLabel = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
         return `<div class="ver-row">
           <div class="ver-meta">
-            <span class="ver-time">${t}</span>
-            <span class="ver-ago">${ago}</span>
-            <span class="ver-lbl">${lbl}</span>
+            <span class="ver-time">${dateLabel}</span>
+            <span class="ver-ago">${timeLabel}</span>
           </div>
           <button class="btn sm" data-act="restore-version" data-ts="${e.savedAt}">Restore</button>
         </div>`;
@@ -3218,7 +3218,7 @@ function renderSettings() {
 
     <h2 class="section-title">${t('version_history')}</h2>
     <div class="card">
-      <p class="small muted" style="margin:0 0 10px">A snapshot is saved automatically before every change. Restore any of the last ${HIST_MAX} saves instantly — no sync required.</p>
+      <p class="small muted" style="margin:0 0 10px">One snapshot per day, updated continuously. Keeps the last ${HIST_MAX} days — restore any day instantly, no sync required.</p>
       <div id="version-history-list"></div>
     </div>
 
