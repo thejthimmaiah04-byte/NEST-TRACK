@@ -245,6 +245,7 @@ const I18N = {
   productivity:      { en: 'Productivity',              kn: 'ಉತ್ಪಾದಕತೆ' },
   colony_snapshot:   { en: 'Colony Snapshot — {0} {1}', kn: 'ವಸಾಹತು ಸ್ನ್ಯಾಪ್‌ಶಾಟ್ — {0} {1}' },
   total_alive:       { en: 'total alive',               kn: 'ಒಟ್ಟು ಜೀವಂತ' },
+  tap_to_remove:     { en: 'tap to remove',             kn: 'ತೆಗೆದುಹಾಕಲು ಟ್ಯಾಪ್ ಮಾಡಿ' },
   no_events_day:     { en: 'No events on this day.',    kn: 'ಈ ದಿನ ಯಾವ ಘಟನೆಗಳಿಲ್ಲ.' },
   births_label:      { en: 'Births',                    kn: 'ಜನನ' },
   deaths_label:      { en: 'Deaths',                    kn: 'ಮರಣ' },

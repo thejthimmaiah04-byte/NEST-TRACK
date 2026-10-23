@@ -1191,12 +1191,12 @@ function renderDashboard() {
       <div class="l">${esc(tStage(nm))}</div>
       ${sexLine}
       ${frozenBadge}
-      <div class="stat-stage-hint">tap to remove</div>
+      <div class="stat-stage-hint">${t('tap_to_remove')}</div>
     </div>`;
   }).join('');
 
   const stats = `<div class="stat-hero">
-      <div class="n">${total}</div><div class="l">Total alive</div>
+      <div class="n">${total}</div><div class="l">${t('total_alive')}</div>
     </div>${stageCards}`;
 
   let filterSel = '';
