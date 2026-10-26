@@ -2534,18 +2534,10 @@ function quickTrayRemoval(trayId, preselectedStage) {
     openModal(`${selectedCount} × ${esc(tStage(selectedStage))} · ${esc(tray.name)}`, `
       <p class="small muted" style="margin-bottom:12px">Step 3 of 3 · Why are they being removed?</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
-        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="Feeding">
-          <span style="font-size:22px">🍗</span><span style="font-weight:600">Feeding</span>
-        </button>
-        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="Frozen">
-          <span style="font-size:22px">❄️</span><span style="font-weight:600">${t('frozen_label')}</span>
-        </button>
-        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="Dead">
-          <span style="font-size:22px">💀</span><span style="font-weight:600">Dead</span>
-        </button>
-        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="NewTray">
-          <span style="font-size:22px">📦</span><span style="font-weight:600">New Tray</span>
-        </button>
+        <button class="btn" style="padding:14px 8px;font-weight:600" data-wiz-reason="Feeding">Feeding</button>
+        <button class="btn" style="padding:14px 8px;font-weight:600" data-wiz-reason="Frozen">${t('frozen_label')}</button>
+        <button class="btn" style="padding:14px 8px;font-weight:600" data-wiz-reason="Dead">Dead</button>
+        <button class="btn" style="padding:14px 8px;font-weight:600" data-wiz-reason="NewTray">New Tray</button>
       </div>
       <button class="btn" style="width:100%" id="wiz-back3">← Back</button>
     `, root => {
