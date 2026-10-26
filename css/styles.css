@@ -704,6 +704,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 }
 .cal-cell.selected { background: var(--accent-soft); }
 .cal-cell.selected .cal-num { color: var(--accent); font-weight: 700; }
+.cal-cell.today.selected .cal-num { color: #fff; }
 
 .cal-num { font-size: 13px; font-weight: 500; line-height: 1; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
 

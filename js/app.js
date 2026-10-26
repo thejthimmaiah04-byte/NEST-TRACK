@@ -3081,7 +3081,7 @@ function renderCalendar() {
 
   // Selected day detail
   const selEvs = evMap[calSelected] || [];
-  const fmtSel = calSelected; // already yyyy-mm-dd
+  const fmtSel = calSelected;
   const evItems = selEvs.length
     ? selEvs.map(e => `
         <div class="cal-ev-item">
@@ -3093,13 +3093,19 @@ function renderCalendar() {
         </div>`).join('')
     : `<p class="muted small" style="margin:0;padding:6px 0">${t('no_events_day')}</p>`;
 
-  // Legend — count animals, not events
-  const allEvs = Object.values(evMap).flat();
-  const totalBirths    = allEvs.filter(e=>e.type==='birth').reduce((s,e)=>s+(e.count||0),0);
-  const totalIntakes   = allEvs.filter(e=>e.type==='intake').reduce((s,e)=>s+(e.count||0),0);
-  const totalDeaths    = allEvs.filter(e=>e.type==='death').reduce((s,e)=>s+(e.count||0),0);
-  const totalRemovals  = allEvs.filter(e=>e.type==='removal').reduce((s,e)=>s+(e.count||0),0);
-  const totalPredicted = allEvs.filter(e=>e.type==='predicted-birth').length;
+  // Legend — selected day counts
+  const selBirths    = selEvs.filter(e=>e.type==='birth').reduce((s,e)=>s+(e.count||0),0);
+  const selIntakes   = selEvs.filter(e=>e.type==='intake').reduce((s,e)=>s+(e.count||0),0);
+  const selDeaths    = selEvs.filter(e=>e.type==='death').reduce((s,e)=>s+(e.count||0),0);
+  const selRemovals  = selEvs.filter(e=>e.type==='removal').reduce((s,e)=>s+(e.count||0),0);
+  const selPredicted = selEvs.filter(e=>e.type==='predicted-birth').length;
+  const legendParts  = [
+    selBirths    > 0 ? `<span class="lg"><span class="sw" style="background:var(--ok)"></span>${t('births_label')} (${selBirths})</span>` : '',
+    selIntakes   > 0 ? `<span class="lg"><span class="sw" style="background:#60a5fa"></span>${t('intake_label')} (${selIntakes})</span>` : '',
+    selDeaths    > 0 ? `<span class="lg"><span class="sw" style="background:#dc2626"></span>${t('deaths_label')} (${selDeaths})</span>` : '',
+    selRemovals  > 0 ? `<span class="lg"><span class="sw" style="background:#f97316"></span>${t('removed_label')} (${selRemovals})</span>` : '',
+    selPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>${t('expected_birth')} (${selPredicted})</span>` : '',
+  ].filter(Boolean).join('');
 
   el.innerHTML = `
     <div class="cal-nav">
@@ -3113,17 +3119,11 @@ function renderCalendar() {
       <div class="cal-grid">${cells}</div>
     </div>
 
+    ${legendParts ? `<div class="legend" style="margin-top:10px">${legendParts}</div>` : ''}
+
     <div class="cal-day-detail">
       <div class="cal-day-head">${fmtSel}</div>
       ${evItems}
-    </div>
-
-    <div class="legend" style="margin-top:14px">
-      <span class="lg"><span class="sw" style="background:var(--ok)"></span>${t('births_label')} (${totalBirths})</span>
-      ${totalIntakes > 0 ? `<span class="lg"><span class="sw" style="background:#60a5fa"></span>${t('intake_label')} (${totalIntakes})</span>` : ''}
-      ${totalDeaths > 0 ? `<span class="lg"><span class="sw" style="background:#dc2626"></span>${t('deaths_label')} (${totalDeaths})</span>` : ''}
-      ${totalRemovals > 0 ? `<span class="lg"><span class="sw" style="background:#f97316"></span>${t('removed_label')} (${totalRemovals})</span>` : ''}
-      ${totalPredicted > 0 ? `<span class="lg"><span class="sw" style="background:#a78bfa"></span>${t('expected_birth')} (${totalPredicted})</span>` : ''}
     </div>`;
 }
 
