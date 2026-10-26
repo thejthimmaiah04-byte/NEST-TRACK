@@ -5984,7 +5984,7 @@ function init() {
           <p style="color:var(--muted);font-size:13px;margin-bottom:16px">${t('quick_actions')}</p>
           <div style="display:flex;flex-direction:column;gap:10px">
             <button class="btn" data-act="open-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">${t('open_tray_detail')}</button>
-            <button class="btn secondary" data-act="edit-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">${t('edit_tray_btn')}</button>
+            <button class="btn secondary" data-act="edit-tray" data-id="${trayId}">${t('edit_tray_btn')}</button>
             <button class="btn danger" data-act="del-tray" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">${t('del_tray')}</button>
           </div>`);
       }, 500);
