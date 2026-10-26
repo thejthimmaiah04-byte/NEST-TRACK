@@ -271,12 +271,12 @@ function totalFrozen() {
   return t;
 }
 
-// Returns [{sp, count}] for species with a positive frozen balance (used in tray panel)
+// Returns [{sp, count}] for species with a positive frozen balance
 function frozenStock() {
   const totals = {};
   live('removals').filter(r => r.reason === 'Frozen').forEach(r => {
-    const cohort = byId('cohorts', r.cohortId);
-    const spId = cohort?.speciesId;
+    // support direct intakes (speciesId on removal) and cohort-based removals
+    const spId = r.speciesId || byId('cohorts', r.cohortId)?.speciesId;
     if (!spId) return;
     totals[spId] = (totals[spId] || 0) + (r.count || 0);
   });
@@ -2119,12 +2119,66 @@ function refreshHarvestResults() {
     <div class="${statusCls}">${statusMsg}</div>`;
 }
 
+/* ---------- Freezer intake modal (log pre-existing frozen stock) ---------- */
+function freezerIntakeModal() {
+  const allSpecies = live('species');
+  if (!allSpecies.length) return toast('No species defined', true);
+  const names = orderedStageNames();
+  const spOpts   = allSpecies.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const stageOpts = names.map(nm => `<option value="${esc(nm)}">${esc(tStage(nm))}</option>`).join('');
+  openModal('Add Intake · Freezer', `
+    <p class="small muted" style="margin-bottom:14px">Log animals already in the freezer</p>
+    <label class="field" style="margin-bottom:14px">
+      <span>Species</span>
+      <select id="fzi-species">${spOpts}</select>
+    </label>
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1">
+        <span>Stage</span>
+        <select id="fzi-stage">${stageOpts}</select>
+      </label>
+      <label class="field" style="flex:1">
+        <span>Date frozen</span>
+        <input id="fzi-date" type="date" value="${todayISO()}" />
+      </label>
+    </div>
+    <label class="field" style="margin-bottom:18px">
+      <span>Count</span>
+      <input id="fzi-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="e.g. 5" />
+    </label>
+    <button class="btn primary block" id="fzi-save">❄ Add to Freezer</button>
+  `, root => {
+    setTimeout(() => $('#fzi-count', root)?.focus(), 80);
+    $('#fzi-save', root).onclick = () => {
+      const spId  = $('#fzi-species', root).value;
+      const stage = $('#fzi-stage', root).value;
+      const count = parseInt($('#fzi-count', root).value, 10);
+      const date  = $('#fzi-date', root).value || todayISO();
+      if (!stage) return toast('Select a stage', true);
+      if (!count || count < 1) return toast(t('enter_count'), true);
+      const r = rec('removals', {
+        cohortId: '', trayId: '', speciesId: spId,
+        date, stage, count, reason: 'Frozen', notes: 'Direct intake'
+      });
+      upsertLocal('removals', r); touch('removals', r);
+      toast(`❄ ${count} ${tStage(stage)} added to freezer`);
+      closeModal(); render();
+    };
+  });
+}
+
 /* ---------- Use frozen modal ---------- */
 function useFrozenModal(stage) {
-  const available = frozenByStage().get(stage) || 0;
-  openModal(`Use frozen · ${esc(stage)}`, `
+  const allSpecies = live('species');
+  const available  = frozenByStage().get(stage) || 0;
+  const spOpts = allSpecies.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  openModal(`Use frozen · ${esc(tStage(stage))}`, `
     <p class="small muted" style="margin-bottom:14px">${available} frozen available.</p>
-    <label class="field"><span>Count to use</span>
+    ${allSpecies.length > 1 ? `<label class="field" style="margin-bottom:14px">
+      <span>Species</span>
+      <select id="fzu-species">${spOpts}</select>
+    </label>` : ''}
+    <label class="field" style="margin-bottom:18px"><span>Count to use</span>
       <input id="frozen-use-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${available}" placeholder="1" /></label>
     <button class="btn primary block" style="margin-top:14px" data-save>Confirm</button>
   `, root => {
@@ -2133,13 +2187,15 @@ function useFrozenModal(stage) {
       const n = Number($('#frozen-use-count', root).value);
       if (!n || n < 1) return toast(t('enter_count'), true);
       if (n > available) return toast(`Only ${available} frozen available`, true);
-      // find a speciesId from any matching frozen removal
-      const spId = live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)
-        ? byId('cohorts', live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)?.cohortId)?.speciesId || null
-        : null;
+      const spEl = $('#fzu-species', root);
+      const spId = spEl ? spEl.value
+        : (live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)
+          ? (byId('cohorts', live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)?.cohortId)?.speciesId
+             || live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)?.speciesId || null)
+          : null);
       const r = rec('frozen_uses', { speciesId: spId, stage, date: todayISO(), count: n });
       upsertLocal('frozen_uses', r); touch('frozen_uses', r);
-      toast(`Used ${n} frozen ${stage}`);
+      toast(`Used ${n} frozen ${tStage(stage)}`);
       closeModal(); render();
     };
   });
@@ -2219,9 +2275,15 @@ function addToFreezerModal() {
   );
   if (!allStages.length) return toast(t('no_live_trays'), true);
 
-  const stageOpts = allStages.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  const allSpecies = live('species');
+  const stageOpts  = allStages.map(s => `<option value="${esc(s)}">${esc(tStage(s))}</option>`).join('');
+  const spOpts     = allSpecies.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
 
   openModal(t('freeze_from_tray'), `
+    ${allSpecies.length > 1 ? `<label class="field" style="margin-bottom:10px">
+      <span>Species</span>
+      <select id="fz-species"><option value="all">All species</option>${spOpts}</select>
+    </label>` : ''}
     <div class="reason-btns fz-sex-row">
       <button class="reason-btn" data-sex="Male">♂ Male</button>
       <button class="reason-btn active" data-sex="Both">Both</button>
@@ -2244,11 +2306,21 @@ function addToFreezerModal() {
       };
     });
 
+    const spFilterEl = $('#fz-species', root);
+    if (spFilterEl) spFilterEl.onchange = refresh;
+
     function refresh() {
-      const stage   = $('#fz-stage', root).value;
-      const needed  = parseInt($('#fz-count', root).value, 10);
-      const outEl   = $('#fz-results', root);
-      const matches = getMatches(stage, selectedSex);
+      const stage     = $('#fz-stage', root).value;
+      const needed    = parseInt($('#fz-count', root).value, 10);
+      const outEl     = $('#fz-results', root);
+      const spFilter  = spFilterEl?.value || 'all';
+      let matches = getMatches(stage, selectedSex);
+      if (spFilter !== 'all') {
+        matches = matches.filter(m => {
+          const sp = speciesOf(m.tray);
+          return sp?.id === spFilter;
+        });
+      }
 
       if (!matches.length) {
         const sexNote = selectedSex !== 'Both' ? ` (${selectedSex})` : '';
@@ -2358,7 +2430,10 @@ function renderFreezer() {
   el.innerHTML = `
     <div class="spread">
       <h2 class="section-title" style="margin:4px 0 0">${t('freezer_title')}</h2>
-      <button class="btn sm primary" data-act="fz-add">+ Add</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm" data-act="fz-intake">+ Intake</button>
+        <button class="btn sm primary" data-act="fz-add">+ Add</button>
+      </div>
     </div>
     <div class="stats-grid" style="margin-top:12px">
       <div class="stat-hero">
@@ -4283,6 +4358,7 @@ function onClick(e) {
     case 'use-frozen':  return useFrozenModal(el.dataset.spid);  // legacy tray panel
     case 'fz-use':      return useFrozenModal(el.dataset.stage);
     case 'fz-add':      return addToFreezerModal();
+    case 'fz-intake':   return freezerIntakeModal();
     case 'add-species': return speciesModal();
     case 'edit-species':return speciesModal(byId('species',id));
     case 'del-species': return confirmDelete('species', () => { removeRecord('species',id); render(); });
