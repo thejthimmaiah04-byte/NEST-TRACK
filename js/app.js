@@ -3755,6 +3755,87 @@ function trayModal(shelfId, existing) {
   });
 }
 
+/* ----- Edit tray counts ----- */
+function editTrayCountsModal(trayId) {
+  const tray = byId('trays', trayId);
+  if (!tray) return;
+  const sp = speciesOf(tray);
+  const today = new Date();
+  const stages = sp?.stages ? [...sp.stages].sort((a, b) => a.startDay - b.startDay) : [];
+  const lastStageName = stages.length ? stages[stages.length - 1].name : null;
+
+  // Current count per stage
+  const stageCounts = {};
+  for (const st of stages) {
+    if (st.name === lastStageName) {
+      stageCounts[st.name] = trayAdultCount(tray, sp);
+    } else {
+      stageCounts[st.name] = live('cohorts')
+        .filter(c => c.trayId === trayId && stageIndexAt(c, today).name === st.name)
+        .reduce((s, c) => s + cohortNet(c, today), 0);
+    }
+  }
+
+  const rows = stages.map(st => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <span style="font-weight:600;flex:1">${esc(tStage(st.name))}</span>
+      <span class="muted small" style="min-width:52px;text-align:right">Now: ${stageCounts[st.name]}</span>
+      <input class="etc-inp" data-stage="${esc(st.name)}" type="number" inputmode="numeric"
+        min="0" value="${stageCounts[st.name]}"
+        style="width:72px;padding:6px 8px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:inherit;font-size:15px;text-align:center" />
+    </div>
+  `).join('');
+
+  openModal(`Edit counts · ${esc(tray.name)}`, `
+    <p class="small muted" style="margin-bottom:16px">Set the current count for each stage. Differences are logged as corrections.</p>
+    ${rows}
+    <button class="btn primary block" id="etc-save">Save changes</button>
+  `, root => {
+    $('#etc-save', root).onclick = () => {
+      const inputs = $$('.etc-inp', root);
+      let changed = false;
+      for (const inp of inputs) {
+        const stageName = inp.dataset.stage;
+        const newCount  = parseInt(inp.value, 10);
+        if (isNaN(newCount) || newCount < 0) return toast('Enter a valid count for ' + stageName, true);
+        const oldCount  = stageCounts[stageName];
+        const diff      = newCount - oldCount;
+        if (diff === 0) continue;
+        changed = true;
+        const isAdult = stageName === lastStageName;
+        if (diff > 0) {
+          const c = rec('cohorts', {
+            trayId, shelfId: tray.shelfId || '', speciesId: tray.speciesId || '',
+            birthDate: todayISO(), initialCount: diff,
+            type: 'intake', notes: `Intake · ${stageName}`
+          });
+          upsertLocal('cohorts', c); touch('cohorts', c);
+          if (isAdult) { tray.adultMales = (Number(tray.adultMales) || 0) + diff; touch('trays', tray); }
+        } else {
+          const abs = Math.abs(diff);
+          const r = rec('removals', {
+            trayId, cohortId: '', stage: stageName,
+            count: abs, date: todayISO(), reason: 'Other', notes: 'Count adjustment'
+          });
+          upsertLocal('removals', r); touch('removals', r);
+          if (isAdult) {
+            const m = Number(tray.adultMales) || 0;
+            const f = Number(tray.adultFemales) || 0;
+            const fD = Math.min(f, abs);
+            tray.adultFemales = f - fD;
+            tray.adultMales   = Math.max(0, m - (abs - fD));
+            touch('trays', tray);
+          }
+        }
+      }
+      if (!changed) { toast('No changes made', true); return; }
+      saveState(); uploadChanges();
+      toast('Counts updated');
+      closeModal(); render();
+    };
+  });
+}
+
 /* ----- Tray detail ----- */
 function trayDetailModal(trayId) {
   const tray = byId('trays', trayId);
@@ -4408,7 +4489,7 @@ function onClick(e) {
       render();
     });
     case 'add-tray':    return trayModal(id);
-    case 'edit-tray':   { const t = byId('trays', id); if (t) { closeModal(); setTimeout(() => trayModal(t.shelfId, t), 10); } return; }
+    case 'edit-tray':   { if (byId('trays', id)) editTrayCountsModal(id); return; }
     case 'open-tray':   return trayDetailModal(id);
     case 'del-tray':    closeModal(); return confirmDeleteMsg(t('del_tray_confirm'), () => { cascadeDeleteTray(id); render(); });
     case 'add-litter':  return litterModal(id);
