@@ -2647,20 +2647,6 @@ function renderTrays() {
 
   if (!selectedShelfId) {
     // ── SHELF OVERVIEW ──
-    const stock = frozenStock();
-    if (stock.length) {
-      html += `<div class="frozen-section">
-        <h3 class="frozen-section-title">${t('frozen_stock')}</h3>
-        ${stock.map(({ sp, count }) => `
-          <div class="frozen-card">
-            <div class="frozen-card-info">
-              <span class="frozen-species">${sp ? esc(sp.name) : 'Unknown'}</span>
-              <span class="frozen-count">${count} frozen</span>
-            </div>
-            <button class="btn sm" data-act="use-frozen" data-spid="${sp?.id||''}">Use</button>
-          </div>`).join('')}
-      </div>`;
-    }
     html += `<h2 class="section-title" style="margin:14px 0 10px">${t('shelves_title')}</h2>
       <div class="shelf-grid">`;
     for (const shelf of shelves) {
