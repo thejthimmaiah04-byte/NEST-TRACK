@@ -253,10 +253,10 @@ function trayAdultCount(tray, sp) {
 // Returns Map<stage, count> of animals currently in the freezer
 function frozenByStage() {
   const m = new Map();
-  live('removals').filter(r => r.reason === 'Frozen' && r.stage).forEach(r => {
+  live('removals').filter(r => r.reason === 'Frozen' && r.stage && r.itemType !== 'chick').forEach(r => {
     m.set(r.stage, (m.get(r.stage) || 0) + (r.count || 0));
   });
-  live('frozen_uses').filter(u => u.stage).forEach(u => {
+  live('frozen_uses').filter(u => u.stage && u.itemType !== 'chick').forEach(u => {
     m.set(u.stage, (m.get(u.stage) || 0) - (u.count || 0));
   });
   // Remove zeroed/negative entries
@@ -2508,9 +2508,9 @@ function renderFreezer() {
       </div>
       ${cards}
     </div>
-    <div class="chick-tile" style="margin-top:14px;padding:16px 20px;background:var(--surface2);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+    <div class="chick-tile" style="margin-top:14px;padding:16px 20px;background:var(--surface2);border-radius:12px;border:1px solid rgba(255,200,0,0.25);display:flex;align-items:center;justify-content:space-between;gap:12px">
       <div>
-        <div style="font-size:28px;font-weight:700;line-height:1">${chicksInFreezer()}</div>
+        <div style="font-size:28px;font-weight:700;line-height:1;color:#f5c400">${chicksInFreezer()}</div>
         <div class="small muted" style="margin-top:2px">Chicks · Intake only</div>
       </div>
       <div style="display:flex;gap:8px">
