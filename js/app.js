@@ -2779,7 +2779,6 @@ function renderTrays() {
           ${reproRow}
         </div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
-        ${total > 0 ? `<button class="tray-rem-btn" data-act="quick-tray-remove" data-id="${esc(tray.id)}" style="margin-top:10px;width:100%">− Remove</button>` : ''}
       </div>`;
     }
     html += `</div>`;
