@@ -271,6 +271,13 @@ function totalFrozen() {
   return t;
 }
 
+// Returns chick count from direct intake only (itemType: 'chick')
+function chicksInFreezer() {
+  const intakes = live('removals').filter(r => r.itemType === 'chick').reduce((s, r) => s + (r.count || 0), 0);
+  const uses    = live('frozen_uses').filter(u => u.itemType === 'chick').reduce((s, u) => s + (u.count || 0), 0);
+  return Math.max(0, intakes - uses);
+}
+
 // Returns [{sp, count}] for species with a positive frozen balance
 function frozenStock() {
   const totals = {};
@@ -2120,6 +2127,65 @@ function refreshHarvestResults() {
 }
 
 /* ---------- Freezer intake modal (log pre-existing frozen stock) ---------- */
+function chickIntakeModal() {
+  openModal('Add Chicks · Freezer', `
+    <p class="small muted" style="margin-bottom:14px">Log chicks already in the freezer (intake only)</p>
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1">
+        <span>Count</span>
+        <input id="chi-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="e.g. 10" />
+      </label>
+      <label class="field" style="flex:1">
+        <span>Date</span>
+        <input id="chi-date" type="date" value="${todayISO()}" />
+      </label>
+    </div>
+    <button class="btn primary block" id="chi-save">+ Add Chicks</button>
+  `, root => {
+    setTimeout(() => $('#chi-count', root)?.focus(), 80);
+    $('#chi-save', root).onclick = () => {
+      const count = parseInt($('#chi-count', root).value, 10);
+      const date  = $('#chi-date', root).value || todayISO();
+      if (!count || count < 1) return toast(t('enter_count'), true);
+      const r = rec('removals', { cohortId: '', trayId: '', speciesId: '', date, stage: 'Chick', count, reason: 'Frozen', itemType: 'chick', notes: 'Direct intake' });
+      upsertLocal('removals', r); touch('removals', r);
+      toast(`❄ ${count} chick${count !== 1 ? 's' : ''} added to freezer`);
+      closeModal(); render();
+    };
+  });
+}
+
+function chickUseModal() {
+  const available = chicksInFreezer();
+  if (available < 1) return toast('No chicks in freezer', true);
+  openModal('Use Chicks · Freezer', `
+    <p class="small muted" style="margin-bottom:14px">${available} chick${available !== 1 ? 's' : ''} available.</p>
+    <div class="field-row" style="margin-bottom:14px">
+      <label class="field" style="flex:1">
+        <span>Count used</span>
+        <input id="chu-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${available}" placeholder="e.g. 2" />
+      </label>
+      <label class="field" style="flex:1">
+        <span>Date</span>
+        <input id="chu-date" type="date" value="${todayISO()}" />
+      </label>
+    </div>
+    <button class="btn primary block" id="chu-save">Confirm Use</button>
+  `, root => {
+    setTimeout(() => $('#chu-count', root)?.focus(), 80);
+    $('#chu-save', root).onclick = () => {
+      const count = parseInt($('#chu-count', root).value, 10);
+      const date  = $('#chu-date', root).value || todayISO();
+      if (!count || count < 1) return toast(t('enter_count'), true);
+      if (count > available) return toast(`Only ${available} available`, true);
+      const u = rec('frozen_uses', { stage: 'Chick', count, date, itemType: 'chick', speciesId: '' });
+      upsertLocal('frozen_uses', u); touch('frozen_uses', u);
+      toast(`Used ${count} chick${count !== 1 ? 's' : ''} from freezer`);
+      closeModal(); render();
+    };
+  });
+}
+
 function freezerIntakeModal() {
   const allSpecies = live('species');
   if (!allSpecies.length) return toast('No species defined', true);
@@ -2441,6 +2507,16 @@ function renderFreezer() {
         <div class="l">${t('fz_total_label')}</div>
       </div>
       ${cards}
+    </div>
+    <div class="chick-tile" style="margin-top:14px;padding:16px 20px;background:var(--surface2);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <div style="font-size:28px;font-weight:700;line-height:1">${chicksInFreezer()}</div>
+        <div class="small muted" style="margin-top:2px">Chicks · Intake only</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm" data-act="fz-chick-use" ${chicksInFreezer() < 1 ? 'disabled' : ''}>Use</button>
+        <button class="btn sm primary" data-act="fz-chick-intake">+ Add</button>
+      </div>
     </div>
     <p class="small muted" style="margin-top:14px;text-align:center">
       Tap <b>Use</b> to record feeding from the freezer.<br>
@@ -4349,7 +4425,9 @@ function onClick(e) {
     case 'use-frozen':  return useFrozenModal(el.dataset.spid);  // legacy tray panel
     case 'fz-use':      return useFrozenModal(el.dataset.stage);
     case 'fz-add':      return addToFreezerModal();
-    case 'fz-intake':   return freezerIntakeModal();
+    case 'fz-intake':        return freezerIntakeModal();
+    case 'fz-chick-intake':  return chickIntakeModal();
+    case 'fz-chick-use':     return chickUseModal();
     case 'add-species': return speciesModal();
     case 'edit-species':return speciesModal(byId('species',id));
     case 'del-species': return confirmDelete('species', () => { removeRecord('species',id); render(); });
