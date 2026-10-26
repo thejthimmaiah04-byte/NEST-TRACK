@@ -2600,31 +2600,34 @@ function renderTrays() {
   const shelves = live('shelves').sort((a,b) => (a.sortOrder||0)-(b.sortOrder||0));
   const names = orderedStageNames();
 
-  // Harvest search card (always visible)
+  // Harvest search card (collapsed by default, expands on tap)
   const stageOpts   = names.map(nm => `<option value="${esc(nm)}">${esc(tStage(nm))}</option>`).join('');
   const speciesOpts = live('species').map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
   let html = `
-    <div class="harvest-card card">
-      <div class="harvest-header">
+    <div class="harvest-card card" id="harvest-card">
+      <button class="harvest-toggle" id="harvest-toggle" aria-expanded="false">
         <span class="harvest-icon">🔍</span>
         <span class="harvest-label">${t('find_harvest')}</span>
+        <span class="harvest-toggle-arrow">›</span>
+      </button>
+      <div class="harvest-body" id="harvest-body" style="display:none;margin-top:12px">
+        <input id="tray-search" type="search" placeholder="Search tray by name (e.g. D-30)…"
+          style="width:100%;margin-bottom:10px;padding:8px 10px;background:var(--surface-2,#242424);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none" />
+        <div id="tray-search-results"></div>
+        <hr class="hr" style="margin:10px 0" />
+        <div class="harvest-row">
+          <select id="harvest-species">
+            <option value="all">${t('all_species_opt')}</option>
+            ${speciesOpts}
+          </select>
+          <select id="harvest-stage">
+            <option value="">${t('stage_opt')}</option>
+            ${stageOpts}
+          </select>
+          <input id="harvest-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="${t('how_many_q')}" />
+        </div>
+        <div id="harvest-results"></div>
       </div>
-      <input id="tray-search" type="search" placeholder="Search tray by name (e.g. D-30)…"
-        style="width:100%;margin-bottom:10px;padding:8px 10px;background:var(--surface-2,#242424);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none" />
-      <div id="tray-search-results"></div>
-      <hr class="hr" style="margin:10px 0" />
-      <div class="harvest-row">
-        <select id="harvest-species">
-          <option value="all">${t('all_species_opt')}</option>
-          ${speciesOpts}
-        </select>
-        <select id="harvest-stage">
-          <option value="">${t('stage_opt')}</option>
-          ${stageOpts}
-        </select>
-        <input id="harvest-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="${t('how_many_q')}" />
-      </div>
-      <div id="harvest-results"></div>
     </div>`;
 
   if (!shelves.length) {
@@ -2785,6 +2788,19 @@ function renderTrays() {
   }
 
   el.innerHTML = html;
+
+  // Wire harvest card toggle
+  const harvestToggle = $('#harvest-toggle', el);
+  const harvestBody   = $('#harvest-body', el);
+  if (harvestToggle && harvestBody) {
+    harvestToggle.onclick = () => {
+      const open = harvestBody.style.display !== 'none';
+      harvestBody.style.display = open ? 'none' : '';
+      harvestToggle.setAttribute('aria-expanded', String(!open));
+      harvestToggle.querySelector('.harvest-toggle-arrow').style.transform = open ? '' : 'rotate(90deg)';
+      if (!open) setTimeout(() => $('#tray-search', el)?.focus(), 80);
+    };
+  }
 
   // Wire tray quick-search
   const traySearchEl = $('#tray-search', el);
