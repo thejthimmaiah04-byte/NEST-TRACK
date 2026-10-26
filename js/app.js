@@ -127,7 +127,8 @@ function idbGet(key) {
   })).catch(() => null);
 }
 const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
-const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding','Dystocia','Cannibalism','Hypothermia','Age/Natural','Culled'];
+const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding','Dystocia','Cannibalism','Hypothermia','Age/Natural','Culled','Lump','Water Level'];
+const WIZ_DEATH_CAUSES = ['Lump','Unknown','Fight','Disease','Water Level','Eaten'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
 const SYNC_DEBOUNCE   = 1200;   // ms after last change before pushing
 const AUTO_PULL_MS    = 15000;  // background pull interval when online
@@ -2372,7 +2373,7 @@ function renderFreezer() {
     </p>`;
 }
 
-/* ---------- Quick removal from tray card ---------- */
+/* ---------- Quick removal wizard (multi-step) ---------- */
 function quickTrayRemoval(trayId) {
   const tray = byId('trays', trayId);
   if (!tray) return;
@@ -2381,126 +2382,209 @@ function quickTrayRemoval(trayId) {
   const lastStageName = sp?.stages?.length
     ? [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name : null;
 
+  // Build stage → available count map
   const cohorts = live('cohorts').filter(c => c.trayId === trayId && cohortNet(c, today) > 0);
   const stageMap = new Map();
   for (const c of cohorts) {
     const { name } = stageIndexAt(c, today);
-    if (name === lastStageName) continue; // adult stage handled via sex tally
+    if (name === lastStageName) continue;
     stageMap.set(name, (stageMap.get(name) || 0) + cohortNet(c, today));
   }
-  // Adult count from sex tally (authoritative) or cohort fallback
   const adultRemCount = trayAdultCount(tray, sp);
   if (adultRemCount > 0 && lastStageName) stageMap.set(lastStageName, adultRemCount);
   if (!stageMap.size) return toast(t('no_live_animals'), true);
 
-  const stageOpts = [...stageMap.entries()]
-    .map(([nm, cnt]) => `<option value="${esc(nm)}">${esc(tStage(nm))} (${cnt} available)</option>`)
-    .join('');
+  let selectedStage = null;
+  let selectedCount = 0;
+  const isAdult = () => selectedStage === lastStageName;
 
-  const sexRowHtml = lastStageName ? `
-    <div id="qtr-sex-row" style="display:none;margin-bottom:14px">
-      <p class="small" style="margin:0 0 8px;font-weight:500;color:var(--accent)">Which sex are you removing? (adults only)</p>
-      <div style="display:flex;gap:12px">
-        <label class="gravid-field" style="flex:1"><span>♂ Males</span>
-          <input id="qtr-sex-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
-        <label class="gravid-field" style="flex:1"><span>♀ Females</span>
-          <input id="qtr-sex-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
-      </div>
-      <div class="small muted" style="margin-top:4px">♂ + ♀ must equal the count above</div>
-    </div>` : '';
+  // ── Step 1: stage ──
+  function step1() {
+    const stageBtns = [...stageMap.entries()].map(([nm, cnt]) =>
+      `<button class="btn block" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"
+        data-wiz-stage="${esc(nm)}">
+        <span style="font-weight:600">${esc(tStage(nm))}</span>
+        <span class="muted" style="font-size:13px">${cnt} available</span>
+      </button>`
+    ).join('');
+    openModal(`Remove from ${esc(tray.name)}`, `
+      <p class="small muted" style="margin-bottom:12px">Step 1 of 3 · Which stage?</p>
+      ${stageBtns}
+    `, root => {
+      $$('[data-wiz-stage]', root).forEach(b => b.onclick = () => {
+        selectedStage = b.dataset.wizStage;
+        step2();
+      });
+    });
+  }
 
-  openModal(`Record removal — ${esc(tray.name)}`, `
-    <div class="field-row" style="margin-bottom:14px">
-      <label class="field" style="flex:1">
-        <span>Date</span>
-        <input id="qtr-date" type="date" value="${todayISO()}" />
+  // ── Step 2: count ──
+  function step2() {
+    const avail = stageMap.get(selectedStage) || 0;
+    openModal(`Remove ${esc(tStage(selectedStage))} · ${esc(tray.name)}`, `
+      <p class="small muted" style="margin-bottom:12px">Step 2 of 3 · How many? (${avail} available)</p>
+      <label class="field" style="margin-bottom:18px">
+        <span>Count</span>
+        <input id="wiz-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${avail}" placeholder="e.g. 2" />
       </label>
-      <label class="field" style="flex:1">
-        <span>Stage</span>
-        <select id="qtr-stage">${stageOpts}</select>
-      </label>
-    </div>
-    <label class="field" style="margin-bottom:14px">
-      <span>How many?</span>
-      <input id="qtr-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" placeholder="e.g. 3" />
-    </label>
-    ${sexRowHtml}
-    <div class="field" style="margin-bottom:12px">
-      <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Reason</span>
-      <div class="reason-btns">
-        <button class="reason-btn active" data-reason="Feeding">Feeding</button>
-        <button class="reason-btn" data-reason="Frozen">${t('frozen_label')}</button>
-        <button class="reason-btn" data-reason="Dead">Dead</button>
-        <button class="reason-btn" data-reason="Other">Other</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn" id="wiz-back2" style="flex:0 0 80px">← Back</button>
+        <button class="btn primary" style="flex:1" id="wiz-next2">Next →</button>
       </div>
-    </div>
-    ${deathCauseHtml(true)}
-    <button class="btn primary block" id="qtr-save">Confirm removal</button>
-  `, root => {
-    wireReasonDeathToggle(root);
-    wireCauseBtns(root);
-    $('#qtr-count', root).focus();
+    `, root => {
+      $('#wiz-back2', root).onclick = step1;
+      const countEl = $('#wiz-count', root);
+      setTimeout(() => countEl?.focus(), 80);
+      const go = () => {
+        const n = parseInt(countEl.value, 10);
+        if (!n || n < 1) return toast(t('enter_count'), true);
+        if (n > avail) return toast(`Only ${avail} available`, true);
+        selectedCount = n;
+        step3();
+      };
+      countEl.onkeydown = e => { if (e.key === 'Enter') go(); };
+      $('#wiz-next2', root).onclick = go;
+    });
+  }
 
-    const stageEl = $('#qtr-stage', root);
-    const sexRow  = $('#qtr-sex-row', root);
-    const toggleSexRow = () => {
-      if (sexRow) sexRow.style.display = stageEl.value === lastStageName ? '' : 'none';
-    };
-    if (stageEl) { stageEl.addEventListener('change', toggleSexRow); toggleSexRow(); }
+  // ── Step 3: reason ──
+  function step3() {
+    openModal(`${selectedCount} × ${esc(tStage(selectedStage))} · ${esc(tray.name)}`, `
+      <p class="small muted" style="margin-bottom:12px">Step 3 of 3 · Why are they being removed?</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="Feeding">
+          <span style="font-size:22px">🍗</span><span style="font-weight:600">Feeding</span>
+        </button>
+        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="Frozen">
+          <span style="font-size:22px">❄️</span><span style="font-weight:600">${t('frozen_label')}</span>
+        </button>
+        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="Dead">
+          <span style="font-size:22px">💀</span><span style="font-weight:600">Dead</span>
+        </button>
+        <button class="btn" style="padding:18px 8px;flex-direction:column;display:flex;align-items:center;gap:6px" data-wiz-reason="NewTray">
+          <span style="font-size:22px">📦</span><span style="font-weight:600">New Tray</span>
+        </button>
+      </div>
+      <button class="btn" style="width:100%" id="wiz-back3">← Back</button>
+    `, root => {
+      $('#wiz-back3', root).onclick = step2;
+      $$('[data-wiz-reason]', root).forEach(b => b.onclick = () => {
+        const r = b.dataset.wizReason;
+        if (r === 'Feeding') step4Feeding();
+        else if (r === 'Frozen') doRemove('Frozen');
+        else if (r === 'Dead') step4Dead();
+        else if (r === 'NewTray') step4NewTray();
+      });
+    });
+  }
 
-    $('#qtr-save', root).onclick = () => {
-      const stageName = stageEl?.value || '';
-      const n = parseInt($('#qtr-count', root).value, 10);
-      const reason = $('.reason-btn:not(.cause-btn).active', root)?.dataset.reason || 'Dead';
-      const cause  = reason === 'Dead' ? ($('.cause-btn.active', root)?.dataset.cause || 'Unknown') : undefined;
-      const photoFile = reason === 'Dead' ? ($('#death-photo', root)?.files?.[0] || null) : null;
-      const qDate = $('#qtr-date', root).value || todayISO();
-      if (!isValidDate(qDate)) return toast(t('invalid_date'), true);
-      const avail = stageMap.get(stageName) || 0;
-      if (!n || n < 1) return toast(t('enter_count'), true);
-      if (n > avail) return toast(`Only ${avail} available in this stage`, true);
+  // ── Step 4a: Feeding → sex ──
+  function step4Feeding() {
+    openModal(`Feeding · ${selectedCount} ${esc(tStage(selectedStage))}`, `
+      <p class="small muted" style="margin-bottom:12px">Which sex?</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+        <button class="btn block" data-wiz-sex="Male">♂ Male</button>
+        <button class="btn block" data-wiz-sex="Female">♀ Female</button>
+        <button class="btn block" data-wiz-sex="Both">Both / Mixed</button>
+      </div>
+      <button class="btn" style="width:100%" id="wiz-back4f">← Back</button>
+    `, root => {
+      $('#wiz-back4f', root).onclick = step3;
+      $$('[data-wiz-sex]', root).forEach(b => b.onclick = () => doRemove('Feeding', undefined, b.dataset.wizSex));
+    });
+  }
 
-      const isAdultRem = stageName === lastStageName;
-      let sexMales = null, sexFemales = null;
-      if (isAdultRem && sexRow) {
-        const mVal = $('#qtr-sex-m', root)?.value;
-        const fVal = $('#qtr-sex-f', root)?.value;
-        sexMales   = mVal !== '' && mVal != null ? Number(mVal) : null;
-        sexFemales = fVal !== '' && fVal != null ? Number(fVal) : null;
-        if (sexMales !== null && sexFemales !== null && sexMales + sexFemales !== n)
-          return toast(`♂ + ♀ (${sexMales + sexFemales}) must equal count (${n})`, true);
-      }
+  // ── Step 4b: Dead → cause ──
+  function step4Dead() {
+    const causeBtns = WIZ_DEATH_CAUSES.map((c, i) =>
+      `<button class="reason-btn cause-btn${i === 0 ? ' active' : ''}" data-cause="${esc(c)}">${esc(c)}</button>`
+    ).join('');
+    openModal(`Cause of Death · ${esc(tray.name)}`, `
+      <p class="small muted" style="margin-bottom:12px">What caused the death?</p>
+      <div class="reason-btns" style="margin-bottom:18px">${causeBtns}</div>
+      <div style="display:flex;gap:10px">
+        <button class="btn" style="flex:0 0 80px" id="wiz-back4d">← Back</button>
+        <button class="btn danger" style="flex:1" id="wiz-confirm-dead">Confirm Dead</button>
+      </div>
+    `, root => {
+      wireCauseBtns(root);
+      $('#wiz-back4d', root).onclick = step3;
+      $('#wiz-confirm-dead', root).onclick = () => {
+        const cause = $('.cause-btn.active', root)?.dataset.cause || 'Unknown';
+        doRemove('Dead', cause);
+      };
+    });
+  }
 
-      const matchCohorts = live('cohorts')
-        .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === stageName)
-        .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
+  // ── Step 4c: New Tray → destination ──
+  function step4NewTray() {
+    openModal(`New Tray · Where are they going?`, `
+      <p class="small muted" style="margin-bottom:12px">Enter the destination tray</p>
+      <div class="field-row" style="margin-bottom:18px">
+        <label class="field" style="flex:1"><span>Shelf letter</span>
+          <input id="wiz-shelf" type="text" placeholder="e.g. A" maxlength="4" style="text-transform:uppercase" /></label>
+        <label class="field" style="flex:1"><span>Tray number</span>
+          <input id="wiz-tray-num" type="text" inputmode="numeric" placeholder="e.g. 5" /></label>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn" style="flex:0 0 80px" id="wiz-back4t">← Back</button>
+        <button class="btn primary" style="flex:1" id="wiz-confirm-newtray">Confirm Move</button>
+      </div>
+    `, root => {
+      $('#wiz-back4t', root).onclick = step3;
+      const shelfEl = $('#wiz-shelf', root);
+      shelfEl.oninput = e => { e.target.value = e.target.value.toUpperCase(); };
+      setTimeout(() => shelfEl?.focus(), 80);
+      $('#wiz-confirm-newtray', root).onclick = () => {
+        const shelf = shelfEl.value.trim().toUpperCase();
+        const num = $('#wiz-tray-num', root).value.trim();
+        if (!shelf || !num) return toast('Enter shelf letter and tray number', true);
+        doRemove('Other', undefined, undefined, `${shelf}-${num}`);
+      };
+    });
+  }
 
-      let left = n;
-      for (const c of matchCohorts) {
-        if (left <= 0) break;
-        const take = Math.min(left, cohortNet(c, today));
-        const r = rec('removals', { cohortId: c.id, trayId, date: qDate, stage: stageName, count: take,
-          males: isAdultRem ? (sexMales ?? 0) : undefined,
-          females: isAdultRem ? (sexFemales ?? 0) : undefined,
-          reason, cause });
-        upsertLocal('removals', r);
-        touch('removals', r);
-        left -= take;
-      }
+  // ── Commit removal ──
+  function doRemove(reason, cause, sex, destTray) {
+    const matchCohorts = live('cohorts')
+      .filter(c => c.trayId === trayId && cohortNet(c, today) > 0 && stageIndexAt(c, today).name === selectedStage)
+      .sort((a, b) => parseYMD(a.birthDate) - parseYMD(b.birthDate));
 
-      // Update tray sex counts for adult removals
-      if (isAdultRem && (sexMales !== null || sexFemales !== null)) {
-        if (sexMales !== null) tray.adultMales = Math.max(0, (Number(tray.adultMales) || 0) - sexMales);
-        if (sexFemales !== null) tray.adultFemales = Math.max(0, (Number(tray.adultFemales) || 0) - sexFemales);
-        touch('trays', tray);
-      }
+    const sexMales   = isAdult() && sex === 'Male'   ? selectedCount : isAdult() && sex === 'Female' ? 0 : null;
+    const sexFemales = isAdult() && sex === 'Female' ? selectedCount : isAdult() && sex === 'Male'   ? 0 : null;
 
-      closeModal();
-      render();
-      if (photoFile) uploadDeathPhoto(photoFile, trayId, tray.name, normYMD(qDate), cause);
-      toast(`${n} ${stageName} removed from ${esc(tray.name)} · ${reason}${cause ? ' · ' + cause : ''}`);
-    };
-  });
+    let left = selectedCount;
+    for (const c of matchCohorts) {
+      if (left <= 0) break;
+      const take = Math.min(left, cohortNet(c, today));
+      const r = rec('removals', {
+        cohortId: c.id, trayId, date: todayISO(), stage: selectedStage,
+        count: take,
+        males:   isAdult() ? (sexMales   ?? 0) : undefined,
+        females: isAdult() ? (sexFemales ?? 0) : undefined,
+        reason, cause: reason === 'Dead' ? (cause || 'Unknown') : undefined,
+        notes: destTray ? `Moved to ${destTray}` : undefined
+      });
+      upsertLocal('removals', r);
+      touch('removals', r);
+      left -= take;
+    }
+
+    if (isAdult() && sex && sex !== 'Both') {
+      if (sex === 'Male')   tray.adultMales   = Math.max(0, (Number(tray.adultMales)   || 0) - selectedCount);
+      if (sex === 'Female') tray.adultFemales = Math.max(0, (Number(tray.adultFemales) || 0) - selectedCount);
+      touch('trays', tray);
+    }
+
+    closeModal();
+    render();
+    const label = destTray ? `New Tray → ${destTray}` : reason;
+    const causeNote = reason === 'Dead' && cause ? ` · ${cause}` : '';
+    const sexNote = sex && sex !== 'Both' ? ` ${sex}` : '';
+    toast(`${selectedCount}${sexNote} ${tStage(selectedStage)} removed · ${label}${causeNote}`);
+  }
+
+  step1();
 }
 
 /* ---------- Trays ---------- */
@@ -2688,6 +2772,7 @@ function renderTrays() {
           ${reproRow}
         </div>
         <div class="stagebar">${barSegs || '<span style="flex:1"></span>'}</div>
+        ${total > 0 ? `<button class="tray-rem-btn" data-act="quick-tray-remove" data-id="${esc(tray.id)}" style="margin-top:10px;width:100%">− Remove</button>` : ''}
       </div>`;
     }
     html += `</div>`;
