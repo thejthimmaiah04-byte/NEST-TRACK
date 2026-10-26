@@ -3761,7 +3761,6 @@ function trayDetailModal(trayId) {
           <button class="btn sm" data-save-sex="${trayId}" style="align-self:flex-end">Save</button>
         </div>
         <div class="stg-hint small muted">♂ + ♀ must equal ${adultCount} total${sex ? ` · current ♂${sex.males} ♀${sex.females}` : ''}</div>
-        ${ratioHtml}
       </div>
 
       <div class="stg-section">
