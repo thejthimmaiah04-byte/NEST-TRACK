@@ -2374,7 +2374,7 @@ function renderFreezer() {
 }
 
 /* ---------- Quick removal wizard (multi-step) ---------- */
-function quickTrayRemoval(trayId) {
+function quickTrayRemoval(trayId, preselectedStage) {
   const tray = byId('trays', trayId);
   if (!tray) return;
   const today = new Date();
@@ -2397,6 +2397,13 @@ function quickTrayRemoval(trayId) {
   let selectedStage = null;
   let selectedCount = 0;
   const isAdult = () => selectedStage === lastStageName;
+
+  // If a stage was pre-selected (from tray detail), skip step 1
+  if (preselectedStage && stageMap.has(preselectedStage)) {
+    selectedStage = preselectedStage;
+    step2();
+    return;
+  }
 
   // ── Step 1: stage ──
   function step1() {
@@ -3790,11 +3797,11 @@ function trayDetailModal(trayId) {
 
     // ── Adult remove button ───────────────────────────────────────────────
     const rmAdultsBtn = $('#remove-adults-btn', root);
-    if (rmAdultsBtn) rmAdultsBtn.onclick = () => { closeModal(); removeFromStageModal(trayId, lastStageName); };
+    if (rmAdultsBtn) rmAdultsBtn.onclick = () => { closeModal(); quickTrayRemoval(trayId, lastStageName); };
 
     // ── Non-adult remove buttons ──────────────────────────────────────────
     $$('[data-stg-remove]', root).forEach(btn => {
-      btn.onclick = () => { closeModal(); removeFromStageModal(trayId, btn.dataset.stgRemove); };
+      btn.onclick = () => { closeModal(); quickTrayRemoval(trayId, btn.dataset.stgRemove); };
     });
 
     // ── Gravid / lactating save ───────────────────────────────────────────
