@@ -3796,11 +3796,11 @@ function trayDetailModal(trayId) {
 
     // ── Adult remove button ───────────────────────────────────────────────
     const rmAdultsBtn = $('#remove-adults-btn', root);
-    if (rmAdultsBtn) rmAdultsBtn.onclick = () => { closeModal(); quickTrayRemoval(trayId, lastStageName); };
+    if (rmAdultsBtn) rmAdultsBtn.onclick = () => quickTrayRemoval(trayId, lastStageName);
 
     // ── Non-adult remove buttons ──────────────────────────────────────────
     $$('[data-stg-remove]', root).forEach(btn => {
-      btn.onclick = () => { closeModal(); quickTrayRemoval(trayId, btn.dataset.stgRemove); };
+      btn.onclick = () => quickTrayRemoval(trayId, btn.dataset.stgRemove);
     });
 
     // ── Gravid / lactating save ───────────────────────────────────────────
