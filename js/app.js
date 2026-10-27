@@ -3320,6 +3320,26 @@ function requestNotificationPermission() {
 
 /* ── In-app notification bell ─────────────────────────────────────────────── */
 
+function ratIcon(color) {
+  return `<svg width="22" height="22" viewBox="0 0 32 32" fill="${color}" xmlns="http://www.w3.org/2000/svg">
+    <!-- ears -->
+    <ellipse cx="10" cy="7" rx="4.5" ry="5.5"/>
+    <ellipse cx="22" cy="7" rx="4.5" ry="5.5"/>
+    <!-- inner ears -->
+    <ellipse cx="10" cy="7" rx="2.5" ry="3.5" fill="rgba(0,0,0,0.18)"/>
+    <ellipse cx="22" cy="7" rx="2.5" ry="3.5" fill="rgba(0,0,0,0.18)"/>
+    <!-- head -->
+    <ellipse cx="16" cy="16" rx="9" ry="8"/>
+    <!-- snout -->
+    <ellipse cx="16" cy="21" rx="4" ry="3"/>
+    <!-- eyes -->
+    <circle cx="12" cy="14" r="1.5" fill="rgba(0,0,0,0.55)"/>
+    <circle cx="20" cy="14" r="1.5" fill="rgba(0,0,0,0.55)"/>
+    <!-- nose -->
+    <circle cx="16" cy="22" r="1.2" fill="rgba(0,0,0,0.4)"/>
+  </svg>`;
+}
+
 function getAppNotifications() {
   const notifs = [];
 
@@ -3373,9 +3393,62 @@ function getAppNotifications() {
     if (newHoppers > 0) {
       notifs.push({
         id: 'hopper-' + tray.id,
-        type: 'info', icon: '🐇',
+        type: 'info', iconSvg: ratIcon('#9ca3af'),
         title: `${tray.name} — ${newHoppers} new hopper${newHoppers !== 1 ? 's' : ''}`,
         body: `Animals just reached Hopper stage.`,
+        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
+      });
+    }
+    // Pinky stage alert (newborns age 0–2 days)
+    const pinkyStage = stages[0];
+    if (pinkyStage) {
+      let newPinkys = 0;
+      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+        const net = cohortNet(c, today); if (net <= 0) continue;
+        const age = daysBetween(c.birthDate, today); if (isNaN(age)) continue;
+        if (age >= 0 && age <= 2) newPinkys += net;
+      }
+      if (newPinkys > 0) notifs.push({
+        id: 'pinky-' + tray.id,
+        type: 'info', iconSvg: ratIcon('#f472b6'),
+        title: `${tray.name} — ${newPinkys} new pink${newPinkys !== 1 ? 'ies' : 'y'}`,
+        body: `Newborns recorded in this tray.`,
+        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
+      });
+    }
+    // Fuzzy stage alert
+    const fuzzyStage = stages.find(s => s.name.toLowerCase() === 'fuzzy');
+    if (fuzzyStage) {
+      let newFuzzys = 0;
+      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+        const net = cohortNet(c, today); if (net <= 0) continue;
+        const age = daysBetween(c.birthDate, today); if (isNaN(age)) continue;
+        const d = age - fuzzyStage.startDay;
+        if (d >= 0 && d <= 2) newFuzzys += net;
+      }
+      if (newFuzzys > 0) notifs.push({
+        id: 'fuzzy-' + tray.id,
+        type: 'info', iconSvg: ratIcon('#facc15'),
+        title: `${tray.name} — ${newFuzzys} new fuzzy${newFuzzys !== 1 ? 's' : ''}`,
+        body: `Animals just reached Fuzzy stage.`,
+        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
+      });
+    }
+    // Adult stage alert
+    const adultStage = stages[stages.length - 1];
+    if (adultStage) {
+      let newAdults = 0;
+      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+        const net = cohortNet(c, today); if (net <= 0) continue;
+        const age = daysBetween(c.birthDate, today); if (isNaN(age)) continue;
+        const d = age - adultStage.startDay;
+        if (d >= 0 && d <= 2) newAdults += net;
+      }
+      if (newAdults > 0) notifs.push({
+        id: 'adult-' + tray.id,
+        type: 'info', iconSvg: ratIcon('#fb923c'),
+        title: `${tray.name} — ${newAdults} new adult${newAdults !== 1 ? 's' : ''}`,
+        body: `Animals just reached Adult stage.`,
         action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
       });
     }
@@ -3420,7 +3493,7 @@ function openNotifPanel() {
   } else {
     list.innerHTML = notifs.map(n => `
       <div class="notif-item notif-type-${n.type}">
-        <span class="notif-icon">${n.icon}</span>
+        <span class="notif-icon">${n.iconSvg || n.icon || ''}</span>
         <div class="notif-content">
           <div class="notif-title">${esc(n.title)}</div>
           <div class="notif-desc">${esc(n.body)}</div>
