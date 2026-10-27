@@ -5063,13 +5063,314 @@ function renderReports() {
   const el  = $('#tab-reports');
   const now = new Date();
   const curYear  = now.getFullYear();
-  const curMonth = now.getMonth(); // 0-based
+  const curMonth = now.getMonth();
 
   if (!live('cohorts').length) {
     el.innerHTML = `<h2 class="section-title" style="margin:4px 0 20px">${t('tab_reports')}</h2>` +
       emptyState('&#128202;', t('es_no_data'), t('es_no_data_sub'));
     return;
   }
+
+  /* ── Time window keys ──────────────────────────────────────────── */
+  const todayYMD     = toYMD(now);
+  const weekStartYMD = toYMD(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6));
+  const monthStartYMD= toYMD(new Date(curYear, curMonth, 1));
+  const yearStartYMD = toYMD(new Date(curYear, 0, 1));
+  const allStartYMD  = '00000101';
+
+  /* ── Helpers ───────────────────────────────────────────────────── */
+  const birthsIn = (spId, from, to) =>
+    live('cohorts').filter(c => {
+      if (spId && c.speciesId !== spId) return false;
+      const d = normYMD(c.birthDate); return d >= from && d <= to;
+    }).reduce((s,c) => s + (Number(c.initialCount)||0), 0);
+
+  const feedingByStage = (spId, from, to) => {
+    const map = {};
+    live('removals').filter(r => {
+      if (r.reason !== 'Feeding' && r.reason !== 'Harvest' && r.reason !== 'Harvested') return false;
+      const d = normYMD(r.date); if (d < from || d > to) return false;
+      if (spId) { const c = byId('cohorts', r.cohortId); if (!c || c.speciesId !== spId) return false; }
+      return true;
+    }).forEach(r => { const st = r.stage||'—'; map[st] = (map[st]||0) + (Number(r.count)||0); });
+    return map;
+  };
+
+  const frozenByStageIn = (from, to) => {
+    const map = {};
+    live('removals').filter(r =>
+      r.reason === 'Frozen' && r.stage && r.itemType !== 'chick' && r.stage !== 'Chick' &&
+      normYMD(r.date) >= from && normYMD(r.date) <= to
+    ).forEach(r => { map[r.stage] = (map[r.stage]||0) + (Number(r.count)||0); });
+    return map;
+  };
+
+  const deathStats = (spId, from, to) => {
+    const byCause = {}, byStage = {};
+    live('removals').filter(r => {
+      if (r.reason !== 'Dead') return false;
+      const d = normYMD(r.date); if (d < from || d > to) return false;
+      if (spId) { const c = byId('cohorts', r.cohortId); if (!c || c.speciesId !== spId) return false; }
+      return true;
+    }).forEach(r => {
+      const cause = DEATH_CAUSES.includes(r.cause) ? r.cause : 'Unknown';
+      const stage = r.stage || '—';
+      const cnt   = Number(r.count)||0;
+      byCause[cause] = (byCause[cause]||0) + cnt;
+      if (!byStage[stage]) byStage[stage] = {};
+      byStage[stage][cause] = (byStage[stage][cause]||0) + cnt;
+    });
+    return { byCause, byStage };
+  };
+
+  /* ── ① BREEDING ROOM — per species ──────────────────────────────── */
+  const allSpecies = live('species').filter(sp => {
+    const { total } = stageTotalsAt(now, c => speciesOf(c)?.id === sp.id);
+    return total > 0;
+  });
+
+  const spSections = allSpecies.map(sp => {
+    const { totals: spTot, total: spTotal } = stageTotalsAt(now, c => speciesOf(c)?.id === sp.id);
+    const stages = [...(sp.stages||[])].sort((a,b) => (a.startDay||0)-(b.startDay||0));
+
+    // Stage pills
+    const spPills = stages.map((st,i) => {
+      const cnt = spTot.get(st.name)||0;
+      const col = STAGE_HEX[i%STAGE_HEX.length];
+      return `<div class="rpt2-stage-pill" style="border-color:${col}55;background:${col}14">
+        <span style="color:${col};font-size:22px;font-weight:700;line-height:1">${cnt}</span>
+        <span style="color:var(--muted);font-size:11px;margin-top:2px">${esc(tStage(st.name))}</span>
+      </div>`;
+    }).join('');
+
+    // Sex
+    let spM=0, spF=0;
+    for (const tray of live('trays').filter(t => t.speciesId === sp.id)) {
+      const sex = trayAdultSex(tray.id, sp); if (!sex) continue;
+      spM += sex.males; spF += sex.females;
+    }
+    const trayCount = live('trays').filter(t => t.speciesId === sp.id).length;
+    const sexLine = (spM||spF) ? `<span>&#9794; ${spM} &nbsp;&#9792; ${spF}${spM&&spF?` <span class="muted">(1:${(spF/spM).toFixed(1)})</span>`:''}</span>` : '';
+
+    // Births table
+    const bW = birthsIn(sp.id, weekStartYMD, todayYMD);
+    const bM = birthsIn(sp.id, monthStartYMD, todayYMD);
+    const bY = birthsIn(sp.id, yearStartYMD, todayYMD);
+    const bA = birthsIn(sp.id, allStartYMD, todayYMD);
+
+    // Feeding used this month by stage
+    const fedMap = feedingByStage(sp.id, monthStartYMD, todayYMD);
+    const fedStages = stages.map(st => st.name).filter(n => fedMap[n]);
+    const fedTotal  = Object.values(fedMap).reduce((s,v)=>s+v,0);
+    const fedRows = fedStages.length
+      ? fedStages.map((nm,i) => `<tr><td>${esc(tStage(nm))}</td><td class="rpt2-num" style="color:var(--accent)">${fedMap[nm]}</td></tr>`).join('')
+        + `<tr style="border-top:1px solid var(--border);font-weight:700"><td>Total</td><td class="rpt2-num" style="color:var(--accent)">${fedTotal}</td></tr>`
+      : `<tr><td colspan="2" class="small muted" style="padding:6px 0">None this month</td></tr>`;
+
+    // Deaths this month
+    const { byCause, byStage: dByStage } = deathStats(sp.id, monthStartYMD, todayYMD);
+    const dTotal = Object.values(byCause).reduce((s,v)=>s+v,0);
+    const causeKeys = Object.keys(byCause).sort();
+    const stageKeys = Object.keys(dByStage).sort();
+    let deathBlock = '';
+    if (causeKeys.length) {
+      const headerCols = causeKeys.map(c=>`<th>${esc(c)}</th>`).join('');
+      const dataRows = stageKeys.map(st => {
+        const cells = causeKeys.map(c=>`<td>${dByStage[st][c]||'—'}</td>`).join('');
+        const rowTot = causeKeys.reduce((s,c)=>s+(dByStage[st][c]||0),0);
+        return `<tr><td><b>${esc(st)}</b></td>${cells}<td class="rpt2-num" style="color:var(--danger)">${rowTot}</td></tr>`;
+      }).join('');
+      const totRow = `<tr style="font-weight:700;border-top:1px solid var(--border)"><td>Total</td>${causeKeys.map(c=>`<td>${byCause[c]}</td>`).join('')}<td class="rpt2-num" style="color:var(--danger)">${dTotal}</td></tr>`;
+      deathBlock = `<div style="overflow-x:auto"><table class="rpt-rem-table"><thead><tr><th>Stage</th>${headerCols}<th>Total</th></tr></thead><tbody>${dataRows}${totRow}</tbody></table></div>`;
+    } else {
+      deathBlock = `<p class="small muted" style="margin:0">No deaths this month.</p>`;
+    }
+
+    // Chart
+    const chart = renderPopulationForecast('all', 'all', c => speciesOf(c)?.id === sp.id);
+
+    return `
+    <div class="rpt2-sp-block">
+      <div class="rpt2-sp-header">
+        <div>
+          <div class="rpt2-sp-name">${esc(sp.name).toUpperCase()}</div>
+          <div class="rpt2-sp-meta">${trayCount} tray${trayCount!==1?'s':''} &nbsp;·&nbsp; ${sexLine||'sex not tracked'}</div>
+        </div>
+        <div class="rpt2-sp-total">${spTotal.toLocaleString()}<span class="rpt2-sp-total-l">alive</span></div>
+      </div>
+
+      <div class="rpt2-stage-row">${spPills}</div>
+
+      <div class="rpt2-two-col">
+        <!-- Births -->
+        <div>
+          <div class="rpt2-sub-title">Births</div>
+          <table class="rpt-rem-table">
+            <thead><tr><th>Period</th><th class="rpt2-num">Count</th></tr></thead>
+            <tbody>
+              <tr><td>This week</td><td class="rpt2-num ok">${bW}</td></tr>
+              <tr><td>This month</td><td class="rpt2-num ok">${bM}</td></tr>
+              <tr><td>${curYear}</td><td class="rpt2-num ok">${bY}</td></tr>
+              <tr style="font-weight:700"><td>All time</td><td class="rpt2-num ok">${bA}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- Fed this month by stage -->
+        <div>
+          <div class="rpt2-sub-title">Used for feeding <span class="muted">(this month)</span></div>
+          <table class="rpt-rem-table">
+            <thead><tr><th>Stage</th><th class="rpt2-num">Count</th></tr></thead>
+            <tbody>${fedRows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Deaths this month -->
+      <div class="rpt2-sub-title" style="margin-top:14px">Deaths this month</div>
+      ${deathBlock}
+
+      <!-- Forecast chart -->
+      <div class="rpt2-sub-title" style="margin-top:14px">Population forecast (56 days)</div>
+      <div class="rpt2-chart-wrap">${chart}</div>
+    </div>`;
+  }).join('');
+
+  /* ── ② FREEZER STOCK ────────────────────────────────────────────── */
+  const frozenNow    = frozenByStage();       // Map: current stock per stage
+  const frozenMonth  = frozenByStageIn(monthStartYMD, todayYMD);
+  const frozenAll    = frozenByStageIn(allStartYMD, todayYMD);
+  const chickNow     = chicksInFreezer();
+  const chickMonth   = live('removals').filter(r => r.itemType==='chick' && normYMD(r.date)>=monthStartYMD && normYMD(r.date)<=todayYMD).reduce((s,r)=>s+(Number(r.count)||0),0);
+  const chickAll     = live('removals').filter(r => r.itemType==='chick').reduce((s,r)=>s+(Number(r.count)||0),0);
+
+  const allFrozenStages = [...new Set([...frozenNow.keys(), ...Object.keys(frozenAll)])].sort();
+  const frozenRows = allFrozenStages.map(st => {
+    const cur = Math.max(0, frozenNow.get(st)||0);
+    const mon = frozenMonth[st]||0;
+    const all = frozenAll[st]||0;
+    return `<tr>
+      <td><b>${esc(tStage(st))}</b></td>
+      <td class="rpt2-num" style="color:#2dd4bf;font-size:16px;font-weight:700">${cur}</td>
+      <td class="rpt2-num">${mon}</td>
+      <td class="rpt2-num muted">${all}</td>
+    </tr>`;
+  }).join('');
+
+  const frozenTotNow   = allFrozenStages.reduce((s,st)=>s+Math.max(0,frozenNow.get(st)||0),0);
+  const frozenTotMonth = Object.values(frozenMonth).reduce((s,v)=>s+v,0);
+  const frozenTotAll   = Object.values(frozenAll).reduce((s,v)=>s+v,0);
+
+  /* ── ③ RECENT REMOVALS ──────────────────────────────────────────── */
+  const allRems = live('removals')
+    .filter(r => r.count > 0 && r.reason !== 'Transfer')
+    .sort((a,b) => normYMD(b.date).localeCompare(normYMD(a.date)))
+    .slice(0,20);
+  const remRows = allRems.map(r => {
+    const tray = byId('trays', r.trayId);
+    const col  = r.reason==='Dead'?'var(--danger)':r.reason==='Feeding'?'var(--accent)':r.reason==='Frozen'?'#2dd4bf':'var(--text-2)';
+    const validCause = DEATH_CAUSES.includes(r.cause) ? r.cause : null;
+    const causeTag = r.reason==='Dead'&&validCause ? `<span class="rpt-cause-tag">${esc(validCause)}</span>` : '';
+    return `<tr class="rpt-rem-row">
+      <td>${fmtDisplayDate(ymdToInput(normYMD(r.date)))}</td>
+      <td>${esc(tray?.name||r.trayId||'—')}</td>
+      <td>${esc(r.stage||'—')}</td>
+      <td class="rpt-rem-count">${r.count}</td>
+      <td style="color:${col};font-weight:600">${esc(r.reason||'—')} ${causeTag}</td>
+    </tr>`;
+  }).join('');
+
+  /* ── ④ Email / Schedule ─────────────────────────────────────────── */
+  const savedEmails   = state.meta.reportEmails   || '';
+  const savedSchedule = state.meta.reportSchedule || 'off';
+  const lastSentTs    = state.meta.reportLastSent;
+  const lastSentLabel = lastSentTs
+    ? new Date(lastSentTs).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+    : 'Never';
+  const nextDueLabel  = _reportNextDueLabel();
+
+  /* ── Render ───────────────────────────────────────────────────────── */
+  el.innerHTML = `
+
+    <!-- ═══ BREEDING ROOM ═══ -->
+    <div class="rpt2-section-head">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+      BREEDING ROOM
+    </div>
+    ${allSpecies.length ? spSections : `<div class="card"><p class="small muted" style="margin:0">No live animals recorded.</p></div>`}
+
+    <!-- ═══ FREEZER ═══ -->
+    <div class="rpt2-section-head" style="margin-top:28px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="6" x2="12" y2="10"/><line x1="12" y1="6" x2="10" y2="8"/><line x1="12" y1="6" x2="14" y2="8"/></svg>
+      <span style="color:#60a5fa">FREEZER STOCK</span>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      <div style="overflow-x:auto"><table class="rpt-rem-table">
+        <thead><tr><th>Stage</th><th class="rpt2-num">In Stock</th><th class="rpt2-num">This Month</th><th class="rpt2-num muted">All Time</th></tr></thead>
+        <tbody>
+          ${frozenRows}
+          <tr>
+            <td><b>Chick</b></td>
+            <td class="rpt2-num" style="color:#f5c400;font-size:16px;font-weight:700">${chickNow}</td>
+            <td class="rpt2-num">${chickMonth}</td>
+            <td class="rpt2-num muted">${chickAll}</td>
+          </tr>
+          <tr style="font-weight:700;border-top:2px solid var(--border)">
+            <td>Total</td>
+            <td class="rpt2-num" style="color:#2dd4bf;font-size:18px">${frozenTotNow + chickNow}</td>
+            <td class="rpt2-num">${frozenTotMonth + chickMonth}</td>
+            <td class="rpt2-num muted">${frozenTotAll + chickAll}</td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <!-- ═══ RECENT REMOVALS ═══ -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 10px">
+      <div class="rpt2-section-head" style="margin:0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        REMOVALS &amp; DEATHS
+      </div>
+      ${state.meta.scriptUrl?`<button class="btn sm" data-act="pull-sheets">&#8635; Pull from sheet</button>`:''}
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      ${allRems.length
+        ? `<div style="overflow-x:auto"><table class="rpt-rem-table">
+            <thead><tr><th>Date</th><th>Tray</th><th>Stage</th><th>Count</th><th>Reason</th></tr></thead>
+            <tbody>${remRows}</tbody>
+           </table></div>`
+        : `<p class="small muted" style="margin:0">No removals recorded yet.</p>`}
+    </div>
+
+    <!-- ═══ AUTO-REPORTS & EMAIL ═══ -->
+    <div class="rpt2-section-head" style="margin-bottom:10px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      AUTO-REPORTS &amp; EMAIL
+    </div>
+    <div class="card">
+      <label class="field" style="margin-bottom:6px">
+        <span>Email recipients</span>
+        <input id="rpt-emails" type="text" placeholder="alice@example.com, bob@example.com" value="${esc(savedEmails)}" />
+      </label>
+      <p class="small muted" style="margin:0 0 14px">Comma-separated. Sent via the Apps Script URL in Settings.</p>
+      <label class="field" style="margin-bottom:14px">
+        <span>Auto-send schedule</span>
+        <select id="rpt-schedule">
+          <option value="off"     ${savedSchedule==='off'    ?'selected':''}>Off — manual only</option>
+          <option value="weekly"  ${savedSchedule==='weekly' ?'selected':''}>Weekly (every 7 days)</option>
+          <option value="monthly" ${savedSchedule==='monthly'?'selected':''}>Monthly (every 30 days)</option>
+          <option value="yearly"  ${savedSchedule==='yearly' ?'selected':''}>Yearly (every 365 days)</option>
+        </select>
+      </label>
+      <div class="rpt-schedule-info small muted" style="margin-bottom:16px">
+        <div class="spread mt"><span>Last sent</span><span>${lastSentLabel}</span></div>
+        ${nextDueLabel?`<div class="spread mt"><span>Next due</span><span>${nextDueLabel}</span></div>`:''}
+      </div>
+      <div class="gap">
+        <button class="btn primary" data-act="rpt-save-emails">Save settings</button>
+        <button class="btn" data-act="rpt-send-now">&#9993; Send now</button>
+      </div>
+    </div>`;
+}
 
   /* ── Colony snapshot ─────────────────────────────────────────── */
   const { totals, total } = stageTotalsAt(now);
