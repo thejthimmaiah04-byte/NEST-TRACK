@@ -967,22 +967,29 @@ function computeShuffleRecommendations() {
     });
   }
 
-  // Pass 2 — ratio > 1:4 → suggest moving excess females to a roomier tray
-  for (const t of trayData) {
-    if (t.males === 0 || t.females / t.males <= 4) continue;
-    const target = trayData.find(d =>
-      d.sp.id === t.sp.id &&
-      d.tray.id !== t.tray.id &&
-      d.males > 0 &&
-      d.females / d.males < 3 &&
-      !recs.some(r => r.from?.id === t.tray.id && r.sex === '♀')
-    );
-    if (!target) continue;
-    const excess = Math.floor(t.females - t.males * 3);
+  // Pass 2 — use species target ratio to pair excess-female trays with deficit trays
+  const pledgedToReceiver = new Map(); // trayId → females already pledged to arrive
+  for (const donor of trayData) {
+    if (donor.males === 0) continue;
+    const tgtF = donor.sp.ratio?.females ?? 3;
+    const excess = Math.floor(donor.females - donor.males * tgtF);
     if (excess < 1) continue;
+    if (recs.some(r => r.from?.id === donor.tray.id && r.sex === '♀')) continue;
+    const receiver = trayData.find(d =>
+      d.sp.id === donor.sp.id &&
+      d.tray.id !== donor.tray.id &&
+      d.males > 0 &&
+      Math.ceil(d.males * (d.sp.ratio?.females ?? 3) - d.females) - (pledgedToReceiver.get(d.tray.id) || 0) >= 1
+    );
+    if (!receiver) continue;
+    const alreadyPledged = pledgedToReceiver.get(receiver.tray.id) || 0;
+    const deficit = Math.ceil(receiver.males * (receiver.sp.ratio?.females ?? 3) - receiver.females) - alreadyPledged;
+    const moveCount = Math.min(excess, deficit);
+    if (moveCount < 1) continue;
+    pledgedToReceiver.set(receiver.tray.id, alreadyPledged + moveCount);
     recs.push({
-      from: t.tray, to: target.tray, count: excess, sex: '♀',
-      detail: `${t.tray.name} ratio is 1:${Math.round(t.females / t.males)} (${t.males}♂ ${t.females}♀) — move ${excess}♀ to ${target.tray.name}`
+      from: donor.tray, to: receiver.tray, count: moveCount, sex: '♀',
+      detail: `${donor.tray.name} has 1:${Math.round(donor.females/donor.males)} ratio (${donor.males}♂ ${donor.females}♀, target 1:${tgtF}) — move ${moveCount}♀ to ${receiver.tray.name} (${receiver.males}♂ ${receiver.females}♀)`
     });
   }
 
