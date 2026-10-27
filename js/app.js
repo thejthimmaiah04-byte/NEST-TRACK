@@ -1229,7 +1229,7 @@ function renderDashboard() {
       ? `<div class="sex-info"><span>♂ ${m}</span><span>♀ ${f}</span></div>`
       : '';
     const frozenBadge = fz > 0
-      ? `<button class="stage-frozen-badge" data-act="go-freezer" title="View freezer">${t('frozen_badge', fz)} ›</button>`
+      ? `<span class="stage-frozen-badge">❄ ${fz}</span>`
       : '';
     return `<div class="stat-stage stat-stage-btn" data-s="${i}"
         data-act="remove-stage" data-stage="${esc(nm)}" data-sidx="${i}"
