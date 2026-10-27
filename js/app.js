@@ -3393,20 +3393,10 @@ function ratIcon(color) {
 
 function getAppNotifications() {
   const notifs = [];
-
-  // Sync failures
-  const failCount = state.meta?.syncFailCount || 0;
-  if (failCount >= 3) {
-    notifs.push({
-      id: 'sync-fail', type: 'error', icon: '⚠',
-      title: `Sync failing (${failCount} attempts)`,
-      body:  'Data is not reaching Google Sheets.',
-      action: 'upload-changes', actionLabel: 'Retry upload'
-    });
-  }
-
-  // Gravid females — due within 2 days or overdue
   const today = new Date(); today.setHours(0,0,0,0);
+  const todayYMD = toYMD(today);
+
+  // Births — gravid females due within 2 days or overdue
   for (const tray of live('trays')) {
     if (!tray.gravidFemales || !tray.gravidSince) continue;
     const sp = speciesOf(tray);
@@ -3425,94 +3415,25 @@ function getAppNotifications() {
     });
   }
 
-  // Hopper stage alert — fires for up to 2 days after a cohort enters Hopper stage
-  for (const tray of live('trays')) {
-    const sp = speciesOf(tray);
-    if (!sp?.stages?.length) continue;
-    const stages = [...sp.stages].sort((a, b) => a.startDay - b.startDay);
-    const hopperStage = stages.find(s => s.name.toLowerCase() === 'hopper');
-    if (!hopperStage) continue;
-    let newHoppers = 0;
-    for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
-      const net = cohortNet(c, today);
-      if (net <= 0) continue;
-      const ageDays = daysBetween(c.birthDate, today);
-      if (isNaN(ageDays)) continue;
-      const daysAsHopper = ageDays - hopperStage.startDay;
-      if (daysAsHopper >= 0 && daysAsHopper <= 2) newHoppers += net;
-    }
-    if (newHoppers > 0) {
-      notifs.push({
-        id: 'hopper-' + tray.id,
-        type: 'info', iconSvg: ratIcon('#9ca3af'),
-        title: `${tray.name} — ${newHoppers} new hopper${newHoppers !== 1 ? 's' : ''}`,
-        body: `Day 10+ · ready to wean`,
-        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
-      });
-    }
-    // Pinky stage alert (newborns age 0–2 days)
-    const pinkyStage = stages[0];
-    if (pinkyStage) {
-      let newPinkys = 0;
-      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
-        const net = cohortNet(c, today); if (net <= 0) continue;
-        const age = daysBetween(c.birthDate, today); if (isNaN(age)) continue;
-        if (age >= 0 && age <= 2) newPinkys += net;
-      }
-      if (newPinkys > 0) notifs.push({
-        id: 'pinky-' + tray.id,
-        type: 'info', iconSvg: ratIcon('#f472b6'),
-        title: `${tray.name} — ${newPinkys} new pink${newPinkys !== 1 ? 'ies' : 'y'}`,
-        body: `Day 0–2 · check warmth & feeding`,
-        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
-      });
-    }
-    // Fuzzy stage alert
-    const fuzzyStage = stages.find(s => s.name.toLowerCase() === 'fuzzy');
-    if (fuzzyStage) {
-      let newFuzzys = 0;
-      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
-        const net = cohortNet(c, today); if (net <= 0) continue;
-        const age = daysBetween(c.birthDate, today); if (isNaN(age)) continue;
-        const d = age - fuzzyStage.startDay;
-        if (d >= 0 && d <= 2) newFuzzys += net;
-      }
-      if (newFuzzys > 0) notifs.push({
-        id: 'fuzzy-' + tray.id,
-        type: 'info', iconSvg: ratIcon('#facc15'),
-        title: `${tray.name} — ${newFuzzys} new fuzzy${newFuzzys !== 1 ? 's' : ''}`,
-        body: `Day 7+ · eyes still closed`,
-        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
-      });
-    }
-    // Adult stage alert
-    const adultStage = stages[stages.length - 1];
-    if (adultStage) {
-      let newAdults = 0;
-      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
-        const net = cohortNet(c, today); if (net <= 0) continue;
-        const age = daysBetween(c.birthDate, today); if (isNaN(age)) continue;
-        const d = age - adultStage.startDay;
-        if (d >= 0 && d <= 2) newAdults += net;
-      }
-      if (newAdults > 0) notifs.push({
-        id: 'adult-' + tray.id,
-        type: 'info', iconSvg: ratIcon('#fb923c'),
-        title: `${tray.name} — ${newAdults} new adult${newAdults !== 1 ? 's' : ''}`,
-        body: `Day 21+ · ready for breeding`,
-        action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
-      });
-    }
+  // Deaths — removals with reason='Dead' recorded today
+  const deathsByTray = new Map();
+  for (const r of live('removals')) {
+    if (r.reason !== 'Dead') continue;
+    if (normYMD(r.date) !== todayYMD) continue;
+    const cnt = Number(r.count) || 0;
+    if (!cnt) continue;
+    const tray = byId('trays', r.trayId);
+    const name = tray?.name || r.trayId;
+    const prev = deathsByTray.get(name) || { count: 0, cause: r.cause };
+    deathsByTray.set(name, { count: prev.count + cnt, cause: prev.cause });
   }
-
-  // Pending changes
-  const pc = pendingCount();
-  if (pc > 0 && state.meta?.scriptUrl) {
+  for (const [trayName, { count, cause }] of deathsByTray) {
+    const causeStr = cause && cause !== 'Unknown' ? ` · ${cause}` : '';
     notifs.push({
-      id: 'pending', type: 'info', icon: '↑',
-      title: `${pc} change${pc !== 1 ? 's' : ''} pending upload`,
-      body:  'Will sync automatically when online.',
-      action: 'upload-changes', actionLabel: 'Upload now'
+      id: 'death-' + trayName,
+      type: 'error', icon: '💀',
+      title: `${trayName} — ${count} died today`,
+      body:  `Recorded today${causeStr}`
     });
   }
 
