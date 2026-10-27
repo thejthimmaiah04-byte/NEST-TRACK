@@ -6134,7 +6134,7 @@ function init() {
         if (!tray) return;
         openModal(tray.name || t('tray'), `
           <div style="display:flex;flex-direction:column;gap:10px">
-            <button class="btn primary" data-act="quick-tray-remove" data-id="${trayId}" onclick="document.querySelector('[data-close]').click()">Remove</button>
+            <button class="btn primary" data-act="quick-tray-remove" data-id="${trayId}">Remove</button>
             <button class="btn secondary" data-act="edit-tray" data-id="${trayId}">${t('edit_tray_btn')}</button>
           </div>`);
       }, 500);
