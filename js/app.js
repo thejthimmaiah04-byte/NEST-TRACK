@@ -143,8 +143,8 @@ const _localYMDStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(
 const todayISO = () => _localYMDStr(new Date());
 // Store dates as yyyymmdd (e.g. "20260802")
 const toYMD     = d  => _localYMDStr(d).replace(/-/g,'');
-// Parse "20260802", "2026-08-02", or full ISO timestamp → Date
-const parseYMD  = s  => { s=String(s||''); if(/^\d{8}$/.test(s)) s=s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8); if(s.length>10) s=s.slice(0,10); return new Date(s?s+'T00:00:00':NaN); };
+// Parse "20260802", "2026-08-02", or full ISO timestamp → local-timezone Date
+const parseYMD  = s  => { s=String(s||''); if(/^\d{8}$/.test(s)) s=s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8); if(s.length>10) { const d=new Date(s); if(!isNaN(d)) return new Date(d.getFullYear(),d.getMonth(),d.getDate()); s=s.slice(0,10); } return new Date(s?s+'T00:00:00':NaN); };
 // "20260802" → "2026-08-02" for <input type="date">
 const ymdToInput = s => { s=String(s||''); return /^\d{8}$/.test(s)?s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8):s; };
 // Normalize any date string to yyyymmdd for lexicographic comparison
