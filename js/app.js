@@ -2908,11 +2908,22 @@ function renderTrays() {
       const sex = trayAdultSex(tray.id, sp);
       const ratioDot = (() => {
         if (!sp) return '';
-        const st = sex ? ratioStatus(sex.males, sex.females, sp.ratio) : null;
-        if (st === null) return '<span class="ratio-dot ok" title="Sex ratio: no data yet"></span>';
-        if (st === 'ok')    return `<span class="ratio-dot ok"    title="Sex ratio OK ♂${sex.males}:♀${sex.females}"></span>`;
-        if (st === 'close') return `<span class="ratio-dot close" title="Sex ratio close ♂${sex.males}:♀${sex.females}"></span>`;
-        return `<span class="ratio-dot off" title="Sex ratio off ♂${sex.males}:♀${sex.females}"></span>`;
+        const st  = sex ? ratioStatus(sex.males, sex.females, sp.ratio) : null;
+        const m   = sex?.males   ?? 0;
+        const f   = sex?.females ?? 0;
+        const tgt = sp.ratio?.females ? `1♂ : ${sp.ratio.females}♀` : '';
+        const msgNull  = 'No sex data yet — open tray to enter ♂/♀ counts';
+        const msgOk    = `Sex ratio on target ✓  ♂${m} : ♀${f}`;
+        const msgClose = `Sex ratio slightly off — ♂${m} : ♀${f}${tgt ? `  (target: ${tgt})` : ''}`;
+        const msgOff   = m === 0 ? 'No males in tray — add at least 1 male'
+                       : m  > 1 ? `Too many males (${m}) — ideal is 1 male`
+                       : f === 0 ? 'No females in tray — add females'
+                       : `Sex ratio incorrect — ♂${m} : ♀${f}${tgt ? `  (target: ${tgt})` : ''}`;
+        const act = `data-act="show-ratio-info" style="cursor:pointer"`;
+        if (st === null)    return `<span class="ratio-dot ok"    ${act} data-msg="${esc(msgNull)}"></span>`;
+        if (st === 'ok')    return `<span class="ratio-dot ok"    ${act} data-msg="${esc(msgOk)}"></span>`;
+        if (st === 'close') return `<span class="ratio-dot close" ${act} data-msg="${esc(msgClose)}"></span>`;
+        return                     `<span class="ratio-dot off"   ${act} data-msg="${esc(msgOff)}"></span>`;
       })();
       const gravid    = tray.gravidFemales    || 0;
       const lactating = tray.lactatingFemales || 0;
@@ -4619,6 +4630,7 @@ function onClick(e) {
     case 'remove-stage': return openRemoveByStage(el.dataset.stage, Number(el.dataset.sidx));
     case 'quick-tray-remove': { e.stopPropagation(); return quickTrayRemoval(id); }
     case 'use-frozen':  return useFrozenModal(el.dataset.spid);  // legacy tray panel
+    case 'show-ratio-info': { e.stopPropagation(); toast(el.dataset.msg); return; }
     case 'go-freezer':  return switchTab('freezer');
     case 'fz-use':      return useFrozenModal(el.dataset.stage);
     case 'fz-add':      return addToFreezerModal();
