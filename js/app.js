@@ -4034,10 +4034,10 @@ function trayDetailModal(trayId) {
             <input id="f-lact" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${femMax}" value="${lactating}" placeholder="0" /></label>
           <button class="btn sm" id="save-status" style="align-self:flex-end">Save</button>
         </div>
-        <div style="display:flex;align-items:flex-end;gap:10px;margin-top:8px;flex-wrap:wrap">
-          <label class="sex-lbl" style="max-width:180px;margin-top:0">
+        <div style="display:flex;align-items:flex-end;gap:12px;margin-top:8px">
+          <label class="sex-lbl" style="flex:0 0 auto;margin-top:0">
             <span>${t('gravid_since_lbl')}</span>
-            <input id="f-gravid-since" type="date" value="${gravidSince}" />
+            <input id="f-gravid-since" type="date" value="${gravidSince}" style="width:150px" />
           </label>
           ${expectedBirthStr}
         </div>

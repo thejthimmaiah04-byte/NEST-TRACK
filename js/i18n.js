@@ -78,10 +78,10 @@ const I18N = {
   num_trays:        { en: 'Number of trays (1–100)', kn: 'ತಟ್ಟೆಗಳ ಸಂಖ್ಯೆ (1–100)' },
 
   // ── Tray / shelf actions ─────────────────────────────────────
-  add_tray:         { en: 'Add tray',          kn: 'ತಟ್ಟೆ ಸೇರಿಸಿ' },
-  edit_tray:        { en: 'Edit tray',         kn: 'ತಟ್ಟೆ ತಿದ್ದಿ' },
-  del_tray:         { en: 'Delete tray',       kn: 'ತಟ್ಟೆ ಅಳಿಸಿ' },
-  edit_tray_btn:    { en: '✎ Edit tray',       kn: '✎ ತಟ್ಟೆ ತಿದ್ದಿ' },
+  add_tray:         { en: 'Add tray',          kn: 'tray ಸೇರಿಸಿ' },
+  edit_tray:        { en: 'Edit tray',         kn: 'tray ತಿದ್ದಿ' },
+  del_tray:         { en: 'Delete tray',       kn: 'tray ಅಳಿಸಿ' },
+  edit_tray_btn:    { en: '✎ Edit tray',       kn: '✎ tray ತಿದ್ದಿ' },
   add_shelf:        { en: 'Add shelf',         kn: 'ಕಪಾಟು ಸೇರಿಸಿ' },
   rename_shelf:     { en: 'Rename shelf',      kn: 'ಕಪಾಟು ಮರುಹೆಸರಿಸಿ' },
   add_litter_btn:   { en: '+ Born today',      kn: '+ ಇಂದು ಜನಿಸಿದೆ' },
