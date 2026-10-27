@@ -4014,11 +4014,11 @@ function trayDetailModal(trayId) {
       <div class="stg-count">${adultCount}<span class="stg-unit"> ${esc(lastStageName)}${adultCount !== 1 ? 's' : ''}</span></div>
 
       <div class="stg-section">
-        <div class="stg-sect-head">Sex breakdown</div>
+        <div class="stg-sect-head">${t('sex_breakdown')}</div>
         <div class="sex-row">
-          <label class="sex-lbl"><span>♂ Males</span>
+          <label class="sex-lbl"><span>${t('males_lbl')}</span>
             <input id="tray-sex-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${tray.adultMales ?? ''}" placeholder="0" /></label>
-          <label class="sex-lbl"><span>♀ Females</span>
+          <label class="sex-lbl"><span>${t('females_lbl')}</span>
             <input id="tray-sex-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${tray.adultFemales ?? ''}" placeholder="0" /></label>
           <button class="btn sm" data-save-sex="${trayId}" style="align-self:flex-end">Save</button>
         </div>
@@ -4026,16 +4026,16 @@ function trayDetailModal(trayId) {
       </div>
 
       <div class="stg-section">
-        <div class="stg-sect-head">Female status</div>
+        <div class="stg-sect-head">${t('female_status')}</div>
         <div class="sex-row">
-          <label class="sex-lbl"><span>Gravid ♀</span>
+          <label class="sex-lbl"><span>${t('gravid_lbl')}</span>
             <input id="f-gravid" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${femMax}" value="${gravid}" placeholder="0" /></label>
-          <label class="sex-lbl"><span>Lactating ♀</span>
+          <label class="sex-lbl"><span>${t('lactating_lbl')}</span>
             <input id="f-lact" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${femMax}" value="${lactating}" placeholder="0" /></label>
           <button class="btn sm" id="save-status" style="align-self:flex-end">Save</button>
         </div>
         <label class="sex-lbl" style="margin-top:8px;max-width:180px">
-          <span>Mated / gravid since</span>
+          <span>${t('gravid_since_lbl')}</span>
           <input id="f-gravid-since" type="date" value="${gravidSince}" />
         </label>
         ${expectedBirthStr}
@@ -4191,9 +4191,9 @@ function removeFromStageModal(trayId, stageName) {
 
   const sexRowHtml = isAdult ? `
     <div class="sex-row" style="margin-bottom:14px">
-      <label class="sex-lbl" style="flex:1"><span>♂ Males removed</span>
+      <label class="sex-lbl" style="flex:1"><span>${t('males_removed_lbl')}</span>
         <input id="rsm-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
-      <label class="sex-lbl" style="flex:1"><span>♀ Females removed</span>
+      <label class="sex-lbl" style="flex:1"><span>${t('females_removed_lbl')}</span>
         <input id="rsm-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
     </div>
     <div class="small muted" style="margin-bottom:12px">♂ + ♀ must equal the count above</div>` : '';
@@ -4329,8 +4329,8 @@ function intakeModal(trayId, preStage) {
       <label class="sex-label">♀ <input type="number" inputmode="numeric" pattern="[0-9]*" class="sex-female" min="0" placeholder="—" data-row="${i}" /></label>
     </div>
     ${isAdult ? `<div class="sex-sub gravid-sub-intake" id="igrv-${i}" style="display:none">
-      <label class="sex-label">Gravid ♀ <input type="number" inputmode="numeric" pattern="[0-9]*" class="grv-gravid" min="0" placeholder="0" /></label>
-      <label class="sex-label">Lactating ♀ <input type="number" inputmode="numeric" pattern="[0-9]*" class="grv-lact" min="0" placeholder="0" /></label>
+      <label class="sex-label">${t('gravid_lbl')} <input type="number" inputmode="numeric" pattern="[0-9]*" class="grv-gravid" min="0" placeholder="0" /></label>
+      <label class="sex-label">${t('lactating_lbl')} <input type="number" inputmode="numeric" pattern="[0-9]*" class="grv-lact" min="0" placeholder="0" /></label>
     </div>` : ''}`;
   }).join('');
 
@@ -4439,9 +4439,9 @@ function editCohortModal(cohortId, trayId) {
         <input id="f-count" type="number" inputmode="numeric" pattern="[0-9]*" min="${Math.max(1, alreadyRemoved)}" value="${c.initialCount}" /></label>
     </div>
     <div class="field-row">
-      <label class="field"><span>♂ Males (optional)</span>
+      <label class="field"><span>${t('males_opt_lbl')}</span>
         <input id="f-males" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${c.males ?? ''}" placeholder="—" /></label>
-      <label class="field"><span>♀ Females (optional)</span>
+      <label class="field"><span>${t('females_opt_lbl')}</span>
         <input id="f-females" type="number" inputmode="numeric" pattern="[0-9]*" min="0" value="${c.females ?? ''}" placeholder="—" /></label>
     </div>
     <label class="field"><span>Notes (optional)</span>
