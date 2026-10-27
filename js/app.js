@@ -130,9 +130,10 @@ const STAGE_COLORS    = ['--s0','--s1','--s2','--s3','--s4'];
 const DEATH_CAUSES    = ['Unknown','Fight','Eaten','Disease','Flooding','Dystocia','Cannibalism','Hypothermia','Age/Natural','Culled','Lump','Water Level'];
 const WIZ_DEATH_CAUSES = ['Lump','Unknown','Fight','Disease','Water Level','Eaten'];
 const STAGE_HEX       = ['#fb7185','#facc15','#94a3b8','#e2c97e','#fb923c'];
-const SYNC_DEBOUNCE   = 1200;   // ms after last change before pushing
-const AUTO_PULL_MS    = 15000;  // background pull interval when online
+const SYNC_DEBOUNCE   = 4000;   // ms after last edit before auto-uploading
+const AUTO_PULL_MS    = 300000; // background pull interval (5 min — visibilitychange handles freshness)
 const SYNC_TIMEOUT_MS = 45000;  // Apps Script cold-start can take 30-40s
+const SYNC_FAIL_PAUSE = 3;      // pause auto-pull after this many consecutive failures
 
 const $   = (sel, root = document) => root.querySelector(sel);
 const $$  = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -378,19 +379,27 @@ function loadState() {
   } catch(e) { console.warn('load failed', e); }
 }
 
-function saveState() {
+let _saveTimer = null;
+let _savePending = false;
+
+function _doSave() {
+  _savePending = false;
   try {
     const serialized = JSON.stringify(state);
     if (serialized.length > 4_000_000) toast('⚠ Storage nearly full — export a backup now', true);
     localStorage.setItem(LS_KEY, serialized);
-    // Keep dedicated scriptUrl key in sync so it survives state wipes
     if (state.meta.scriptUrl) localStorage.setItem(LS_SCRIPT_URL_KEY, state.meta.scriptUrl);
-    idbPut('main', serialized); // Layer 1: mirror to IndexedDB
-  }
-  catch(e) {
+    idbPut('main', serialized);
+  } catch(e) {
     console.warn('save failed', e);
     toast('⚠ Storage full — export a backup immediately!', true);
   }
+}
+
+function saveState() {
+  if (!_savePending) { _savePending = true; _doSave(); } // immediate first write in a burst
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => { if (_savePending) _doSave(); _saveTimer = null; }, 500);
 }
 
 function seedExample() {
@@ -427,12 +436,24 @@ function genSpeciesId(name) {
   return uid();
 }
 
+let _uploadTimer = null;
+function scheduleUpload() {
+  clearTimeout(_uploadTimer);
+  _uploadTimer = setTimeout(() => {
+    if (navigator.onLine && state.meta.scriptUrl && pendingCount() > 0 && !syncing)
+      uploadChanges();
+    _uploadTimer = null;
+  }, SYNC_DEBOUNCE);
+}
+
 function touch(entity, record) {
-  scheduleVersionSnapshot(entity); // capture before-state first
+  scheduleVersionSnapshot(entity);
   record.updatedAt = now();
   markPending(entity, record.id);
   saveState();
-  renderSync(); // update badge/banner — no auto-push
+  markTabsDirty(); // data changed — all tabs need refresh on next visit
+  renderSync();
+  scheduleUpload();
 }
 function upsertLocal(entity, record) {
   const arr = state[entity];
@@ -888,17 +909,28 @@ let chartFilterTray   = 'all';
 let collapsedShelves  = new Set(); // shelf IDs currently collapsed in Trays tab
 let selectedShelfId   = null;      // shelf being viewed in Trays tab (null = overview)
 
+const ALL_TABS = ['dashboard','trays','charts','freezer','calendar','maturity','species','settings','reports'];
+const _tabDirty = Object.fromEntries(ALL_TABS.map(t => [t, true]));
+
+function markTabsDirty(...tabs) {
+  const list = tabs.length ? tabs : ALL_TABS;
+  list.forEach(t => { _tabDirty[t] = true; });
+}
+
 function render() {
   renderSync();
-  if      (activeTab === 'dashboard') renderDashboard();
-  else if (activeTab === 'trays')     renderTrays();
-  else if (activeTab === 'charts')    renderCharts();
-  else if (activeTab === 'freezer')   renderFreezer();
-  else if (activeTab === 'calendar')  renderCalendar();
-  else if (activeTab === 'maturity')  renderMaturity();
-  else if (activeTab === 'species')   renderSpecies();
-  else if (activeTab === 'settings')  { renderSettings(); renderVersionHistory(); }
-  else if (activeTab === 'reports')   renderReports();
+  const tab = activeTab;
+  if (!_tabDirty[tab]) return;
+  _tabDirty[tab] = false;
+  if      (tab === 'dashboard') renderDashboard();
+  else if (tab === 'trays')     renderTrays();
+  else if (tab === 'charts')    renderCharts();
+  else if (tab === 'freezer')   renderFreezer();
+  else if (tab === 'calendar')  renderCalendar();
+  else if (tab === 'maturity')  renderMaturity();
+  else if (tab === 'species')   renderSpecies();
+  else if (tab === 'settings')  { renderSettings(); renderVersionHistory(); }
+  else if (tab === 'reports')   renderReports();
 }
 
 /* ---------- Shuffle Recommendations ---------- */
@@ -4790,6 +4822,11 @@ async function pullFromSheets(since) {
   const pullSince = (since !== undefined) ? since : (state.meta.lastSync || 0);
   syncing = true; renderSync();
 
+  // Warn user if Apps Script is likely cold-starting (>5 s elapsed)
+  const coldStartTimer = setTimeout(() => {
+    if (syncing) toast('Still syncing — Apps Script is warming up…');
+  }, 5000);
+
   const ctrl = new AbortController();
   const timeoutId = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
   try {
@@ -4800,28 +4837,33 @@ async function pullFromSheets(since) {
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
+    clearTimeout(coldStartTimer);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
     const fullPull = pullSince === 0;
+    let gotNewData = false;
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
         if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
         const local = byId(e, remote.id);
-        const hasPending = !!state.pending[e]?.[remote.id]; // never overwrite unsaved local edits
-        if (!hasPending && (!local || fullPull || (remote.updatedAt||0) >= (local.updatedAt||0))) upsertLocal(e, Object.assign({}, local || {}, remote));
+        const hasPending = !!state.pending[e]?.[remote.id];
+        if (!hasPending && (!local || fullPull || (remote.updatedAt||0) >= (local.updatedAt||0))) {
+          upsertLocal(e, Object.assign({}, local || {}, remote));
+          gotNewData = true;
+        }
       }
     }
     state.meta.lastSync = data.serverTime || now();
     state.meta.syncFailCount = 0;
     syncError = null;
     saveState();
-    const gotNewData = ENTITIES.some(e => (data.changes?.[e]?.length || 0) > 0);
     syncing = false; renderSync();
-    if (gotNewData || fullPull) render();
+    if (gotNewData || fullPull) { markTabsDirty(); render(); }
   } catch(err) {
     clearTimeout(timeoutId);
+    clearTimeout(coldStartTimer);
     syncError = err.name === 'AbortError' ? 'Timed out — script took >25s' : err.message;
     state.meta.syncFailCount = (state.meta.syncFailCount || 0) + 1;
     state.meta.lastSyncFail = now();
@@ -4847,6 +4889,9 @@ function dirtyTrayIds() {
 function buildSummary(trayFilter) {
   const today = new Date();
   const summary = {};
+  // Pre-index cohorts by trayId to avoid O(n²) inner filter
+  const cohortsByTray = {};
+  for (const c of live('cohorts')) (cohortsByTray[c.trayId] ||= []).push(c);
   for (const shelf of live('shelves').sort((a, b) => (a.sortOrder||0) - (b.sortOrder||0))) {
     const trays = live('trays').filter(t => t.shelfId === shelf.id && (!trayFilter || trayFilter.has(t.id)));
     if (!trays.length) continue;
@@ -4857,7 +4902,7 @@ function buildSummary(trayFilter) {
 
       // Tally cohort animals per non-adult stage
       const stageCounts = {};
-      for (const c of live('cohorts').filter(c => c.trayId === tray.id)) {
+      for (const c of (cohortsByTray[tray.id] || [])) {
         const { name } = stageIndexAt(c, today);
         if (name === lastStageName) continue; // adults counted from tray fields
         const net = cohortNet(c, today);
@@ -4902,6 +4947,10 @@ async function uploadChanges() {
 
   syncing = true; renderSync();
 
+  const coldStartTimer = setTimeout(() => {
+    if (syncing) toast('Still uploading — Apps Script is warming up…');
+  }, 5000);
+
   const changes = {};
   for (const e of ENTITIES) {
     const ids = Object.keys(state.pending[e] || {});
@@ -4913,6 +4962,7 @@ async function uploadChanges() {
     for (const r of (changes[e] || [])) sentSnapshot[e][r.id] = r.updatedAt || 0;
   }
 
+  // Pre-compute cohort index to avoid O(n²) in buildSummary
   const ctrl = new AbortController();
   const timeoutId = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
   try {
@@ -4923,19 +4973,23 @@ async function uploadChanges() {
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
+    clearTimeout(coldStartTimer);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    // Merge any remote updates that arrived alongside the upload response.
-    // Skip records we just uploaded — our local version is the truth; the server
-    // may echo back stale data with a newer server timestamp which would corrupt it.
+    // Merge remote updates that arrived alongside the upload response.
+    // Skip records we just uploaded — our local version is the truth.
+    let mergedNewData = false;
     for (const e of ENTITIES) {
       for (const remote of (data.changes?.[e] || [])) {
         if (!remote.id) remote.id = 'sheet-' + btoa(JSON.stringify([e, remote.date||'', remote.trayId||'', remote.cohortId||'', remote.count||0, remote.reason||'', remote.stage||''])).replace(/[^a-zA-Z0-9]/g,'').slice(0,20);
-        if (sentSnapshot[e]?.[remote.id]) continue; // we just sent this record — never overwrite with server echo
+        if (sentSnapshot[e]?.[remote.id]) continue;
         const local = byId(e, remote.id);
-        if (!local || (remote.updatedAt||0) >= (local.updatedAt||0)) upsertLocal(e, Object.assign({}, local || {}, remote));
+        if (!local || (remote.updatedAt||0) >= (local.updatedAt||0)) {
+          upsertLocal(e, Object.assign({}, local || {}, remote));
+          mergedNewData = true;
+        }
       }
     }
     // Clear pending only for records that haven't been re-edited during the upload
@@ -4952,10 +5006,12 @@ async function uploadChanges() {
     saveState();
     const uploaded = Object.values(sentSnapshot).reduce((sum, obj) => sum + Object.keys(obj).length, 0);
     syncing = false; renderSync();
-    render();
+    // Only re-render if remote sent back data we didn't already have
+    if (mergedNewData) { markTabsDirty(); render(); } else { _tabDirty[activeTab] = true; render(); }
     toast(`✓ ${uploaded} change${uploaded !== 1 ? 's' : ''} uploaded to Google Sheets`);
   } catch(err) {
     clearTimeout(timeoutId);
+    clearTimeout(coldStartTimer);
     syncError = err.name === 'AbortError' ? 'Timed out — script took >25s' : err.message;
     state.meta.syncFailCount = (state.meta.syncFailCount || 0) + 1;
     state.meta.lastSyncFail = now();
@@ -5953,7 +6009,9 @@ function init() {
     }
   });
   setInterval(() => {
-    if (navigator.onLine && state.meta.scriptUrl && !syncing && pendingCount() === 0) pullFromSheets();
+    if (!navigator.onLine || !state.meta.scriptUrl || syncing || pendingCount() > 0) return;
+    if ((state.meta.syncFailCount || 0) >= SYNC_FAIL_PAUSE) return; // back off after repeated failures
+    pullFromSheets();
   }, AUTO_PULL_MS);
 
   render();
@@ -6041,7 +6099,7 @@ function init() {
       if (dy > 72) {
         if (state.meta.scriptUrl && navigator.onLine) {
           toast(t('syncing'));
-          pullFromSheets().then(() => toast(t('sync_ok')));
+          Promise.resolve(pullFromSheets()).then(() => toast(t('sync_ok')));
         } else if (pendingCount() > 0) {
           uploadChanges();
         } else {
