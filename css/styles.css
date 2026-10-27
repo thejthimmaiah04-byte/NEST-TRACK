@@ -1150,6 +1150,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 
 /* Birth prediction — tray detail */
 .birth-prediction { margin-top: 8px; font-size: 13px; color: #a78bfa; font-weight: 600; }
+.birth-pred { font-size: 11px; color: #a78bfa; font-weight: 600; white-space: nowrap; padding-bottom: 6px; }
+.birth-pred.due      { color: #f59e0b; }
+.birth-pred.overdue  { color: #ef4444; }
 .birth-prediction.birth-due { color: #f59e0b; }
 .birth-prediction.birth-overdue { color: #ef4444; }
 .gravid-gestation { font-size: 12px; color: var(--muted); margin-top: 6px; }

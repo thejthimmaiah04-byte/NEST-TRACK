@@ -4034,11 +4034,13 @@ function trayDetailModal(trayId) {
             <input id="f-lact" type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="${femMax}" value="${lactating}" placeholder="0" /></label>
           <button class="btn sm" id="save-status" style="align-self:flex-end">Save</button>
         </div>
-        <label class="sex-lbl" style="margin-top:8px;max-width:180px">
-          <span>${t('gravid_since_lbl')}</span>
-          <input id="f-gravid-since" type="date" value="${gravidSince}" />
-        </label>
-        ${expectedBirthStr}
+        <div style="display:flex;align-items:flex-end;gap:10px;margin-top:8px;flex-wrap:wrap">
+          <label class="sex-lbl" style="max-width:180px;margin-top:0">
+            <span>${t('gravid_since_lbl')}</span>
+            <input id="f-gravid-since" type="date" value="${gravidSince}" />
+          </label>
+          ${expectedBirthStr}
+        </div>
         ${gravid + lactating > 0 ? `<div class="gravid-warn" style="margin-top:8px">⚠ ${gravid+lactating} female${gravid+lactating!==1?'s':''} unavailable for harvest</div>` : ''}
       </div>
 
