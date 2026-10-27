@@ -253,10 +253,10 @@ function trayAdultCount(tray, sp) {
 // Returns Map<stage, count> of animals currently in the freezer
 function frozenByStage() {
   const m = new Map();
-  live('removals').filter(r => r.reason === 'Frozen' && r.stage && r.itemType !== 'chick').forEach(r => {
+  live('removals').filter(r => r.reason === 'Frozen' && r.stage && r.itemType !== 'chick' && r.stage !== 'Chick').forEach(r => {
     m.set(r.stage, (m.get(r.stage) || 0) + (r.count || 0));
   });
-  live('frozen_uses').filter(u => u.stage && u.itemType !== 'chick').forEach(u => {
+  live('frozen_uses').filter(u => u.stage && u.itemType !== 'chick' && u.stage !== 'Chick').forEach(u => {
     m.set(u.stage, (m.get(u.stage) || 0) - (u.count || 0));
   });
   // Remove zeroed/negative entries
