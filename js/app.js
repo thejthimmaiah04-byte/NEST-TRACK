@@ -4655,7 +4655,7 @@ function onClick(e) {
       return;
     }
     case 'rec-done': return applyRecommendation(el);
-    case 'open-tray-from-rec': { const t = byId('trays', el.dataset.trayid); if (t) { switchTab('trays'); setTimeout(() => trayDetailModal(t.id), 120); } return; }
+    case 'open-tray-from-rec': { const tId = el.dataset.id || el.dataset.trayid; const t = byId('trays', tId); if (t) { closeNotifPanel(); switchTab('trays'); setTimeout(() => trayDetailModal(t.id), 120); } return; }
     case 'sync-now':
     case 'upload-changes': uploadChanges(); return;
     case 'pull-sheets': pullFromSheets(); return;
