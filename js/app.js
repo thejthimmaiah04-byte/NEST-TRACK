@@ -170,6 +170,14 @@ function addDays(date, n) { const d = new Date(date); d.setDate(d.getDate() + n)
 function fmtDate(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
+function fmtDisplayDate(str) {
+  // Convert yyyy-mm-dd string to "27 Oct 2026" for user-facing display
+  if (!str || str.length < 10) return str;
+  const [y, mo, day] = str.split('-');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = parseInt(mo, 10) - 1;
+  return `${parseInt(day, 10)} ${months[m] || mo} ${y}`;
+}
 function fmtTimestamp(ms) {
   const d = new Date(ms);
   const ymd = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -1189,7 +1197,7 @@ function renderDashboard() {
       ? `<div class="sex-info"><span>♂ ${m}</span><span>♀ ${f}</span></div>`
       : '';
     const frozenBadge = fz > 0
-      ? `<div class="stage-frozen-badge">${t('frozen_badge', fz)}</div>`
+      ? `<button class="stage-frozen-badge" data-act="go-freezer" title="View freezer">${t('frozen_badge', fz)} ›</button>`
       : '';
     return `<div class="stat-stage stat-stage-btn" data-s="${i}"
         data-act="remove-stage" data-stage="${esc(nm)}" data-sidx="${i}"
@@ -2497,8 +2505,8 @@ function renderFreezer() {
     <div class="spread">
       <h2 class="section-title" style="margin:4px 0 0">${t('freezer_title')}</h2>
       <div style="display:flex;gap:8px">
-        <button class="btn sm" data-act="fz-intake">+ Intake</button>
-        <button class="btn sm primary" data-act="fz-add">+ Add</button>
+        <button class="btn sm" data-act="fz-intake">+ Log existing</button>
+        <button class="btn sm primary" data-act="fz-add">+ From tray</button>
       </div>
     </div>
     <div class="stats-grid" style="margin-top:12px">
@@ -2811,7 +2819,7 @@ function renderTrays() {
         const n = trayAdultCount(t, sp);
         if (n > 0) totalAlive += n;
       }
-      html += `<button class="shelf-card" data-act="select-shelf" data-id="${shelf.id}">
+      html += `<button class="shelf-card${totalAlive === 0 ? ' shelf-empty' : ''}" data-act="select-shelf" data-id="${shelf.id}">
         <div class="sc-name">${esc(shelf.name)}</div>
         <div class="sc-meta">${trays.length} tray${trays.length !== 1 ? 's' : ''}</div>
         <div class="sc-alive">${totalAlive} alive</div>
@@ -2974,8 +2982,8 @@ function getCalEvents() {
   for (const c of live('cohorts')) {
     const tray = byId('trays', c.trayId);
     const sexParts = [];
-    if (c.males != null)   sexParts.push('♂' + c.males);
-    if (c.females != null) sexParts.push('♀' + c.females);
+    if (c.males   != null && Number(c.males)   > 0) sexParts.push('♂' + c.males);
+    if (c.females != null && Number(c.females) > 0) sexParts.push('♀' + c.females);
     const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
     // Legacy: records without type — treat as intake if notes starts with 'Intake'
     const isBirth  = !c.type ? !String(c.notes||'').startsWith('Intake') : c.type === 'birth';
@@ -3018,8 +3026,8 @@ function getCalEvents() {
     const tray = byId('trays', r.trayId);
     const stageStr = r.stage ? r.stage.toLowerCase() + (r.count !== 1 ? 's' : '') : 'animal' + (r.count !== 1 ? 's' : '');
     const sexParts = [];
-    if (r.males != null && r.males !== '') sexParts.push('♂' + r.males);
-    if (r.females != null && r.females !== '') sexParts.push('♀' + r.females);
+    if (r.males != null && r.males !== '' && Number(r.males) > 0) sexParts.push('♂' + r.males);
+    if (r.females != null && r.females !== '' && Number(r.females) > 0) sexParts.push('♀' + r.females);
     const sexStr = sexParts.length ? ' · ' + sexParts.join(' ') : '';
     const trayName = tray?.name || r.trayId || '—';
     if (r.reason === 'Dead') {
@@ -3081,7 +3089,7 @@ function renderCalendar() {
 
   // Selected day detail
   const selEvs = evMap[calSelected] || [];
-  const fmtSel = calSelected;
+  const fmtSel = fmtDisplayDate(calSelected);
   const evItems = selEvs.length
     ? selEvs.map(e => `
         <div class="cal-ev-item">
@@ -3188,7 +3196,7 @@ function renderMaturity() {
       targetDate.setDate(targetDate.getDate() + start);
       const targetStr = start === 0 ? 'Birth day' : targetDate.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
 
-      const durLabel  = dur !== null ? `${dur} day${dur !== 1 ? 's' : ''}` : `${sp.lifespan ? sp.lifespan - start : '?'}+ days`;
+      const durLabel  = dur !== null ? `${dur} day${dur !== 1 ? 's' : ''}` : 'ongoing';
       const rangeLabel= end !== null ? `Day ${start} – Day ${end - 1}` : `Day ${start}+`;
 
       return `<tr>
@@ -3395,7 +3403,7 @@ function getAppNotifications() {
         id: 'hopper-' + tray.id,
         type: 'info', iconSvg: ratIcon('#9ca3af'),
         title: `${tray.name} — ${newHoppers} new hopper${newHoppers !== 1 ? 's' : ''}`,
-        body: `Animals just reached Hopper stage.`,
+        body: `Day 10+ · ready to wean`,
         action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
       });
     }
@@ -3412,7 +3420,7 @@ function getAppNotifications() {
         id: 'pinky-' + tray.id,
         type: 'info', iconSvg: ratIcon('#f472b6'),
         title: `${tray.name} — ${newPinkys} new pink${newPinkys !== 1 ? 'ies' : 'y'}`,
-        body: `Newborns recorded in this tray.`,
+        body: `Day 0–2 · check warmth & feeding`,
         action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
       });
     }
@@ -3430,7 +3438,7 @@ function getAppNotifications() {
         id: 'fuzzy-' + tray.id,
         type: 'info', iconSvg: ratIcon('#facc15'),
         title: `${tray.name} — ${newFuzzys} new fuzzy${newFuzzys !== 1 ? 's' : ''}`,
-        body: `Animals just reached Fuzzy stage.`,
+        body: `Day 7+ · eyes still closed`,
         action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
       });
     }
@@ -3448,7 +3456,7 @@ function getAppNotifications() {
         id: 'adult-' + tray.id,
         type: 'info', iconSvg: ratIcon('#fb923c'),
         title: `${tray.name} — ${newAdults} new adult${newAdults !== 1 ? 's' : ''}`,
-        body: `Animals just reached Adult stage.`,
+        body: `Day 21+ · ready for breeding`,
         action: 'open-tray-from-rec', actionLabel: 'View tray', trayId: tray.id
       });
     }
@@ -4062,7 +4070,7 @@ function trayDetailModal(trayId) {
 
   openModal(`${esc(tray.name)} · ${sp ? esc(sp.name) : '—'}`, `
     ${mismatchBanner}
-    <div class="stg-tab-bar">${tabsHtml}</div>
+    <div class="stg-tab-bar-wrap"><div class="stg-tab-bar">${tabsHtml}</div></div>
     ${adultPanel}
     ${nonAdultPanels}
     <hr class="hr" style="margin:14px 0 10px" />
@@ -4577,6 +4585,7 @@ function onClick(e) {
     case 'remove-stage': return openRemoveByStage(el.dataset.stage, Number(el.dataset.sidx));
     case 'quick-tray-remove': { e.stopPropagation(); return quickTrayRemoval(id); }
     case 'use-frozen':  return useFrozenModal(el.dataset.spid);  // legacy tray panel
+    case 'go-freezer':  return switchTab('freezer');
     case 'fz-use':      return useFrozenModal(el.dataset.stage);
     case 'fz-add':      return addToFreezerModal();
     case 'fz-intake':        return freezerIntakeModal();
@@ -4619,6 +4628,7 @@ function onClick(e) {
     case 'upload-changes': uploadChanges(); return;
     case 'pull-sheets': pullFromSheets(); return;
     case 'full-sync':
+      if (!confirm('Re-pull everything from Google Sheets? This will overwrite any changes not yet uploaded.')) return;
       state.meta.lastSync = 0;
       saveState();
       toast('Pulling all records from Google Sheets…');
@@ -4961,13 +4971,15 @@ function renderSync() {
   const pc = pendingCount();
   let cls='dot', label;
   let syncEl = dot.closest('.sync') || txt.closest('.sync');
+  let hideText = false;
   if (!state.meta.scriptUrl) { cls+=' pending'; label=t('local_only'); }
-  else if (syncing)           { cls+=' syncing'; label=t('syncing'); }
+  else if (syncing)           { cls+=' syncing'; label=t('syncing'); hideText=true; }
   else if (!navigator.onLine) { cls+=' offline';  label=pc?t('offline_n_unsaved',pc):t('offline'); }
   else if (syncError)         { cls+=' error';    label=t('sync_error'); }
   else if (pc > 0)            { cls+=' pending';  label=t('n_unsaved',pc); }
-  else                        { cls+=' ok';       label=t('up_to_date'); }
-  dot.className=cls; txt.textContent=label;
+  else                        { cls+=' ok';       label=t('up_to_date'); hideText=true; }
+  dot.className=cls;
+  if (txt) { txt.textContent=label; txt.style.display = hideText ? 'none' : ''; }
   if (syncEl) syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
 
   // Pending banner — visible whenever there are unsaved changes

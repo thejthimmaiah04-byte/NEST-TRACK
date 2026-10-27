@@ -152,7 +152,12 @@ html, body {
 .notif-type-error { border-left: 3px solid var(--danger); padding-left: 11px; }
 .notif-type-warn  { border-left: 3px solid var(--warn);   padding-left: 11px; }
 .notif-type-info  { border-left: 3px solid var(--accent);  padding-left: 11px; }
-.notif-icon { font-size: 16px; line-height: 1.4; flex-shrink: 0; margin-top: 1px; }
+.notif-icon {
+  font-size: 16px; line-height: 1; flex-shrink: 0; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(255,255,255,.07);
+}
 .notif-content { flex: 1; min-width: 0; }
 .notif-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
 .notif-desc  { font-size: 12px; color: var(--muted); line-height: 1.4; }
@@ -530,6 +535,7 @@ input:focus, select:focus, textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 10px;
+  padding-bottom: 72px;
 }
 .shelf-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
@@ -540,6 +546,8 @@ input:focus, select:focus, textarea:focus {
   transition: border-color .14s, background .14s, transform .12s;
 }
 .shelf-card:hover { border-color: var(--accent); background: var(--surface-2); transform: translateY(-2px); }
+.shelf-card.shelf-empty { opacity: .45; }
+.shelf-card.shelf-empty:hover { opacity: .7; }
 .sc-name  { font-size: 17px; font-weight: 800; color: var(--text); }
 .sc-meta  { font-size: 12px; color: var(--text-2); }
 .sc-alive { font-size: 13px; font-weight: 700; color: var(--ok); margin-top: 6px; }
@@ -575,7 +583,7 @@ input:focus, select:focus, textarea:focus {
 }
 .fab-menu-item:hover { background: var(--surface-2); border-color: var(--accent); }
 
-.tray-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 10px; }
+.tray-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 10px; padding-bottom: 72px; }
 
 .tray {
   background: var(--surface); border: 1px solid var(--border);
@@ -770,9 +778,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .stage-rows .stage-row input[type=number] { flex: 1; }
 
 /* ── Tray detail — stage tabs ───────────────────────────────────────────── */
+.stg-tab-bar-wrap {
+  position: relative;
+  margin: 0 0 14px;
+}
+.stg-tab-bar-wrap::after {
+  content: ''; pointer-events: none;
+  position: absolute; right: 0; top: 0; bottom: 14px; width: 36px;
+  background: linear-gradient(to left, var(--surface), transparent);
+}
 .stg-tab-bar {
   display: flex; gap: 4px; overflow-x: auto; padding: 0 0 14px;
-  margin: 0 0 14px; border-bottom: 1px solid var(--border);
+  margin: 0; border-bottom: 1px solid var(--border);
   scrollbar-width: none;
 }
 .stg-tab-bar::-webkit-scrollbar { display: none; }
@@ -1124,9 +1141,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .frozen-species { font-size: 13.5px; font-weight: 700; }
 .frozen-count { font-size: 12px; color: #60a5fa; font-weight: 600; }
 
-/* Dashboard: frozen badge on stage cards */
-.stage-frozen-badge { font-size: 11px; font-weight: 600; color: #60a5fa;
-  margin-top: 4px; letter-spacing: 0.2px; }
+/* Dashboard: frozen badge on stage cards — now a tappable link to Freezer */
+.stage-frozen-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; font-weight: 600; color: #60a5fa;
+  margin-top: 6px; letter-spacing: 0.2px;
+  background: rgba(96,165,250,.12); border: 1px solid rgba(96,165,250,.22);
+  border-radius: 20px; padding: 2px 8px; cursor: pointer;
+  text-decoration: none; transition: background .15s;
+}
+.stage-frozen-badge:hover { background: rgba(96,165,250,.22); }
 
 /* Birth prediction — tray detail */
 .birth-prediction { margin-top: 8px; font-size: 13px; color: #a78bfa; font-weight: 600; }
