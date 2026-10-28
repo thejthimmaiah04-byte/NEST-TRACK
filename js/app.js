@@ -987,7 +987,7 @@ function computeShuffleRecommendations() {
     const moveCount = Math.min(excess, deficit);
     if (moveCount < 1) continue;
     pledgedToReceiver.set(receiver.tray.id, alreadyPledged + moveCount);
-    const countWord = moveCount === 1 ? 'one' : moveCount;
+    const countWord = moveCount === 1 ? t('one_word') : moveCount;
     recs.push({
       from: donor.tray, to: receiver.tray, count: moveCount, sex: '♀',
       detail: t('rec_move_female').replace('{n}', countWord).replace('{from}', donor.tray.name).replace('{to}', receiver.tray.name)

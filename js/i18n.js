@@ -207,6 +207,7 @@ const I18N = {
   all_species_opt:    { en: 'All species',     kn: 'ಎಲ್ಲ ಪ್ರಭೇದಗಳು' },
   move:               { en: 'Move',            kn: 'ಸ್ಥಳಾಂತರ' },
   view_btn:           { en: 'View',            kn: 'ನೋಡಿ' },
+  one_word:           { en: 'one',             kn: 'ಒಂದು' },
   rec_move_female:    { en: 'Move {n} female from {from} to {to} to stabilize sex ratio', kn: '{from} ನಿಂದ {to} ಗೆ {n} ಹೆಣ್ಣನ್ನು ಸ್ಥಳಾಂತರಿಸಿ — ಲಿಂಗ ಅನುಪಾತ ಸರಿಪಡಿಸಲು' },
   rec_move_male:      { en: 'Move one male from {from} to {to} — {to} has females but no male', kn: '{from} ನಿಂದ {to} ಗೆ ಒಂದು ಗಂಡನ್ನು ಸ್ಥಳಾಂತರಿಸಿ — {to} ಗೆ ಗಂಡಿಲ್ಲ' },
   urgent_lbl:         { en: 'Urgent',          kn: 'ತುರ್ತು' },
