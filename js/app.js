@@ -963,7 +963,7 @@ function computeShuffleRecommendations() {
     usedDonors.set(donor.tray.id, (usedDonors.get(donor.tray.id) || 0) + 1);
     recs.push({
       from: donor.tray, to: need.tray, count: 1, sex: '♂',
-      detail: `${need.tray.name} has ${need.females} ♀ but no ♂ — ${donor.tray.name} has ${donor.males} ♂`
+      detail: `Move one male from ${donor.tray.name} to ${need.tray.name} — ${need.tray.name} has ${need.females} female${need.females !== 1 ? 's' : ''} but no male`
     });
   }
 
@@ -987,9 +987,10 @@ function computeShuffleRecommendations() {
     const moveCount = Math.min(excess, deficit);
     if (moveCount < 1) continue;
     pledgedToReceiver.set(receiver.tray.id, alreadyPledged + moveCount);
+    const countWord = moveCount === 1 ? 'one' : moveCount;
     recs.push({
       from: donor.tray, to: receiver.tray, count: moveCount, sex: '♀',
-      detail: `${donor.tray.name} has 1:${Math.round(donor.females/donor.males)} ratio (${donor.males}♂ ${donor.females}♀, target 1:${tgtF}) — move ${moveCount}♀ to ${receiver.tray.name} (${receiver.males}♂ ${receiver.females}♀)`
+      detail: `Move ${countWord} female from ${donor.tray.name} to ${receiver.tray.name} to stabilize sex ratio (${donor.tray.name} has ${donor.females}♀ for ${donor.males}♂, target is 1:${tgtF})`
     });
   }
 
