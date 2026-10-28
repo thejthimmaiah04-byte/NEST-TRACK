@@ -990,7 +990,7 @@ function computeShuffleRecommendations() {
     const countWord = moveCount === 1 ? 'one' : moveCount;
     recs.push({
       from: donor.tray, to: receiver.tray, count: moveCount, sex: '♀',
-      detail: `Move ${countWord} female from ${donor.tray.name} to ${receiver.tray.name} to stabilize sex ratio (${donor.tray.name} has ${donor.females}♀ for ${donor.males}♂, target is 1:${tgtF})`
+      detail: `Move ${countWord} female from ${donor.tray.name} to ${receiver.tray.name} to stabilize sex ratio`
     });
   }
 
