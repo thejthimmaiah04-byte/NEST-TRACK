@@ -2559,7 +2559,7 @@ function renderFreezer() {
     <div class="chick-tile" style="margin-top:14px;padding:16px 20px;background:var(--surface2);border-radius:12px;border:1px solid rgba(255,200,0,0.25);display:flex;align-items:center;justify-content:space-between;gap:12px">
       <div>
         <div style="font-size:28px;font-weight:700;line-height:1;color:#f5c400">${chicksInFreezer()}</div>
-        <div class="small muted" style="margin-top:2px">Chicks · Intake only</div>
+        <div class="small muted" style="margin-top:2px">${t('fz_chicks_label')}</div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn sm" data-act="fz-chick-use" ${chicksInFreezer() < 1 ? 'disabled' : ''}>Use</button>
