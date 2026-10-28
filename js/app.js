@@ -963,7 +963,7 @@ function computeShuffleRecommendations() {
     usedDonors.set(donor.tray.id, (usedDonors.get(donor.tray.id) || 0) + 1);
     recs.push({
       from: donor.tray, to: need.tray, count: 1, sex: '♂',
-      detail: `Move one male from ${donor.tray.name} to ${need.tray.name} — ${need.tray.name} has ${need.females} female${need.females !== 1 ? 's' : ''} but no male`
+      detail: t('rec_move_male').replace('{from}', donor.tray.name).replace('{to}', need.tray.name).replace('{to}', need.tray.name)
     });
   }
 
@@ -990,7 +990,7 @@ function computeShuffleRecommendations() {
     const countWord = moveCount === 1 ? 'one' : moveCount;
     recs.push({
       from: donor.tray, to: receiver.tray, count: moveCount, sex: '♀',
-      detail: `Move ${countWord} female from ${donor.tray.name} to ${receiver.tray.name} to stabilize sex ratio`
+      detail: t('rec_move_female').replace('{n}', countWord).replace('{from}', donor.tray.name).replace('{to}', receiver.tray.name)
     });
   }
 
