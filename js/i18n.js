@@ -235,7 +235,7 @@ const I18N = {
   fz_in_stock:        { en: '{0} individual{1} in stock', kn: '{0} ಪ್ರಾಣಿ ಸ್ಟಾಕ್‌ನಲ್ಲಿ' },
   fz_total_label:     { en: 'total in freezer', kn: 'ಒಟ್ಟು ಫ್ರೀಜರ್‌ನಲ್ಲಿ' },
   fz_in_freezer:      { en: 'in freezer',      kn: 'ಫ್ರೀಜರ್‌ನಲ್ಲಿ' },
-  fz_chicks_label:    { en: 'Chicks · Intake only', kn: 'ಮರಿಗಳು · ಇನ್‌ಟೇಕ್ ಮಾತ್ರ' },
+  fz_chicks_label:    { en: 'Chicks · Intake only', kn: 'ಕೋಳಿ ಮರಿಗಳು · ಇನ್‌ಟೇಕ್ ಮಾತ್ರ' },
 
   // ── Maturity / Species ─────────────────────────────────────────
   maturity_timeline:      { en: 'Maturity timeline',      kn: 'ಪ್ರೌಢಾವಸ್ಥೆ ಟೈಮ್‌ಲೈನ್' },
