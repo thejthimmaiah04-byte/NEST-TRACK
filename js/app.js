@@ -3577,6 +3577,24 @@ function getAppNotifications() {
     });
   }
 
+  // Births — litters actually recorded today
+  const birthsByTray = new Map();
+  for (const c of live('cohorts')) {
+    if (normYMD(c.birthDate) !== todayYMD) continue;
+    const tray = byId('trays', c.trayId);
+    const name = tray?.name || (c.trayId ? c.trayId : 'Unknown tray');
+    const prev = birthsByTray.get(name) || { count: 0, litters: 0 };
+    birthsByTray.set(name, { count: prev.count + (Number(c.alive) || 0), litters: prev.litters + 1 });
+  }
+  for (const [trayName, { count, litters }] of birthsByTray) {
+    notifs.push({
+      id: 'birth-today-' + trayName,
+      type: 'info', icon: '🐣',
+      title: `${trayName} — litter born today`,
+      body:  `${count} pinkies · ${litters} litter${litters !== 1 ? 's' : ''}`
+    });
+  }
+
   // Deaths — removals with reason='Dead' recorded today
   const deathsByTray = new Map();
   for (const r of live('removals')) {
@@ -3587,7 +3605,7 @@ function getAppNotifications() {
     const tray = byId('trays', r.trayId);
     const name = tray?.name || r.trayId;
     const prev = deathsByTray.get(name) || { count: 0, cause: r.cause };
-    deathsByTray.set(name, { count: prev.count + cnt, cause: prev.cause });
+    deathsByTray.set(name, { count: prev.count + cnt, cause: prev.cause || r.cause });
   }
   for (const [trayName, { count, cause }] of deathsByTray) {
     const causeStr = cause && cause !== 'Unknown' ? ` · ${cause}` : '';
@@ -3595,7 +3613,28 @@ function getAppNotifications() {
       id: 'death-' + trayName,
       type: 'error', icon: '💀',
       title: `${trayName} — ${count} died today`,
-      body:  `Recorded today${causeStr}`
+      body:  `Reason: Dead${causeStr}`
+    });
+  }
+
+  // Removals — non-death removals recorded today, grouped by reason
+  const remReasonIcon = { Frozen: '❄️', Feeding: '🐍', Sold: '💰', Used: '📤', Escaped: '🚪' };
+  const removalsByReason = new Map();
+  for (const r of live('removals')) {
+    if (r.reason === 'Dead') continue;
+    if (normYMD(r.date) !== todayYMD) continue;
+    const cnt = Number(r.count) || 0;
+    if (!cnt) continue;
+    const reason = r.reason || 'Removed';
+    const prev = removalsByReason.get(reason) || 0;
+    removalsByReason.set(reason, prev + cnt);
+  }
+  for (const [reason, count] of removalsByReason) {
+    notifs.push({
+      id: 'removal-today-' + reason,
+      type: 'warn', icon: remReasonIcon[reason] || '📦',
+      title: `${count} removed today`,
+      body:  `Reason: ${reason}`
     });
   }
 
