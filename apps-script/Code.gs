@@ -1199,6 +1199,32 @@ function reformatSheets() {
       remSh3.getRange(1, 4).setValue('_SPECIES ID')
         .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
       remSh3.hideColumns(4);
+
+      // Repair rows that were written with the NEW schema (speciesId at col 4)
+      // to the OLD sheet (col 4 = date). After the insert, those rows have:
+      //   col 4 = empty (inserted), col 5 = speciesId UUID (should be at 4),
+      //   col 6 = date (should be at 5), etc.
+      // Detect them: col 4 empty AND col 5 matches uid pattern (starts with 'r', alphanumeric).
+      var repairRows = remSh3.getLastRow() - 1;
+      if (repairRows > 0) {
+        var readCols = Math.min(18, remSh3.getLastColumn());
+        var allRem = remSh3.getRange(2, 1, repairRows, readCols).getValues();
+        allRem.forEach(function(row, idx) {
+          var col4v = String(row[3] || '');
+          var col5v = String(row[4] || '');
+          // uid pattern: 'r' + 10+ lowercase alphanumeric chars, no hyphens/colons
+          if (!col4v && /^r[0-9a-z]{10,}$/.test(col5v)) {
+            var rowNum = idx + 2;
+            // Shift cols 5-16 → cols 4-15 (move speciesId from 5 to 4, date from 6 to 5, etc.)
+            var shiftLen = 13; // cols 4..16
+            var shifted = row.slice(4, 4 + shiftLen);
+            while (shifted.length < shiftLen) shifted.push('');
+            remSh3.getRange(rowNum, 4, 1, shiftLen).setValues([shifted]);
+            // Clear the stale duplicate at col 17 (old last position before shift)
+            if (17 <= remSh3.getLastColumn()) remSh3.getRange(rowNum, 17).clearContent();
+          }
+        });
+      }
     }
   }
 
