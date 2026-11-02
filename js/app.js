@@ -2553,25 +2553,31 @@ function renderFreezer() {
   }
 
   let cards = '';
-  for (const nm of stagesWithStock) {
-    const i = names.indexOf(nm);
-    const color = stageColor(i >= 0 ? i : 0);
-
-    if (allSpecies.length > 1) {
-      // One card per species that has stock (or all species for stages with no stock yet)
-      const speciesWithStock = allSpecies.filter(sp => (bySpStage.get(sp.id)?.get(nm) || 0) > 0);
-      const speciesRows = speciesWithStock.length > 0 ? speciesWithStock : allSpecies;
-      for (const sp of speciesRows) {
+  if (allSpecies.length > 1) {
+    // Group tiles by species with a heading per species
+    for (const sp of allSpecies) {
+      let spCards = '';
+      for (const nm of stagesWithStock) {
+        const i = names.indexOf(nm);
+        const color = stageColor(i >= 0 ? i : 0);
         const count = bySpStage.get(sp.id)?.get(nm) || 0;
-        cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+        spCards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
           <span class="stage-edge" style="background:${color}"></span>
           <div class="n">${count}</div>
-          <div class="l">${esc(sp.name)} ${esc(tStage(nm))}</div>
+          <div class="l">${esc(tStage(nm))}</div>
           <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}"
             style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
         </div>`;
       }
-    } else {
+      cards += `<div style="grid-column:1/-1;margin-top:4px">
+        <div class="small" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);padding:2px 0 6px">${esc(sp.name)}</div>
+        <div class="stats-grid" style="margin:0">${spCards}</div>
+      </div>`;
+    }
+  } else {
+    for (const nm of stagesWithStock) {
+      const i = names.indexOf(nm);
+      const color = stageColor(i >= 0 ? i : 0);
       const count = frozen.get(nm) || 0;
       const spId  = allSpecies[0]?.id || '';
       cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
