@@ -3744,10 +3744,8 @@ function renderSettings() {
       <div class="gap">
         <button class="btn primary" data-act="save-url">Save</button>
         ${url ? `<button class="btn" data-act="upload-changes">Upload changes</button>` : ''}
-        ${url ? `<button class="btn" data-act="full-sync" title="Re-pulls every record from the Sheet — use after editing data directly in Google Sheets">Full re-pull from Sheet</button>` : ''}
       </div>
       ${syncError ? `<p class="sync-error-msg">⚠ Last sync error: ${esc(syncError)}</p>` : ''}
-      <p class="small muted" style="margin:8px 0 0">Use <b>Full re-sync</b> after editing data directly in Google Sheets — the normal sync only picks up new changes.</p>
       <hr class="hr" />
       <div class="small muted">
         <div class="spread"><span>${t('sync_status')}</span><span>${syncing?t('syncing'):syncError?t('sync_error'):pc>0?`${pc} ${t('sync')}`:url?t('up_to_date'):t('no_url_set')}</span></div>
@@ -4805,14 +4803,6 @@ function onClick(e) {
     case 'open-tray-from-rec': { const tId = el.dataset.id || el.dataset.trayid; const t = byId('trays', tId); if (t) { closeNotifPanel(); switchTab('trays'); setTimeout(() => trayDetailModal(t.id), 120); } return; }
     case 'sync-now':
     case 'upload-changes': uploadChanges(); return;
-    case 'pull-sheets': pullFromSheets(); return;
-    case 'full-sync':
-      if (!confirm('Re-pull everything from Google Sheets? This will overwrite any changes not yet uploaded.')) return;
-      state.meta.lastSync = 0;
-      saveState();
-      toast('Pulling all records from Google Sheets…');
-      pullFromSheets(0);
-      return;
     case 'export': return exportJSON();
     case 'import': return importJSON();
     case 'export-csv-removals': return exportCSV('removals');
