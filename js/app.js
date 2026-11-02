@@ -1258,18 +1258,43 @@ function renderDashboard() {
     return;
   }
 
+  // Per-species live count per stage (for multi-species breakdown)
+  const bySpStageCount = new Map();
+  const today = new Date();
+  for (const c of live('cohorts')) {
+    if (!filter(c) || cohortNet(c, today) <= 0) continue;
+    const { name } = stageIndexAt(c, today);
+    const spId = c.speciesId;
+    if (!bySpStageCount.has(spId)) bySpStageCount.set(spId, new Map());
+    const sm = bySpStageCount.get(spId);
+    sm.set(name, (sm.get(name) || 0) + cohortNet(c, today));
+  }
+  for (const tray of live('trays')) {
+    if (!filter({ speciesId: tray.speciesId, trayId: tray.id })) continue;
+    const sp = byId('species', tray.speciesId);
+    if (!sp?.stages?.length) continue;
+    const lastStage = [...sp.stages].sort((a, b) => (b.startDay||0) - (a.startDay||0))[0]?.name;
+    if (!lastStage) continue;
+    const adultCnt = trayAdultCount(tray, sp);
+    if (adultCnt <= 0) continue;
+    if (!bySpStageCount.has(tray.speciesId)) bySpStageCount.set(tray.speciesId, new Map());
+    const sm = bySpStageCount.get(tray.speciesId);
+    sm.set(lastStage, (sm.get(lastStage) || 0) + adultCnt);
+  }
+
   // Stat cards — tappable to open "remove by stage" modal
-  const frozen = frozenByStage();
   const stageCards = names.map((nm, i) => {
     const v = totals.get(nm) || 0;
     const m = stageMales.get(nm) || 0;
     const f = stageFemales.get(nm) || 0;
-    const fz = frozen.get(nm) || 0;
     const sexLine = (m || f)
       ? `<div class="sex-info"><span>♂ ${m}</span><span>♀ ${f}</span></div>`
       : '';
-    const frozenBadge = fz > 0
-      ? `<span class="stage-frozen-badge">❄ ${fz}</span>`
+    const spLines = speciesList.length > 1
+      ? speciesList.map(sp => {
+          const cnt = bySpStageCount.get(sp.id)?.get(nm) || 0;
+          return `<div class="sp-stage-row"><span class="sp-stage-name">${esc(sp.name)}</span><span>${cnt}</span></div>`;
+        }).join('')
       : '';
     return `<div class="stat-stage stat-stage-btn" data-s="${i}"
         data-act="remove-stage" data-stage="${esc(nm)}" data-sidx="${i}"
@@ -1278,7 +1303,7 @@ function renderDashboard() {
       <div class="n">${v}</div>
       <div class="l">${esc(tStage(nm))}</div>
       ${sexLine}
-      ${frozenBadge}
+      ${spLines}
       <div class="stat-stage-hint">${t('tap_to_remove')}</div>
     </div>`;
   }).join('');
