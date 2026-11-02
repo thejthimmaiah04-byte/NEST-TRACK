@@ -5689,7 +5689,7 @@ function generateMonthlyReportHTML(d) {
     const pct = Math.round((s.count / maxCount) * 100);
     return `
       <tr>
-        <td style="padding:5px 10px 5px 0;color:#94a3b8;font-size:12px;white-space:nowrap;width:72px">${s.name}</td>
+        <td style="padding:5px 10px 5px 0;color:#94a3b8;font-size:12px;white-space:nowrap;width:72px">${esc(s.name)}</td>
         <td style="padding:5px 0;width:100%">
           <div style="background:#1e2035;border-radius:4px;overflow:hidden;height:18px">
             <div style="background:${s.color};height:100%;width:${pct}%;min-width:3px"></div>
@@ -5703,14 +5703,14 @@ function generateMonthlyReportHTML(d) {
     .sort((a, b) => b[1] - a[1])
     .map(([reason, count]) => `
       <tr>
-        <td style="padding:9px 14px;color:#94a3b8;font-size:13px;border-bottom:1px solid #1e2035">${reason}</td>
+        <td style="padding:9px 14px;color:#94a3b8;font-size:13px;border-bottom:1px solid #1e2035">${esc(reason)}</td>
         <td style="padding:9px 14px;color:#e2e8f0;font-size:13px;font-weight:700;text-align:right;border-bottom:1px solid #1e2035">${count.toLocaleString()}</td>
       </tr>`).join('');
 
   const trayRows = d.topTrays.map((t, i) => `
     <tr>
       <td style="padding:9px 14px;color:#64748b;font-size:12px;border-bottom:1px solid #1e2035">#${i+1}</td>
-      <td style="padding:9px 14px;color:#e2e8f0;font-size:13px;font-weight:600;border-bottom:1px solid #1e2035">${t.name}</td>
+      <td style="padding:9px 14px;color:#e2e8f0;font-size:13px;font-weight:600;border-bottom:1px solid #1e2035">${esc(t.name)}</td>
       <td style="padding:9px 14px;color:#a78bfa;font-size:13px;font-weight:700;text-align:right;border-bottom:1px solid #1e2035">${t.count.toLocaleString()}</td>
     </tr>`).join('');
 
@@ -5731,7 +5731,7 @@ function generateMonthlyReportHTML(d) {
       <table width="100%" cellpadding="0" cellspacing="0">
         ${d.speciesBreakdown.map(s => `
           <tr>
-            <td style="padding:4px 0;color:#94a3b8;font-size:13px">${s.name}</td>
+            <td style="padding:4px 0;color:#94a3b8;font-size:13px">${esc(s.name)}</td>
             <td style="padding:4px 0;color:#e2e8f0;font-size:13px;font-weight:700;text-align:right">${s.count.toLocaleString()}</td>
           </tr>`).join('')}
       </table>
