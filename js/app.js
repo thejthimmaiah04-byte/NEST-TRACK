@@ -2917,21 +2917,14 @@ function renderTrays() {
     for (const shelf of shelves) {
       const trays = live('trays').filter(t => t.shelfId === shelf.id);
       let totalAlive = 0;
-      const shelfTraysCounted = new Set();
       for (const t of trays) {
+        // Offspring cohorts
         const cohorts = live('cohorts').filter(c => c.trayId === t.id);
-        if (cohorts.length) {
-          shelfTraysCounted.add(t.id);
-          for (const c of cohorts) { const net = cohortNet(c); if (net > 0) totalAlive += net; }
+        for (const c of cohorts) { const net = cohortNet(c); if (net > 0) totalAlive += net; }
+        // Breeder adults (tracked at tray level, separate from cohorts)
+        if (t.adultMales != null || t.adultFemales != null) {
+          totalAlive += (Number(t.adultMales) || 0) + (Number(t.adultFemales) || 0);
         }
-      }
-      // Also count cohort-less trays with tray-level adult sex data
-      for (const t of trays) {
-        if (shelfTraysCounted.has(t.id)) continue;
-        const sp = speciesOf(t);
-        if (!sp?.stages?.length) continue;
-        const n = trayAdultCount(t, sp);
-        if (n > 0) totalAlive += n;
       }
       html += `<button class="shelf-card${totalAlive === 0 ? ' shelf-empty' : ''}" data-act="select-shelf" data-id="${shelf.id}">
         <div class="sc-name">${esc(shelf.name)}</div>
