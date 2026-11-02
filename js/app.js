@@ -4990,6 +4990,26 @@ let syncTimer = null;
 let syncing   = false;
 let syncError = null; // last error message, cleared on success
 
+// Sign a request body with HMAC-SHA256 so the server can detect replay attacks.
+// Falls back to plain body if SubtleCrypto is unavailable (old browsers/HTTP).
+async function _hmacSign(body, apiKey) {
+  if (!apiKey || !window.crypto?.subtle) return body;
+  try {
+    const encoder = new TextEncoder();
+    const nonce   = uid();
+    const ts      = Date.now();
+    const msg     = ts + ':' + nonce + ':' + apiKey;
+    const keyMat  = await crypto.subtle.importKey(
+      'raw', encoder.encode(apiKey),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const sigBuf = await crypto.subtle.sign('HMAC', keyMat, encoder.encode(msg));
+    const sig = Array.from(new Uint8Array(sigBuf))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    return { ...body, _ts: ts, _nonce: nonce, _sig: sig };
+  } catch { return body; }
+}
+
 // Pull latest data FROM Google Sheets into the app. Never pushes local changes.
 async function pullFromSheets(since) {
   if (syncing) return;
@@ -5010,7 +5030,7 @@ async function pullFromSheets(since) {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: pullSince, changes: {}, key: state.meta.scriptApiKey || undefined }),
+      body: JSON.stringify(await _hmacSign({ since: pullSince, changes: {}, key: state.meta.scriptApiKey || undefined }, state.meta.scriptApiKey)),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -5146,7 +5166,7 @@ async function uploadChanges() {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ since: state.meta.lastSync || 0, changes, summary: buildSummary(dirtyTrayIds()), key: state.meta.scriptApiKey || undefined }),
+      body: JSON.stringify(await _hmacSign({ since: state.meta.lastSync || 0, changes, summary: buildSummary(dirtyTrayIds()), key: state.meta.scriptApiKey || undefined }, state.meta.scriptApiKey)),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);

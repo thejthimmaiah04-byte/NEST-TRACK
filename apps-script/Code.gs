@@ -106,6 +106,31 @@ function _checkApiKey(body, params) {
   if (!sent || validKeys.indexOf(sent) === -1) {
     throw new Error('Unauthorized: invalid API key');
   }
+  // HMAC-SHA256 replay protection (optional but enforced when _sig is present)
+  if (body && body._sig) {
+    var ts    = Number(body._ts    || 0);
+    var nonce = String(body._nonce || '').slice(0, 64);
+    var sig   = String(body._sig   || '').toLowerCase();
+    if (!nonce || !sig) throw new Error('Unauthorized: malformed HMAC fields');
+    if (Math.abs(Date.now() - ts) > 300000) throw new Error('Unauthorized: stale request');
+    var cache = CacheService.getScriptCache();
+    var nonceKey = 'n:' + nonce;
+    if (cache.get(nonceKey)) throw new Error('Unauthorized: replay detected');
+    var msg = ts + ':' + nonce + ':' + sent;
+    var raw = Utilities.computeHmacSha256Signature(msg, sent);
+    var expectedHex = raw.map(function(b) {
+      return ('0' + (b < 0 ? b + 256 : b).toString(16)).slice(-2);
+    }).join('');
+    if (!_constTimeEqual(sig, expectedHex)) throw new Error('Unauthorized: invalid HMAC');
+    cache.put(nonceKey, '1', 360);
+  }
+}
+
+function _constTimeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  var r = 0;
+  for (var i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
 }
 
 // ── Input sanitisation ────────────────────────────────────────────────────────
@@ -160,7 +185,7 @@ function doPost(e) {
     // ── Image upload to Drive ─────────────────────────────────────────
     if (body.action === 'uploadImage') {
       var rootFolderName = 'RODENT BREEDING IMAGES';
-      var causeFolder    = String(body.cause || 'unknown').toLowerCase();
+      var causeFolder    = String(body.cause || 'unknown').toLowerCase().replace(/[^a-z0-9 _\-]/g, '').slice(0, 60) || 'unknown';
       var fileName       = String(body.fileName || 'photo') + '.' +
                            (String(body.mimeType || 'image/jpeg').split('/')[1] || 'jpg');
       var rootFolders = DriveApp.getFoldersByName(rootFolderName);
@@ -179,10 +204,13 @@ function doPost(e) {
     // ── Email report action ───────────────────────────────────────────
     if (body.action === 'sendReport') {
       var toList = Array.isArray(body.to) ? body.to : String(body.to || '').split(',');
-      var to      = toList.map(function(a) { return a.trim(); }).filter(Boolean).join(',');
-      var subject = String(body.subject || 'NestTrak Colony Report');
+      var emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      var to = toList.map(function(a) { return a.trim(); })
+                     .filter(function(a) { return a && emailRe.test(a); })
+                     .join(',');
+      var subject = String(body.subject || 'NestTrak Colony Report').slice(0, 200);
       var html    = String(body.html || '');
-      if (!to)   return json({ error: 'No recipients specified' });
+      if (!to)   return json({ error: 'No valid recipients specified' });
       if (!html) return json({ error: 'No report content' });
       GmailApp.sendEmail(to, subject, 'This report requires an HTML-capable email client.', {
         htmlBody: html,
