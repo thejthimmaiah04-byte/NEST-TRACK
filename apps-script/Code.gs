@@ -84,13 +84,62 @@ var HIDE = {
 };
 
 // ── API key authentication ────────────────────────────────────────────────────
-// Store your key in Script Properties: File › Project Properties › Script Properties › API_KEY
-// Leave API_KEY blank (or unset) to keep the endpoint open (backwards-compatible).
+// REQUIRED: set API_KEY in Script Properties before deploying.
+// Supports single key (string) or per-device keys (JSON array of strings).
+//   Single:       API_KEY = "mySecretKey123"
+//   Per-device:   API_KEY = ["phoneKey","tabletKey","desktopKey"]
+// Requests without a valid key are rejected with a 401 error.
 function _checkApiKey(body, params) {
-  var stored = PropertiesService.getScriptProperties().getProperty('API_KEY');
-  if (!stored) return; // no key configured — allow all (open mode)
-  var sent = (body && body.key) || (params && params.key) || '';
-  if (sent !== stored) throw new Error('Unauthorized: invalid API key');
+  var rawStored = PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
+  rawStored = rawStored.trim();
+  if (!rawStored) {
+    throw new Error('Unauthorized: no API_KEY configured. Set it in Script Properties before deploying.');
+  }
+  var validKeys;
+  if (rawStored.charAt(0) === '[') {
+    try { validKeys = JSON.parse(rawStored); } catch(e) { validKeys = [rawStored]; }
+    if (!Array.isArray(validKeys)) validKeys = [rawStored];
+  } else {
+    validKeys = [rawStored];
+  }
+  var sent = String((body && body.key) || (params && params.key) || '');
+  if (!sent || validKeys.indexOf(sent) === -1) {
+    throw new Error('Unauthorized: invalid API key');
+  }
+}
+
+// ── Input sanitisation ────────────────────────────────────────────────────────
+// Called before every upsert to clamp bad values and prevent prototype pollution.
+function _sanitiseRecord(entity, r) {
+  if (!r || typeof r !== 'object') return;
+  // Clamp all count-like fields to non-negative integers
+  var intFields = ['count','males','females','initialCount','sortOrder',
+                   'gravidFemales','lactatingFemales','adultMales','adultFemales',
+                   'lifespan','gestation'];
+  intFields.forEach(function(f) {
+    if (r[f] !== undefined && r[f] !== '' && r[f] != null) {
+      var n = Number(r[f]);
+      r[f] = isNaN(n) ? 0 : Math.max(0, Math.floor(n));
+    }
+  });
+  // Cap string fields to reasonable lengths
+  ['name','notes','reason','cause','stage','birthDate','date'].forEach(function(f) {
+    if (r[f] != null) r[f] = String(r[f]).slice(0, 500);
+  });
+  // Sanitise id: allow only alphanumeric + safe chars; truncate at 64
+  if (r.id != null) r.id = String(r.id).replace(/[^a-zA-Z0-9_\-\.]/g, '').slice(0, 64);
+  // males + females must not exceed count (removals, cohorts)
+  if (entity === 'removals' || entity === 'cohorts') {
+    var cnt = Number(r.count || r.initialCount || 0);
+    var m   = Number(r.males   || 0);
+    var f   = Number(r.females || 0);
+    if (cnt > 0 && (m + f) > cnt) {
+      // Scale proportionally
+      var total = m + f;
+      r.males   = Math.round(m / total * cnt);
+      r.females = cnt - r.males;
+    }
+  }
 }
 
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
@@ -755,6 +804,7 @@ function upsertRecords(entity, incoming, serverNow) {
 
   incoming.forEach(function(r) {
     if (!r || !r.id) return;
+    _sanitiseRecord(entity, r); // clamp negatives, cap lengths, sanitise id
     var existingRow = data.index[String(r.id)];
     var existing    = existingRow ? data.rows[existingRow - 2] : null;
 

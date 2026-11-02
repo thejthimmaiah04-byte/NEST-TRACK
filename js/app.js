@@ -137,7 +137,11 @@ const SYNC_FAIL_PAUSE = 3;      // pause auto-pull after this many consecutive f
 
 const $   = (sel, root = document) => root.querySelector(sel);
 const $$  = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-const uid = () => 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const uid = () => {
+  const arr = new Uint32Array(2);
+  crypto.getRandomValues(arr);
+  return 'r' + Date.now().toString(36) + arr[0].toString(36) + arr[1].toString(36);
+};
 const now = () => Date.now();
 const _localYMDStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const todayISO = () => _localYMDStr(new Date());
@@ -3577,21 +3581,28 @@ function getAppNotifications() {
     });
   }
 
-  // Births — litters actually recorded today
+  // Births — litters recorded in the last 7 days (not just today)
+  const sevenDaysAgo = toYMD(addDays(today, -6)); // 7-day window inclusive of today
   const birthsByTray = new Map();
   for (const c of live('cohorts')) {
-    if (normYMD(c.birthDate) !== todayYMD) continue;
+    const cYMD = normYMD(c.birthDate);
+    if (!cYMD || cYMD < sevenDaysAgo || cYMD > todayYMD) continue;
     const tray = byId('trays', c.trayId);
     const name = tray?.name || (c.trayId ? c.trayId : 'Unknown tray');
-    const prev = birthsByTray.get(name) || { count: 0, litters: 0 };
-    birthsByTray.set(name, { count: prev.count + (Number(c.alive) || 0), litters: prev.litters + 1 });
+    const prev = birthsByTray.get(name) || { count: 0, litters: 0, latest: cYMD };
+    birthsByTray.set(name, {
+      count: prev.count + (Number(c.initialCount) || 0),
+      litters: prev.litters + 1,
+      latest: cYMD > prev.latest ? cYMD : prev.latest
+    });
   }
-  for (const [trayName, { count, litters }] of birthsByTray) {
+  for (const [trayName, { count, litters, latest }] of birthsByTray) {
+    const isToday = latest === todayYMD;
     notifs.push({
-      id: 'birth-today-' + trayName,
+      id: 'birth-recent-' + trayName,
       type: 'info', icon: '🐣',
-      title: `${trayName} — litter born today`,
-      body:  `${count} pinkies · ${litters} litter${litters !== 1 ? 's' : ''}`
+      title: `${trayName} — litter${litters !== 1 ? 's' : ''} born ${isToday ? 'today' : 'recently'}`,
+      body:  `${count} pinkies · ${litters} litter${litters !== 1 ? 's' : ''} in last 7 days`
     });
   }
 
@@ -4913,6 +4924,36 @@ function exportJSON() {
   toast('Backup downloaded');
 }
 function importJSON() {
+  // Show a typed-confirmation modal first to prevent accidental overwrites
+  openModal('Import Data',
+    `<div style="display:flex;flex-direction:column;gap:14px">
+      <div style="background:#3a1a1a;border:1px solid #c0392b;border-radius:8px;padding:12px 14px;font-size:13px;color:#f5a0a0">
+        ⚠️ This will <strong>replace all local data</strong> with the contents of the imported file.
+        Your current data will be auto-backed up to local storage (one slot) before import.
+      </div>
+      <p style="margin:0;font-size:14px">Type <strong>IMPORT</strong> to confirm:</p>
+      <input id="import-confirm-input" type="text" placeholder="IMPORT"
+        style="background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:9px 12px;color:#e8e8f0;font-size:15px;width:100%">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn secondary" data-close>Cancel</button>
+        <button class="btn" id="import-confirm-btn" style="background:#c0392b">Import</button>
+      </div>
+    </div>`,
+    body => {
+      body.querySelector('#import-confirm-btn').addEventListener('click', () => {
+        const val = body.querySelector('#import-confirm-input').value.trim();
+        if (val !== 'IMPORT') { toast('Type IMPORT (all caps) to confirm', true); return; }
+        closeModal();
+        _doImport();
+      });
+      body.querySelector('#import-confirm-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') body.querySelector('#import-confirm-btn').click();
+      });
+    }
+  );
+}
+
+function _doImport() {
   const input = document.createElement('input');
   input.type = 'file'; input.accept = 'application/json';
   input.onchange = () => {
@@ -5164,15 +5205,31 @@ function renderSync() {
   let cls='dot', label;
   let syncEl = dot.closest('.sync') || txt.closest('.sync');
   let hideText = false;
+  const failCount = state.meta.syncFailCount || 0;
+  const paused    = failCount >= SYNC_FAIL_PAUSE && state.meta.scriptUrl;
   if (!state.meta.scriptUrl) { cls+=' pending'; label=t('local_only'); }
   else if (syncing)           { cls+=' syncing'; label=t('syncing'); hideText=true; }
   else if (!navigator.onLine) { cls+=' offline';  label=pc?t('offline_n_unsaved',pc):t('offline'); }
+  else if (paused)            { cls+=' error';    label='Sync paused · tap to retry'; }
   else if (syncError)         { cls+=' error';    label=t('sync_error'); }
   else if (pc > 0)            { cls+=' pending';  label=t('n_unsaved',pc); }
-  else                        { cls+=' ok';       label=t('up_to_date'); hideText=true; }
+  else {
+    cls+=' ok';
+    // Show how fresh the data is when up to date
+    const lastSync = state.meta.lastSync;
+    label = lastSync ? ('Synced ' + _timeAgo(Date.now() - lastSync)) : t('up_to_date');
+    hideText = false;
+  }
   dot.className=cls;
   if (txt) { txt.textContent=label; txt.style.display = hideText ? 'none' : ''; }
-  if (syncEl) syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
+  if (syncEl) {
+    syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
+    // Make the sync row a tap-to-retry target when paused or errored
+    const clickable = paused || !!syncError;
+    syncEl.style.cursor  = clickable ? 'pointer' : '';
+    syncEl.title         = clickable ? 'Tap to retry sync' : '';
+    syncEl.dataset.act   = clickable ? 'sync-now' : '';
+  }
 
   // Pending banner — visible whenever there are unsaved changes
   const banner = $('#pending-banner');
@@ -6136,8 +6193,14 @@ function init() {
   window.addEventListener('online',  () => { renderSync(); if (pendingCount() === 0) pullFromSheets(); });
   window.addEventListener('offline', renderSync);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && navigator.onLine && state.meta.scriptUrl && pendingCount() === 0) {
-      pullFromSheets(); // pull latest when returning to app (skip if local edits are pending)
+    if (document.visibilityState === 'visible' && navigator.onLine && state.meta.scriptUrl) {
+      // Returning to the app is a user signal to retry — clear the fail counter
+      if ((state.meta.syncFailCount || 0) >= SYNC_FAIL_PAUSE) {
+        state.meta.syncFailCount = 0;
+        saveState();
+        renderSync();
+      }
+      if (pendingCount() === 0) pullFromSheets();
     }
   });
   setInterval(() => {

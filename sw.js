@@ -1,6 +1,6 @@
 /* Service worker — caches the app shell so it opens offline.
    Data itself lives in localStorage; this only caches the static files. */
-const CACHE = 'rbm-v171';
+const CACHE = 'rbm-v172';
 const ASSETS = [
   './',
   './index.html',
@@ -28,8 +28,9 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
 
   // Stale-while-revalidate for same-origin app assets.
+  // ignoreSearch:true lets ?v=NNN query strings hit the cached base URL.
   e.respondWith(
-    caches.match(req).then(cached => {
+    caches.match(req, { ignoreSearch: true }).then(cached => {
       const network = fetch(req).then(res => {
         if (res && res.status === 200) {
           const copy = res.clone();
