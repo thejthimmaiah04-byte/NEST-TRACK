@@ -172,10 +172,8 @@ function doPost(e) {
     updateTrayStageStats();
     updateShelfStats();
 
-    // Refresh frozen stock summary whenever freezer-related entities changed
-    var frozenChanged = (changes.removals || []).some(function(r) { return r.reason === 'Frozen'; })
-                     || (changes.frozen_uses || []).length > 0;
-    if (frozenChanged) _updateFrozenSummary();
+    // Always refresh frozen stock summary on every sync
+    _updateFrozenSummary();
 
     // Update per-shelf summary sheets and history if the app sent a summary
     if (body.summary && typeof body.summary === 'object') {
@@ -631,6 +629,12 @@ function _readSheet(entity) {
     Logger.log('_readSheet ' + entity + ' failed: ' + err);
     return [];
   }
+}
+
+// ── Manual trigger: run from Apps Script editor to force-rebuild Frozen sheet ──
+function rebuildFrozenSummary() {
+  _updateFrozenSummary();
+  try { SpreadsheetApp.getUi().alert('Frozen sheet rebuilt successfully.'); } catch(e) {}
 }
 
 // ── Sheet helpers ─────────────────────────────────────────────────────────────
@@ -1150,8 +1154,96 @@ function reformatSheets() {
     }
   }
 
-  // 4d. Create Frozen sheet if it doesn't exist
+  // 4d. Create Frozen Log sheet if it doesn't exist
   sheetFor('frozen_uses');
+
+  // 4e. Fix Frozen Log schema: insert speciesId column at pos 2 if missing
+  // (speciesId was added to SCHEMAS.frozen_uses between old and new versions)
+  var frozenLogSh = ss.getSheetByName(SHEET_NAMES.frozen_uses);
+  if (frozenLogSh && frozenLogSh.getLastColumn() >= 2) {
+    var fl2Hdr = String(frozenLogSh.getRange(1, 2).getValue());
+    if (fl2Hdr !== '_SPECIES ID') {
+      frozenLogSh.insertColumnBefore(2);
+      frozenLogSh.getRange(1, 2).setValue('_SPECIES ID')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      frozenLogSh.hideColumns(2);
+      // Ensure SPECIES extra column header exists at col 9
+      if (frozenLogSh.getLastColumn() < 9) {
+        frozenLogSh.getRange(1, 9).setValue('SPECIES')
+          .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      }
+    }
+    // Backfill SPECIES extra column (col 9) for all rows
+    var ctx3 = buildNameMaps();
+    var flLastRow = frozenLogSh.getLastRow();
+    if (flLastRow > 1) {
+      var flData = frozenLogSh.getRange(2, 1, flLastRow - 1, SCHEMAS.frozen_uses.length).getValues();
+      flData.forEach(function(row, i) {
+        var spId = String(row[1] || ''); // col 2 = speciesId (index 1)
+        frozenLogSh.getRange(i + 2, 9).setValue(ctx3.speciesName(spId));
+      });
+    }
+  }
+
+  // 4f. Fix Removal sheet schema: insert speciesId column at pos 4 if missing
+  // (speciesId was added to SCHEMAS.removals between old and new versions)
+  var remSh3 = ss.getSheetByName(SHEET_NAMES.removals);
+  if (remSh3 && remSh3.getLastColumn() >= 4) {
+    var rem4Hdr = String(remSh3.getRange(1, 4).getValue());
+    if (rem4Hdr !== '_SPECIES ID') {
+      remSh3.insertColumnBefore(4);
+      remSh3.getRange(1, 4).setValue('_SPECIES ID')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+      remSh3.hideColumns(4);
+    }
+  }
+
+  // 4g. Ensure Removal sheet has TRAY (col 15) and SPECIES (col 16) extra columns
+  if (remSh3) {
+    var ctx4 = buildNameMaps();
+    var remDataRows = remSh3.getLastRow() > 1
+      ? remSh3.getRange(2, 1, remSh3.getLastRow() - 1, SCHEMAS.removals.length).getValues()
+      : [];
+    var spIdxRem   = SCHEMAS.removals.indexOf('speciesId'); // 3
+    var trayIdxRem = SCHEMAS.removals.indexOf('trayId');    // 2
+    var cohortIdxRem = SCHEMAS.removals.indexOf('cohortId'); // 1
+
+    // Fixed positions: schema (14) + TRAY (15) + SPECIES (16)
+    var remTrayColFixed    = SCHEMAS.removals.length + 1; // 15
+    var remSpeciesColFixed = SCHEMAS.removals.length + 2; // 16
+
+    // Ensure header row reaches at least col 16
+    var remLastCol = remSh3.getLastColumn();
+    if (remLastCol < remTrayColFixed || String(remSh3.getRange(1, remTrayColFixed).getValue()) !== 'TRAY') {
+      remSh3.getRange(1, remTrayColFixed).setValue('TRAY')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    }
+    if (remSh3.getLastColumn() < remSpeciesColFixed || String(remSh3.getRange(1, remSpeciesColFixed).getValue()) !== 'SPECIES') {
+      remSh3.getRange(1, remSpeciesColFixed).setValue('SPECIES')
+        .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    }
+
+    // Backfill TRAY and SPECIES values for all rows
+    // Build cohort→speciesId and tray→speciesId lookup maps
+    var cohortSpMap = {}, traySpMap = {};
+    _readSheet('cohorts').forEach(function(c) { if (c.speciesId) cohortSpMap[String(c.id)] = String(c.speciesId); });
+    _readSheet('trays').forEach(function(t)   { if (t.speciesId) traySpMap[String(t.id)]   = String(t.speciesId); });
+
+    if (remDataRows.length > 0) {
+      var trayVals    = [];
+      var speciesVals = [];
+      remDataRows.forEach(function(row) {
+        var tId  = String(row[trayIdxRem]   || '');
+        var cId  = String(row[cohortIdxRem] || '');
+        var spId = String(row[spIdxRem]     || '')
+                || cohortSpMap[cId] || traySpMap[tId] || '';
+        trayVals.push([ctx4.trayName(tId)]);
+        speciesVals.push([ctx4.speciesName(spId)]);
+      });
+      remSh3.getRange(2, remTrayColFixed,    remDataRows.length, 1).setValues(trayVals);
+      remSh3.getRange(2, remSpeciesColFixed, remDataRows.length, 1).setValues(speciesVals);
+    }
+  }
 
   // 5. Re-apply HIDE on all sheets
   ENTITIES.forEach(function(entity) {
