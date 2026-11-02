@@ -2579,10 +2579,14 @@ function renderFreezer() {
 
   let cards = '';
   if (allSpecies.length > 1) {
+    // Only show stages that actually have stock
+    const stagesActuallyFrozen = [...stagesWithStock].filter(nm => (frozen.get(nm) || 0) > 0);
+
     // Group tiles by species with a heading per species
     for (const sp of allSpecies) {
+      const spHasAny = stagesActuallyFrozen.some(nm => (bySpStage.get(sp.id)?.get(nm) || 0) > 0);
       let spCards = '';
-      for (const nm of stagesWithStock) {
+      for (const nm of stagesActuallyFrozen) {
         const i = names.indexOf(nm);
         const color = stageColor(i >= 0 ? i : 0);
         const count = bySpStage.get(sp.id)?.get(nm) || 0;
@@ -2594,11 +2598,33 @@ function renderFreezer() {
             style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
         </div>`;
       }
-      cards += `<div style="grid-column:1/-1;margin-top:4px">
+      if (spCards) cards += `<div style="grid-column:1/-1;margin-top:4px">
         <div class="small" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);padding:2px 0 6px">${esc(sp.name)}</div>
         <div class="stats-grid" style="margin:0">${spCards}</div>
       </div>`;
     }
+
+    // Unattributed section: stock logged via bulk intake (no tray/cohort link)
+    let unCards = '';
+    for (const nm of stagesActuallyFrozen) {
+      const totalNm = frozen.get(nm) || 0;
+      const attributed = allSpecies.reduce((s, sp) => s + (bySpStage.get(sp.id)?.get(nm) || 0), 0);
+      const uncount = totalNm - attributed;
+      if (uncount <= 0) continue;
+      const i = names.indexOf(nm);
+      const color = stageColor(i >= 0 ? i : 0);
+      unCards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+        <span class="stage-edge" style="background:${color}"></span>
+        <div class="n">${uncount}</div>
+        <div class="l">${esc(tStage(nm))}</div>
+        <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid=""
+          style="margin-top:10px;width:100%">Use</button>
+      </div>`;
+    }
+    if (unCards) cards += `<div style="grid-column:1/-1;margin-top:4px">
+      <div class="small" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:2px 0 6px">Unattributed</div>
+      <div class="stats-grid" style="margin:0">${unCards}</div>
+    </div>`;
   } else {
     for (const nm of stagesWithStock) {
       const i = names.indexOf(nm);
