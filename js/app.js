@@ -1790,7 +1790,7 @@ function renderCharts() {
     : allTrays.filter(t => t.shelfId === chartFilterShelf);
 
   const spOpts = speciesList.map(s =>
-    `<option value="${s.id}" ${s.id === chartFilterSpecies ? 'selected' : ''}>${esc(s.name)}</option>`
+    `<option value="${s.id}" style="background:#1c1c1e;color:#f2f2f7" ${s.id === chartFilterSpecies ? 'selected' : ''}>${esc(s.name)}</option>`
   ).join('');
   const shelfOpts = shelves.map(s =>
     `<option value="${s.id}" ${s.id === chartFilterShelf ? 'selected' : ''}>${esc(s.name)}</option>`
@@ -1809,7 +1809,7 @@ function renderCharts() {
   const spSelector = speciesList.length > 1 ? `
     <div style="margin-bottom:14px">
       <select id="cft-species" style="width:100%;font-size:14px;padding:8px 12px;border-radius:10px;background:var(--surface2);color:var(--text);border:1px solid var(--border)">
-        <option value="all" ${chartFilterSpecies === 'all' ? 'selected' : ''}>All species</option>
+        <option value="all" style="background:#1c1c1e;color:#f2f2f7" ${chartFilterSpecies === 'all' ? 'selected' : ''}>All species</option>
         ${spOpts}
       </select>
     </div>` : '';
