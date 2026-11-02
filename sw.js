@@ -1,6 +1,6 @@
 /* Service worker — caches the app shell so it opens offline.
    Data itself lives in localStorage; this only caches the static files. */
-const CACHE = 'rbm-v167';
+const CACHE = 'rbm-v169';
 const ASSETS = [
   './',
   './index.html',

@@ -211,6 +211,37 @@ function trayAdultSex(trayId, sp) {
   return tracked ? { males, females } : null;
 }
 
+// One-time migration: backfill speciesId on bulk-intake frozen records that lost it
+// through a Google Sheets sync round-trip (old schema didn't include speciesId).
+// Only runs when exactly one species exists so attribution is unambiguous.
+function migrateFrozenIntakeSpecies() {
+  const sp = live('species');
+  if (!sp.length) return;
+  // Find which species has attributed frozen bulk-intake records
+  let spId;
+  if (sp.length === 1) {
+    spId = sp[0].id;
+  } else {
+    // Use species that owns ALL currently-attributed frozen records (removal has speciesId)
+    const attrIds = new Set(
+      state.removals
+        .filter(r => !r.deleted && r.reason === 'Frozen' && r.speciesId && !r.cohortId && !r.trayId)
+        .map(r => r.speciesId)
+    );
+    if (attrIds.size === 1) spId = [...attrIds][0];
+    else return; // ambiguous — skip
+  }
+  let dirty = false;
+  for (const r of state.removals) {
+    if (r.deleted || r.reason !== 'Frozen' || r.speciesId) continue;
+    if (r.cohortId || r.trayId) continue; // only bulk-intake records
+    r.speciesId = spId;
+    r.updatedAt = now();
+    dirty = true;
+  }
+  if (dirty) saveState();
+}
+
 // One-time migration: promote cohort-level sex data → tray.adultMales/adultFemales
 function migrateTraySexData() {
   let dirty = false;
@@ -274,7 +305,7 @@ function frozenByStage() {
 
 // Returns Map<spId, Map<stageName, count>>
 function frozenBySpeciesStage() {
-  const resolveSpId = r => r.speciesId
+  const resolveSpId = r => (r.speciesId || null)
     || byId('cohorts', r.cohortId)?.speciesId
     || byId('trays',   r.trayId)?.speciesId
     || null;
@@ -670,14 +701,15 @@ function forecast(weeks, filter = () => true) {
   return { names, points };
 }
 
-function renderTrayStageBarChart(shelfId = 'all', trayId = 'all') {
+function renderTrayStageBarChart(shelfId = 'all', trayId = 'all', speciesId = 'all') {
   const today = new Date();
   const names = orderedStageNames();
   if (!names.length) return '';
 
   let trays = live('trays');
-  if (shelfId !== 'all') trays = trays.filter(t => t.shelfId === shelfId);
-  if (trayId  !== 'all') trays = trays.filter(t => t.id === trayId);
+  if (speciesId !== 'all') trays = trays.filter(t => t.speciesId === speciesId);
+  if (shelfId   !== 'all') trays = trays.filter(t => t.shelfId === shelfId);
+  if (trayId    !== 'all') trays = trays.filter(t => t.id === trayId);
 
   // Aggregate counts across all trays — one total per stage
   const stageTotals = new Map();
@@ -936,8 +968,9 @@ window.addEventListener('beforeunload', e => {
  * ------------------------------------------------------------------ */
 let dashFilterSpecies  = 'all';
 let fcVisibleStages   = null; // null = all visible; Set of stage names when filtered
-let chartFilterShelf  = 'all';
-let chartFilterTray   = 'all';
+let chartFilterShelf   = 'all';
+let chartFilterTray    = 'all';
+let chartFilterSpecies = 'all';
 let collapsedShelves  = new Set(); // shelf IDs currently collapsed in Trays tab
 let selectedShelfId   = null;      // shelf being viewed in Trays tab (null = overview)
 
@@ -1497,17 +1530,19 @@ function renderStageDistributionGrid(totals, names) {
   return `<div class="dist-grid">${cells}</div>`;
 }
 
-function renderPopulationForecast(shelfId = 'all', trayId = 'all', cohortFilterOverride = null) {
+function renderPopulationForecast(shelfId = 'all', trayId = 'all', speciesId = 'all') {
   const DAYS = Math.round((state.meta.forecastWeeks || 8) * 7), STEP = 2; // sample every 2 days
   const today = new Date(); today.setHours(0,0,0,0);
 
-  // Build cohort filter matching current shelf/tray selection
+  // Build cohort filter matching current shelf/tray/species selection
   const trayIds = (() => {
     if (trayId !== 'all') return new Set([trayId]);
-    if (shelfId !== 'all') return new Set(live('trays').filter(t => t.shelfId === shelfId).map(t => t.id));
-    return null;
+    let trays = live('trays');
+    if (speciesId !== 'all') trays = trays.filter(t => t.speciesId === speciesId);
+    if (shelfId   !== 'all') trays = trays.filter(t => t.shelfId === shelfId);
+    return (speciesId !== 'all' || shelfId !== 'all') ? new Set(trays.map(t => t.id)) : null;
   })();
-  const cohortFilter = cohortFilterOverride || (c => !trayIds || trayIds.has(c.trayId));
+  const cohortFilter = c => !trayIds || trayIds.has(c.trayId);
 
   // Sample x-axis: day offsets
   const xDays = [];
@@ -1741,12 +1776,22 @@ function renderCharts() {
     return;
   }
 
+  const speciesList = live('species');
+  const spFilter = chartFilterSpecies === 'all'
+    ? () => true
+    : c => c.speciesId === chartFilterSpecies;
+
   const shelves   = live('shelves');
-  const allTrays  = live('trays');
+  const allTrays  = chartFilterSpecies === 'all'
+    ? live('trays')
+    : live('trays').filter(t => t.speciesId === chartFilterSpecies);
   const shownTrays = chartFilterShelf === 'all'
     ? allTrays
     : allTrays.filter(t => t.shelfId === chartFilterShelf);
 
+  const spOpts = speciesList.map(s =>
+    `<option value="${s.id}" ${s.id === chartFilterSpecies ? 'selected' : ''}>${esc(s.name)}</option>`
+  ).join('');
   const shelfOpts = shelves.map(s =>
     `<option value="${s.id}" ${s.id === chartFilterShelf ? 'selected' : ''}>${esc(s.name)}</option>`
   ).join('');
@@ -1754,14 +1799,23 @@ function renderCharts() {
     `<option value="${t.id}" ${t.id === chartFilterTray ? 'selected' : ''}>${esc(t.name)}</option>`
   ).join('');
 
-  const { totals } = stageTotalsAt(new Date());
+  const { totals } = stageTotalsAt(new Date(), spFilter);
   const names = orderedStageNames();
-  const barChart = renderTrayStageBarChart(chartFilterShelf, chartFilterTray);
+  const barChart = renderTrayStageBarChart(chartFilterShelf, chartFilterTray, chartFilterSpecies);
   const removalRates = computeRemovalInsights();
   const insights = renderRemovalInsights(removalRates);
-  const forecast = renderPopulationForecast(chartFilterShelf, chartFilterTray);
+  const forecast = renderPopulationForecast(chartFilterShelf, chartFilterTray, chartFilterSpecies);
+
+  const spSelector = speciesList.length > 1 ? `
+    <div style="margin-bottom:14px">
+      <select id="cft-species" style="width:100%;font-size:14px;padding:8px 12px;border-radius:10px;background:var(--surface2);color:var(--text);border:1px solid var(--border)">
+        <option value="all" ${chartFilterSpecies === 'all' ? 'selected' : ''}>All species</option>
+        ${spOpts}
+      </select>
+    </div>` : '';
 
   el.innerHTML = `
+    ${spSelector}
     <h2 class="section-title" style="margin-bottom:10px">${t('stage_distribution')}</h2>
     <div class="card" style="padding:14px">
       <div class="dist-combined">
@@ -1796,8 +1850,15 @@ function renderCharts() {
   wireForeCastHover();
 
   // Wire selectors — re-render charts on change
+  const spSel    = $('#cft-species', el);
   const shelfSel = $('#cft-shelf', el);
   const traySel  = $('#cft-tray', el);
+  if (spSel) spSel.onchange = () => {
+    chartFilterSpecies = spSel.value;
+    chartFilterShelf   = 'all';
+    chartFilterTray    = 'all';
+    renderCharts();
+  };
   if (shelfSel) shelfSel.onchange = () => {
     chartFilterShelf = shelfSel.value;
     chartFilterTray  = 'all';
@@ -6006,6 +6067,7 @@ function applyTranslations() {
 
 function init() {
   loadState();
+  migrateFrozenIntakeSpecies();
   migrateTraySexData();
 
   // Layer 2: session snapshot — save state at boot so mid-session corruption is recoverable

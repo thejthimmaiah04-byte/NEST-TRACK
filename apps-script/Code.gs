@@ -18,7 +18,7 @@ var SHEET_NAMES = {
   trays:       'Trays',
   cohorts:     'Birth',
   removals:    'Removal',
-  frozen_uses: 'Frozen'
+  frozen_uses: 'Frozen Log'
 };
 
 // ── Internal schemas (column order — do NOT change) ───────────────────────────
@@ -27,7 +27,7 @@ var SCHEMAS = {
   shelves:     ['id', 'name', 'sortOrder', 'updatedAt', 'deleted', 'syncedAt'],
   trays:       ['id', 'shelfId', 'name', 'speciesId', 'gravidFemales', 'lactatingFemales', 'gravidSince', 'adultMales', 'adultFemales', 'notes', 'updatedAt', 'deleted', 'syncedAt'],
   cohorts:     ['id', 'trayId', 'speciesId', 'birthDate', 'initialCount', 'notes', 'males', 'females', 'updatedAt', 'deleted', 'syncedAt'],
-  removals:    ['id', 'cohortId', 'trayId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'cause', 'updatedAt', 'deleted', 'syncedAt'],
+  removals:    ['id', 'cohortId', 'trayId', 'speciesId', 'date', 'stage', 'count', 'males', 'females', 'reason', 'cause', 'updatedAt', 'deleted', 'syncedAt'],
   frozen_uses: ['id', 'speciesId', 'stage', 'date', 'count', 'updatedAt', 'deleted', 'syncedAt']
 };
 var ENTITIES = ['species', 'shelves', 'trays', 'cohorts', 'removals', 'frozen_uses'];
@@ -62,7 +62,7 @@ var EXTRA = {
   shelves:     ['TRAYS'],
   trays:       ['SPECIES'],
   cohorts:     ['TRAY', 'SPECIES'],
-  removals:    ['TRAY'],
+  removals:    ['TRAY', 'SPECIES'],
   frozen_uses: ['SPECIES']
 };
 
@@ -72,14 +72,14 @@ var EXTRA = {
 // Shelves      : id(1) name(2) order(3) updated(4) deleted(5) synced(6) | TRAYS(7)
 // Trays        : id(1) shelfId(2) name(3) speciesId(4) gravid(5) lact(6) updated(7) deleted(8) synced(9) | SPECIES(10) ♂ADULTS(11) ♀ADULTS(12) stages(13+)
 // Birth        : id(1) trayId(2) speciesId(3) date(4) count(5) notes(6) ♂(7) ♀(8) updated(9) deleted(10) synced(11) | TRAY(12) SPECIES(13)
-// Removal      : id(1) cohortId(2) trayId(3) date(4) stage(5) count(6) ♂(7) ♀(8) reason(9) cause(10) updated(11) deleted(12) synced(13) | TRAY(14)
+// Removal      : id(1) cohortId(2) trayId(3) speciesId(4) date(5) stage(6) count(7) ♂(8) ♀(9) reason(10) cause(11) updated(12) deleted(13) synced(14) | TRAY(15) SPECIES(16)
 // Frozen       : id(1) speciesId(2) stage(3) date(4) count(5) updated(6) deleted(7) synced(8) | SPECIES(9)
 var HIDE = {
   species:     [1, 3, 6, 7, 8],             // show: NAME | LIFESPAN | GESTATION | STAGES | SEX RATIO | PINKY | FUZZY | HOPPER | ADULT
   shelves:     [1, 3, 4, 5, 6],             // show: NAME | TRAYS
   trays:       [1, 2, 4, 7, 8, 9],          // show: TRAY ID | GRAVID ♀ | LACTATING ♀ | SPECIES | ♂ ADULTS | ♀ ADULTS | [stage cols]
   cohorts:     [1, 2, 3, 7, 8, 9, 10, 11], // show: DATE | COUNT | NOTES | TRAY | SPECIES
-  removals:    [1, 2, 3, 11, 12, 13],       // show: DATE | STAGE | REMOVED | ♂ | ♀ | REASON | CAUSE | TRAY
+  removals:    [1, 2, 3, 4, 12, 13, 14],    // show: DATE | STAGE | REMOVED | ♂ | ♀ | REASON | CAUSE | TRAY | SPECIES
   frozen_uses: [1, 2, 6, 7, 8]             // show: STAGE | DATE | COUNT | SPECIES
 };
 
@@ -142,6 +142,22 @@ function doPost(e) {
       return json({ ok: true, sent: to });
     }
 
+    // One-time migration: rename old "Frozen" transaction sheet → "Frozen Log"
+    // so the new "Frozen" tab can be used for the current-stock summary.
+    (function() {
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var oldFrozen = ss.getSheetByName('Frozen');
+      if (oldFrozen) {
+        // Check it looks like the old frozen_uses log (has 'STAGE' in col 3)
+        var hdr = oldFrozen.getLastRow() >= 1 ? oldFrozen.getRange(1,1,1,3).getValues()[0] : [];
+        var isLog = String(hdr[2] || '').toUpperCase().indexOf('STAGE') >= 0
+                 || String(hdr[1] || '').toUpperCase().indexOf('STAGE') >= 0;
+        if (isLog) {
+          try { oldFrozen.setName('Frozen Log'); } catch(e) {}
+        }
+      }
+    })();
+
     var since    = Number(body.since) || 0;
     var changes  = body.changes || {};
     var accepted = {};
@@ -155,6 +171,11 @@ function doPost(e) {
 
     updateTrayStageStats();
     updateShelfStats();
+
+    // Refresh frozen stock summary whenever freezer-related entities changed
+    var frozenChanged = (changes.removals || []).some(function(r) { return r.reason === 'Frozen'; })
+                     || (changes.frozen_uses || []).length > 0;
+    if (frozenChanged) _updateFrozenSummary();
 
     // Update per-shelf summary sheets and history if the app sent a summary
     if (body.summary && typeof body.summary === 'object') {
@@ -431,6 +452,89 @@ function _updateDeathHistory() {
   }
 }
 
+// ── Frozen Stock summary sheet ────────────────────────────────────────────────
+// Overwrites a "Frozen" sheet with current stock per species × stage.
+// Stock = sum of Frozen removals − sum of frozen_uses, both per speciesId + stage.
+// Columns: SPECIES | STAGE | IN FREEZER
+function _updateFrozenSummary() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tabName = 'Frozen';
+    var sh = ss.getSheetByName(tabName);
+    if (!sh) sh = ss.insertSheet(tabName);
+
+    var ctx = buildNameMaps();
+
+    // Build stock map: key = "spId||stage" → count
+    var stock = {};
+    var spForKey = {};
+
+    // Add frozen removals
+    var removals = _readSheet('removals');
+    removals.filter(function(r) {
+      return String(r.reason || '').toLowerCase() === 'frozen' && r.stage;
+    }).forEach(function(r) {
+      var spId  = String(r.speciesId || '');
+      var key   = spId + '||' + r.stage;
+      stock[key]    = (stock[key]    || 0) + (Number(r.count) || 0);
+      spForKey[key] = spId;
+    });
+
+    // Subtract frozen uses
+    var uses = _readSheet('frozen_uses');
+    uses.filter(function(u) { return u.stage; }).forEach(function(u) {
+      var spId = String(u.speciesId || '');
+      // Try exact species+stage match first, then stage-only fallback
+      var key = spId + '||' + u.stage;
+      if (stock[key] !== undefined) {
+        stock[key] -= (Number(u.count) || 0);
+      } else {
+        // Deduct from any matching stage regardless of species
+        Object.keys(stock).forEach(function(k) {
+          if (k.split('||')[1] === u.stage) stock[k] -= (Number(u.count) || 0);
+        });
+      }
+    });
+
+    // Build rows (positive stock only)
+    var STAGE_ORDER = ['Pinky', 'Fuzzy', 'Hopper', 'Adult'];
+    var rows = [];
+    Object.keys(stock).forEach(function(key) {
+      var parts = key.split('||');
+      var spId  = parts[0];
+      var stage = parts[1];
+      var cnt   = stock[key];
+      if (cnt > 0) rows.push({ spId: spId, stage: stage, cnt: cnt });
+    });
+
+    // Sort: species name, then stage order
+    rows.sort(function(a, b) {
+      var spA = ctx.speciesName(a.spId) || a.spId || '~';
+      var spB = ctx.speciesName(b.spId) || b.spId || '~';
+      if (spA !== spB) return spA < spB ? -1 : 1;
+      var ia = STAGE_ORDER.indexOf(a.stage);
+      var ib = STAGE_ORDER.indexOf(b.stage);
+      if (ia < 0) ia = 99; if (ib < 0) ib = 99;
+      return ia - ib;
+    });
+
+    var headers = ['SPECIES', 'STAGE', 'IN FREEZER'];
+    var data = rows.map(function(r) {
+      return [ctx.speciesName(r.spId) || r.spId || '—', r.stage, r.cnt];
+    });
+
+    sh.clearContents();
+    var allValues = [headers].concat(data.length ? data : [['—', '—', 0]]);
+    sh.getRange(1, 1, allValues.length, 3).setValues(allValues);
+    sh.getRange(1, 1, 1, 3)
+      .setFontWeight('bold').setBackground('#1a1a2e').setFontColor('#ffffff').setFontSize(10);
+    sh.setFrozenRows(1);
+    try { sh.autoResizeColumns(1, 3); } catch(e) {}
+  } catch (err) {
+    Logger.log('_updateFrozenSummary failed (non-fatal): ' + err);
+  }
+}
+
 // ── Intake History sheet ──────────────────────────────────────────────────────
 // Creates / refreshes an "Intake History" sheet tab.
 // Shows only cohort records that were externally sourced (notes starts with "Intake · ").
@@ -676,7 +780,7 @@ function upsertRecords(entity, incoming, serverNow) {
       if (entity === 'shelves')     rowValues.push('');
       if (entity === 'trays')       rowValues.push(ctx.speciesName(r.speciesId));
       if (entity === 'cohorts')     { rowValues.push(ctx.trayName(r.trayId)); rowValues.push(ctx.speciesName(r.speciesId)); }
-      if (entity === 'removals')    rowValues.push(ctx.trayName(r.trayId));
+      if (entity === 'removals')    { rowValues.push(ctx.trayName(r.trayId)); rowValues.push(ctx.speciesName(r.speciesId)); }
       if (entity === 'frozen_uses') rowValues.push(ctx.speciesName(r.speciesId));
     }
 
