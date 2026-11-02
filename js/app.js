@@ -5223,25 +5223,23 @@ function renderSync() {
   if (!dot) return;
   const pc = pendingCount();
   let cls='dot', label;
-  let syncEl = dot.closest('.sync') || txt.closest('.sync');
-  let hideText = false;
+  let syncEl = dot.closest('.sync') || (txt && txt.closest('.sync'));
   const failCount = state.meta.syncFailCount || 0;
   const paused    = failCount >= SYNC_FAIL_PAUSE && state.meta.scriptUrl;
   if (!state.meta.scriptUrl) { cls+=' pending'; label=t('local_only'); }
-  else if (syncing)           { cls+=' syncing'; label=t('syncing'); hideText=true; }
+  else if (syncing)           { cls+=' syncing'; label=t('syncing'); }
   else if (!navigator.onLine) { cls+=' offline';  label=pc?t('offline_n_unsaved',pc):t('offline'); }
-  else if (paused)            { cls+=' error';    label='Sync paused · tap to retry'; }
+  else if (paused)            { cls+=' paused';   label='Sync paused · tap to retry'; }
   else if (syncError)         { cls+=' error';    label=t('sync_error'); }
   else if (pc > 0)            { cls+=' pending';  label=t('n_unsaved',pc); }
   else {
     cls+=' ok';
-    // Show how fresh the data is when up to date
     const lastSync = state.meta.lastSync;
     label = lastSync ? ('Synced ' + _timeAgo(Date.now() - lastSync)) : t('up_to_date');
-    hideText = false;
   }
   dot.className=cls;
-  if (txt) { txt.textContent=label; txt.style.display = hideText ? 'none' : ''; }
+  dot.title = label || '';
+  if (txt) { txt.style.display = 'none'; }
   if (syncEl) {
     syncEl.classList.toggle('local-only', !state.meta.scriptUrl);
     // Make the sync row a tap-to-retry target when paused or errored

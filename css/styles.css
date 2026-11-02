@@ -177,12 +177,13 @@ html, body {
 
 .sync { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); transition: color .3s; }
 .sync.local-only { color: var(--warn); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background .3s; flex-shrink: 0; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: background .3s; flex-shrink: 0; cursor: default; }
 .dot.ok      { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
 .dot.pending { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
 .dot.offline { background: var(--danger); }
 .dot.error   { background: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
 .dot.syncing { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.dot.paused  { background: #f39c12; animation: pulse 1.2s ease-in-out infinite; }
 .sync-error-msg {
   margin: 10px 0 0;
   padding: 8px 10px;
