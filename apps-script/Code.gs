@@ -518,7 +518,11 @@ function _updateFrozenSummary() {
 
     var headers = ['SPECIES', 'STAGE', 'IN FREEZER'];
     var data = rows.map(function(r) {
-      return [ctx.speciesName(r.spId) || r.spId || '—', r.stage, r.cnt];
+      // Chick intake records have no speciesId — label them clearly
+      var isChick = (!r.spId && r.stage === 'Chick');
+      var speciesLabel = isChick ? 'Chick' : (ctx.speciesName(r.spId) || r.spId || '—');
+      var stageLabel   = isChick ? 'Intake only' : r.stage;
+      return [speciesLabel, stageLabel, r.cnt];
     });
 
     sh.clearContents();
