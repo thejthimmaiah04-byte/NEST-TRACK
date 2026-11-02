@@ -268,8 +268,40 @@ function frozenByStage() {
   live('frozen_uses').filter(u => u.stage && u.itemType !== 'chick' && u.stage !== 'Chick').forEach(u => {
     m.set(u.stage, (m.get(u.stage) || 0) - (u.count || 0));
   });
-  // Remove zeroed/negative entries
   for (const [k, v] of m) if (v <= 0) m.delete(k);
+  return m;
+}
+
+// Returns Map<spId, Map<stageName, count>>
+function frozenBySpeciesStage() {
+  const resolveSpId = r => r.speciesId
+    || byId('cohorts', r.cohortId)?.speciesId
+    || byId('trays',   r.trayId)?.speciesId
+    || null;
+
+  const m = new Map();
+  live('removals').filter(r => r.reason === 'Frozen' && r.stage && r.itemType !== 'chick' && r.stage !== 'Chick').forEach(r => {
+    const spId = resolveSpId(r); if (!spId) return;
+    if (!m.has(spId)) m.set(spId, new Map());
+    const sm = m.get(spId);
+    sm.set(r.stage, (sm.get(r.stage) || 0) + (r.count || 0));
+  });
+  live('frozen_uses').filter(u => u.stage && u.itemType !== 'chick' && u.stage !== 'Chick').forEach(u => {
+    const spId = u.speciesId || null;
+    if (spId && m.has(spId)) {
+      const sm = m.get(spId);
+      sm.set(u.stage, (sm.get(u.stage) || 0) - (u.count || 0));
+    } else {
+      // legacy use with no speciesId — deduct from first species that has this stage
+      for (const sm of m.values()) {
+        if (sm.has(u.stage)) { sm.set(u.stage, sm.get(u.stage) - (u.count || 0)); break; }
+      }
+    }
+  });
+  for (const [spId, sm] of m) {
+    for (const [stage, v] of sm) if (v <= 0) sm.delete(stage);
+    if (!sm.size) m.delete(spId);
+  }
   return m;
 }
 
@@ -2282,16 +2314,15 @@ function freezerIntakeModal() {
 }
 
 /* ---------- Use frozen modal ---------- */
-function useFrozenModal(stage) {
-  const allSpecies = live('species');
-  const available  = frozenByStage().get(stage) || 0;
-  const spOpts = allSpecies.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
-  openModal(`Use frozen · ${esc(tStage(stage))}`, `
+function useFrozenModal(stage, presetSpId) {
+  const bySpStage = frozenBySpeciesStage();
+  const available = presetSpId
+    ? (bySpStage.get(presetSpId)?.get(stage) || 0)
+    : (frozenByStage().get(stage) || 0);
+  const sp = presetSpId ? byId('species', presetSpId) : null;
+  const title = sp ? `Use frozen · ${esc(sp.name)} ${esc(tStage(stage))}` : `Use frozen · ${esc(tStage(stage))}`;
+  openModal(title, `
     <p class="small muted" style="margin-bottom:14px">${available} frozen available.</p>
-    ${allSpecies.length > 1 ? `<label class="field" style="margin-bottom:14px">
-      <span>Species</span>
-      <select id="fzu-species">${spOpts}</select>
-    </label>` : ''}
     <label class="field" style="margin-bottom:18px"><span>Count to use</span>
       <input id="frozen-use-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${available}" placeholder="1" /></label>
     <button class="btn primary block" style="margin-top:14px" data-save>Confirm</button>
@@ -2301,15 +2332,9 @@ function useFrozenModal(stage) {
       const n = Number($('#frozen-use-count', root).value);
       if (!n || n < 1) return toast(t('enter_count'), true);
       if (n > available) return toast(`Only ${available} frozen available`, true);
-      const spEl = $('#fzu-species', root);
-      const spId = spEl ? spEl.value
-        : (live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)
-          ? (byId('cohorts', live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)?.cohortId)?.speciesId
-             || live('removals').find(r => r.reason === 'Frozen' && r.stage === stage)?.speciesId || null)
-          : null);
-      const r = rec('frozen_uses', { speciesId: spId, stage, date: todayISO(), count: n });
+      const r = rec('frozen_uses', { speciesId: presetSpId || null, stage, date: todayISO(), count: n });
       upsertLocal('frozen_uses', r); touch('frozen_uses', r);
-      toast(`Used ${n} frozen ${tStage(stage)}`);
+      toast(`Used ${n} frozen ${sp ? sp.name + ' ' : ''}${tStage(stage)}`);
       closeModal(); render();
     };
   });
@@ -2512,33 +2537,51 @@ function addToFreezerModal() {
 /* ---------- Freezer tab ---------- */
 function renderFreezer() {
   const el = $('#tab-freezer');
-  const frozen = frozenByStage();
-  const names = orderedStageNames();
+  const bySpStage = frozenBySpeciesStage();
+  const frozen    = frozenByStage();
+  const names     = orderedStageNames();
 
-  // Show all stages that have frozen stock, plus any stage with live animals (so you can pre-freeze)
   const stagesWithStock = new Set([...frozen.keys()]);
   names.forEach(nm => stagesWithStock.add(nm));
-  const stageList = [...stagesWithStock];
 
   const total = totalFrozen();
+  const allSpecies = live('species');
 
-  if (!stageList.length) {
+  if (!stagesWithStock.size) {
     el.innerHTML = emptyState('❄', t('es_freezer'), t('es_freezer_sub'));
     return;
   }
 
   let cards = '';
-  for (const nm of stageList) {
-    const count = frozen.get(nm) || 0;
+  for (const nm of stagesWithStock) {
     const i = names.indexOf(nm);
     const color = stageColor(i >= 0 ? i : 0);
-    cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
-      <span class="stage-edge" style="background:${color}"></span>
-      <div class="n">${count}</div>
-      <div class="l">${esc(tStage(nm))} · ${t('fz_in_freezer')}</div>
-      <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}"
-        style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
-    </div>`;
+
+    if (allSpecies.length > 1) {
+      // One card per species that has stock (or all species for stages with no stock yet)
+      const speciesWithStock = allSpecies.filter(sp => (bySpStage.get(sp.id)?.get(nm) || 0) > 0);
+      const speciesRows = speciesWithStock.length > 0 ? speciesWithStock : allSpecies;
+      for (const sp of speciesRows) {
+        const count = bySpStage.get(sp.id)?.get(nm) || 0;
+        cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+          <span class="stage-edge" style="background:${color}"></span>
+          <div class="n">${count}</div>
+          <div class="l">${esc(sp.name)} ${esc(tStage(nm))}</div>
+          <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}"
+            style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
+        </div>`;
+      }
+    } else {
+      const count = frozen.get(nm) || 0;
+      const spId  = allSpecies[0]?.id || '';
+      cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+        <span class="stage-edge" style="background:${color}"></span>
+        <div class="n">${count}</div>
+        <div class="l">${esc(tStage(nm))} · ${t('fz_in_freezer')}</div>
+        <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(spId)}"
+          style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
+      </div>`;
+    }
   }
 
   el.innerHTML = `
@@ -4561,7 +4604,7 @@ function onClick(e) {
     case 'use-frozen':  return useFrozenModal(el.dataset.spid);  // legacy tray panel
     case 'show-ratio-info': { e.stopPropagation(); toast(el.dataset.msg); return; }
     case 'go-freezer':  return switchTab('freezer');
-    case 'fz-use':      return useFrozenModal(el.dataset.stage);
+    case 'fz-use':      return useFrozenModal(el.dataset.stage, el.dataset.spid || null);
     case 'fz-add':      return addToFreezerModal();
     case 'fz-intake':        return freezerIntakeModal();
     case 'fz-chick-intake':  return chickIntakeModal();
