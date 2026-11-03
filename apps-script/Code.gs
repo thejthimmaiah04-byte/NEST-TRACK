@@ -848,6 +848,11 @@ function upsertRecords(entity, incoming, serverNow) {
       var v = r[c];
       if (JSON_FIELDS[c]) return JSON.stringify(v == null ? [] : v);
       if (c === 'deleted')  return r.deleted ? true : false;
+      // Normalize date fields — strip time component from ISO strings and Date objects
+      if ((c === 'birthDate' || c === 'date' || c === 'gravidSince') && v) {
+        if (v instanceof Date) v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        else if (typeof v === 'string' && v.indexOf('T') >= 0) v = v.split('T')[0];
+      }
       return v == null ? '' : v;
     });
 
@@ -916,6 +921,13 @@ function hydrate(entity, row) {
                 'updatedAt','syncedAt','lifespan','gestation','gravidFemales','lactatingFemales',
                 'adultMales','adultFemales'].indexOf(c) >= 0) {
       v = (v === '' || v == null) ? 0 : Number(v);
+    } else if (c === 'birthDate' || c === 'date' || c === 'gravidSince') {
+      // Normalize: Date objects and ISO strings with time → plain yyyy-MM-dd
+      if (v instanceof Date) {
+        v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      } else if (typeof v === 'string' && v.indexOf('T') >= 0) {
+        v = v.split('T')[0];
+      }
     }
     obj[c] = v;
   });
@@ -1363,7 +1375,34 @@ function reformatSheets() {
     });
   });
 
-  // 6. Recompute stats
+  // 6. Repair date cells — strip time component from all birthDate / date / gravidSince cells
+  var DATE_FIELDS = { cohorts: 'birthDate', removals: 'date', trays: 'gravidSince' };
+  Object.keys(DATE_FIELDS).forEach(function(entity) {
+    var fieldName = DATE_FIELDS[entity];
+    var sh = ss.getSheetByName(SHEET_NAMES[entity]);
+    if (!sh || sh.getLastRow() < 2) return;
+    var schema = SCHEMAS[entity];
+    var colIdx = schema.indexOf(fieldName); // 0-based
+    if (colIdx < 0) return;
+    var colNum = colIdx + 1; // 1-based
+    var lastRow = sh.getLastRow();
+    var range = sh.getRange(2, colNum, lastRow - 1, 1);
+    var vals = range.getValues();
+    var changed = false;
+    vals.forEach(function(row) {
+      var v = row[0];
+      if (v instanceof Date) {
+        row[0] = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        changed = true;
+      } else if (typeof v === 'string' && v.indexOf('T') >= 0) {
+        row[0] = v.split('T')[0];
+        changed = true;
+      }
+    });
+    if (changed) range.setValues(vals);
+  });
+
+  // 7. Recompute stats
   updateShelfStats();
   updateTrayStageStats();
 
