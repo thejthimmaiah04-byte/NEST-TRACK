@@ -238,12 +238,15 @@ function doPost(e) {
     var since    = Number(body.since) || 0;
     var changes  = body.changes || {};
     var accepted = {};
+    var conflicts = {};
     var serverNow = Date.now();
 
     ENTITIES.forEach(function(entity) {
       var incoming = changes[entity] || [];
       if (!incoming.length) return;
-      accepted[entity] = upsertRecords(entity, incoming, serverNow);
+      var result = upsertRecords(entity, incoming, serverNow, since);
+      accepted[entity] = result.acceptedIds;
+      if (result.conflicts.length) conflicts[entity] = result.conflicts;
     });
 
     updateTrayStageStats();
@@ -260,7 +263,10 @@ function doPost(e) {
       _updateDeathHistory();
     }
 
-    var response = { ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since) };
+    // Prune stale deleted records (non-fatal; runs asynchronously after main upsert)
+    _pruneDeleted(serverNow);
+
+    var response = { ok: true, serverTime: serverNow, accepted: accepted, changes: pullChanges(since), conflicts: conflicts };
 
     // Layer 4a: Google Drive daily JSON backup — runs once per calendar day
     _maybeWriteDriveBackup();
@@ -269,6 +275,45 @@ function doPost(e) {
     return json({ error: String(err) });
   } finally {
     lock.releaseLock();
+  }
+}
+
+// ── Deleted-record pruning ────────────────────────────────────────────────────
+// Hard-purges rows where deleted=true AND syncedAt is older than PRUNE_AFTER_MS.
+// Runs on every doPost so the sheet never accumulates unbounded soft-deleted rows.
+// All devices have at least 30 days to sync before a deleted record disappears.
+var PRUNE_AFTER_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function _pruneDeleted(serverNow) {
+  try {
+    var cutoff = serverNow - PRUNE_AFTER_MS;
+    ENTITIES.forEach(function(entity) {
+      var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_NAMES[entity]);
+      if (!sh || sh.getLastRow() < 2) return;
+      var schema     = SCHEMAS[entity];
+      var deletedIdx = schema.indexOf('deleted');
+      var syncedIdx  = schema.indexOf('syncedAt');
+      if (deletedIdx < 0 || syncedIdx < 0) return;
+
+      var lastRow = sh.getLastRow();
+      var data    = sh.getRange(2, 1, lastRow - 1, schema.length).getValues();
+
+      // Collect row numbers to delete — scan bottom-to-top to avoid index shift
+      var toDelete = [];
+      for (var i = data.length - 1; i >= 0; i--) {
+        var row      = data[i];
+        var isDeleted = (row[deletedIdx] === true || String(row[deletedIdx]).toLowerCase() === 'true');
+        var syncedAt  = Number(row[syncedIdx] || 0);
+        if (isDeleted && syncedAt > 0 && syncedAt < cutoff) {
+          toDelete.push(i + 2); // 1-based sheet row (row 1 = header)
+        }
+      }
+
+      toDelete.forEach(function(rowNum) { sh.deleteRow(rowNum); });
+      if (toDelete.length) Logger.log('Pruned ' + toDelete.length + ' deleted rows from ' + entity);
+    });
+  } catch (err) {
+    Logger.log('_pruneDeleted (non-fatal): ' + err);
   }
 }
 
@@ -823,12 +868,14 @@ function stageStartDay(stages, stageName) {
   return null;
 }
 
-function upsertRecords(entity, incoming, serverNow) {
+function upsertRecords(entity, incoming, serverNow, since) {
   var data        = readAll(entity);
   var cols        = data.cols;
   var extra       = EXTRA[entity] || [];
   var ctx         = extra.length ? buildNameMaps() : null;
   var acceptedIds = [];
+  var conflicts   = [];
+  var trackConflicts = since > 0; // only flag conflicts on incremental syncs, not full pulls
 
   incoming.forEach(function(r) {
     if (!r || !r.id) return;
@@ -839,6 +886,11 @@ function upsertRecords(entity, incoming, serverNow) {
     if (existing) {
       var existingUpd = Number(existing.updatedAt) || 0;
       var incomingUpd = Number(r.updatedAt) || 0;
+      // Both sides changed since last sync → conflict; server version wins
+      if (trackConflicts && existingUpd > since && incomingUpd > since && existingUpd !== incomingUpd) {
+        conflicts.push(r.id);
+        return;
+      }
       if (existingUpd > incomingUpd) return;
       if (existingUpd === incomingUpd && existing.syncedAt) return; // tie → server wins
     }
@@ -884,7 +936,7 @@ function upsertRecords(entity, incoming, serverNow) {
     acceptedIds.push(r.id);
   });
 
-  return acceptedIds;
+  return { acceptedIds: acceptedIds, conflicts: conflicts };
 }
 
 function pullChanges(since) {

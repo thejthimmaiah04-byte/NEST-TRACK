@@ -14,23 +14,54 @@ const LS_KEY          = 'rbm.state.v1';
  * All calls are fire-and-forget; IDB errors never block the UI.            */
 const IDB_NAME  = 'rattrack-v1';
 const IDB_STORE = 'state';
+const IDB_KEYS  = 'keys';    // object store for API key — never touches localStorage
 let _idb = null;
 const IDB_HIST  = 'history'; // object store name for version snapshots
 const HIST_MAX  = 10;        // rolling window — one slot per day, 10 days
 
+// Runtime cache for the API key loaded from IndexedDB.
+// Kept in memory only — never serialised into state or localStorage.
+let _apiKey = '';
+
 function _openIDB() {
   if (_idb) return Promise.resolve(_idb);
   return new Promise((res, rej) => {
-    const req = indexedDB.open(IDB_NAME, 3); // v3: IDB_HIST uses out-of-line (dateKey) keys
+    const req = indexedDB.open(IDB_NAME, 4); // v4: added 'keys' store for API key
     req.onupgradeneeded = e => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
       if (db.objectStoreNames.contains(IDB_HIST)) db.deleteObjectStore(IDB_HIST);
       db.createObjectStore(IDB_HIST); // out-of-line key (dateKey string)
+      if (!db.objectStoreNames.contains(IDB_KEYS)) db.createObjectStore(IDB_KEYS);
     };
     req.onsuccess = e => { _idb = e.target.result; res(_idb); };
     req.onerror   = () => rej(req.error);
   });
+}
+
+// Reads the API key from IDB (falls back to '' if IDB is blocked or key absent).
+async function _idbGetKey() {
+  try {
+    const db = await _openIDB();
+    return new Promise(res => {
+      const req = db.transaction(IDB_KEYS, 'readonly').objectStore(IDB_KEYS).get('apiKey');
+      req.onsuccess = () => res(req.result || '');
+      req.onerror   = () => res('');
+    });
+  } catch { return ''; }
+}
+
+// Writes the API key to IDB (fire-and-forget; errors are swallowed).
+async function _idbSetKey(k) {
+  try {
+    const db = await _openIDB();
+    return new Promise(res => {
+      const tx = db.transaction(IDB_KEYS, 'readwrite');
+      tx.objectStore(IDB_KEYS).put(k, 'apiKey');
+      tx.oncomplete = () => res(true);
+      tx.onerror    = () => res(false);
+    });
+  } catch { return false; }
 }
 
 /* ── Version history (daily snapshots) ────────────────────────────────────── *
@@ -3739,7 +3770,7 @@ function renderSettings() {
       <p class="small muted" style="margin:0 0 10px">Once set, all changes sync automatically. Data also saves locally on this device and uploads when back online.</p>
       <label class="field" style="margin-bottom:10px">
         <span>API key <span class="muted" style="font-weight:400;font-size:11px">(optional — matches API_KEY in Apps Script Script Properties)</span></span>
-        <input id="script-apikey" type="password" placeholder="leave blank if not set" value="${esc(state.meta.scriptApiKey||'')}" autocomplete="off" />
+        <input id="script-apikey" type="password" placeholder="leave blank if not set" value="${esc(_apiKey || state.meta.scriptApiKey || '')}" autocomplete="off" />
       </label>
       <div class="gap">
         <button class="btn primary" data-act="save-url">Save</button>
@@ -4786,8 +4817,11 @@ function onClick(e) {
     case 'save-url': {
       const v = $('#script-url')?.value.trim() || '';
       const k = $('#script-apikey')?.value.trim() || '';
-      state.meta.scriptUrl    = v;
-      state.meta.scriptApiKey = k;
+      state.meta.scriptUrl = v;
+      // API key lives in IndexedDB only — keep state.meta.scriptApiKey cleared
+      delete state.meta.scriptApiKey;
+      _apiKey = k;
+      _idbSetKey(k); // fire-and-forget
       if (v) localStorage.setItem(LS_SCRIPT_URL_KEY, v); // persist separately from main state
       saveState(); render();
       if (v && navigator.onLine) {
@@ -4856,8 +4890,10 @@ function onClick(e) {
       localStorage.removeItem(LS_KEY);
       // Also clear IndexedDB so the IDB-restore path doesn't bring data back
       _openIDB().then(db => {
-        const tx = db.transaction(IDB_STORE, 'readwrite');
+        const tx = db.transaction([IDB_STORE, IDB_KEYS], 'readwrite');
         tx.objectStore(IDB_STORE).clear();
+        tx.objectStore(IDB_KEYS).clear();
+        _apiKey = '';
         tx.oncomplete = () => location.reload();
         tx.onerror    = () => location.reload();
       }).catch(() => location.reload());
@@ -5020,7 +5056,7 @@ async function pullFromSheets(since) {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(await _hmacSign({ since: pullSince, changes: {}, key: state.meta.scriptApiKey || undefined }, state.meta.scriptApiKey)),
+      body: JSON.stringify(await _hmacSign({ since: pullSince, changes: {}, key: (_apiKey || state.meta.scriptApiKey) || undefined }, (_apiKey || state.meta.scriptApiKey))),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -5156,7 +5192,7 @@ async function uploadChanges() {
     const res = await fetch(state.meta.scriptUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(await _hmacSign({ since: state.meta.lastSync || 0, changes, summary: buildSummary(dirtyTrayIds()), key: state.meta.scriptApiKey || undefined }, state.meta.scriptApiKey)),
+      body: JSON.stringify(await _hmacSign({ since: state.meta.lastSync || 0, changes, summary: buildSummary(dirtyTrayIds()), key: (_apiKey || state.meta.scriptApiKey) || undefined }, (_apiKey || state.meta.scriptApiKey))),
       signal: ctrl.signal
     });
     clearTimeout(timeoutId);
@@ -5196,6 +5232,10 @@ async function uploadChanges() {
     // Only re-render if remote sent back data we didn't already have
     if (mergedNewData) { markTabsDirty(); render(); } else { _tabDirty[activeTab] = true; render(); }
     toast(`✓ ${uploaded} change${uploaded !== 1 ? 's' : ''} uploaded to Google Sheets`);
+    if (data.conflicts && Object.keys(data.conflicts).length > 0) {
+      const total = Object.values(data.conflicts).reduce((s, arr) => s + arr.length, 0);
+      setTimeout(() => toast(`⚠ ${total} record${total !== 1 ? 's' : ''} had conflicts — server version kept`, true), 1200);
+    }
   } catch(err) {
     clearTimeout(timeoutId);
     clearTimeout(coldStartTimer);
@@ -6171,6 +6211,22 @@ function applyTranslations() {
 
 function init() {
   loadState();
+
+  // One-time migration: move API key from localStorage state into IndexedDB.
+  // Falls back gracefully — _apiKey stays '' until IDB resolves, and sync
+  // functions use state.meta.scriptApiKey as a read-only fallback.
+  (async () => {
+    try {
+      const migrated = state.meta.scriptApiKey;
+      if (migrated) {
+        await _idbSetKey(migrated);
+        delete state.meta.scriptApiKey;
+        saveState();
+      }
+      _apiKey = await _idbGetKey();
+    } catch(e) {}
+  })();
+
   migrateFrozenIntakeSpecies();
   migrateTraySexData();
 
