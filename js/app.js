@@ -390,7 +390,7 @@ function frozenStock() {
   const totals = {};
   live('removals').filter(r => r.reason === 'Frozen').forEach(r => {
     // support direct intakes (speciesId on removal) and cohort-based removals
-    const spId = r.speciesId || byId('cohorts', r.cohortId)?.speciesId;
+    const spId = r.speciesId || byId('cohorts', r.cohortId)?.speciesId || byId('trays', r.trayId)?.speciesId;
     if (!spId) return;
     totals[spId] = (totals[spId] || 0) + (r.count || 0);
   });
@@ -2199,7 +2199,7 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
         if (left <= 0) break;
         const take = Math.min(left, cohortNet(c, today));
         const r = rec('removals', {
-          cohortId: c.id, trayId,
+          cohortId: c.id, trayId, speciesId: tray?.speciesId || '',
           date: date || todayISO(), stage: stageName, count: take,
           males:   first ? males   : null,
           females: first ? females : null,
@@ -2209,6 +2209,17 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
         touch('removals', r);
         left -= take;
         first = false;
+      }
+
+      // No-cohort adult tray (or partial cohort coverage): create a removal record for uncohorted portion
+      if (left > 0 && isAdult) {
+        const noCoR = rec('removals', {
+          cohortId: '', trayId, speciesId: tray?.speciesId || '',
+          date: date || todayISO(), stage: stageName, count: left,
+          males, females, reason, cause
+        });
+        upsertLocal('removals', noCoR);
+        touch('removals', noCoR);
       }
 
       // Sync tray-level sex counts with the removal
@@ -2639,7 +2650,8 @@ function addToFreezerModal() {
             .filter(c => c.trayId === trayId && cohortNet(c) > 0 && stageIndexAt(c, today).name === stage)[0];
           const males   = selectedSex === 'Male'   ? n : selectedSex === 'Female' ? 0   : null;
           const females = selectedSex === 'Female' ? n : selectedSex === 'Male'   ? 0   : null;
-          const r = rec('removals', { cohortId: matchCohort?.id || '', trayId, date: todayISO(),
+          const r = rec('removals', { cohortId: matchCohort?.id || '', trayId,
+            speciesId: byId('trays', trayId)?.speciesId || '', date: todayISO(),
             stage, count: n, males, females, reason: 'Frozen' });
           upsertLocal('removals', r); touch('removals', r);
           const sexStr = selectedSex !== 'Both' ? ` ${selectedSex}` : '';
@@ -2933,7 +2945,7 @@ function quickTrayRemoval(trayId, preselectedStage) {
         const shelf = shelfEl.value.trim().toUpperCase();
         const num = $('#wiz-tray-num', root).value.trim();
         if (!shelf || !num) return toast('Enter shelf letter and tray number', true);
-        doRemove('Other', undefined, undefined, `${shelf}-${num}`);
+        doRemove('Transfer', undefined, undefined, `${shelf}-${num}`);
       };
     });
   }
@@ -2952,10 +2964,11 @@ function quickTrayRemoval(trayId, preselectedStage) {
       if (left <= 0) break;
       const take = Math.min(left, cohortNet(c, today));
       const r = rec('removals', {
-        cohortId: c.id, trayId, date: todayISO(), stage: selectedStage,
+        cohortId: c.id, trayId, speciesId: tray.speciesId || '',
+        date: todayISO(), stage: selectedStage,
         count: take,
-        males:   isAdult() ? (sexMales   ?? 0) : undefined,
-        females: isAdult() ? (sexFemales ?? 0) : undefined,
+        males:   isAdult() && sexMales   != null ? sexMales   : undefined,
+        females: isAdult() && sexFemales != null ? sexFemales : undefined,
         reason, cause: reason === 'Dead' ? (cause || 'Unknown') : undefined,
         notes: destTray ? `Moved to ${destTray}` : undefined
       });
@@ -2964,9 +2977,34 @@ function quickTrayRemoval(trayId, preselectedStage) {
       left -= take;
     }
 
-    if (isAdult() && sex && sex !== 'Both') {
-      if (sex === 'Male')   tray.adultMales   = Math.max(0, (Number(tray.adultMales)   || 0) - selectedCount);
-      if (sex === 'Female') tray.adultFemales = Math.max(0, (Number(tray.adultFemales) || 0) - selectedCount);
+    // No-cohort adult tray: create a removal record for the uncohorted portion
+    if (left > 0 && isAdult()) {
+      const noCoR = rec('removals', {
+        cohortId: '', trayId, speciesId: tray.speciesId || '',
+        date: todayISO(), stage: selectedStage, count: left,
+        males:   sexMales   != null ? sexMales   : undefined,
+        females: sexFemales != null ? sexFemales : undefined,
+        reason, cause: reason === 'Dead' ? (cause || 'Unknown') : undefined,
+        notes: destTray ? `Moved to ${destTray}` : undefined
+      });
+      upsertLocal('removals', noCoR);
+      touch('removals', noCoR);
+      left = 0;
+    }
+
+    if (isAdult() && (tray.adultMales != null || tray.adultFemales != null)) {
+      if (sex && sex !== 'Both') {
+        if (sex === 'Male')   tray.adultMales   = Math.max(0, (Number(tray.adultMales)   || 0) - selectedCount);
+        if (sex === 'Female') tray.adultFemales = Math.max(0, (Number(tray.adultFemales) || 0) - selectedCount);
+      } else {
+        // Sex not specified (Frozen, Dead, Other): deduct proportionally from current ratio
+        const tot = (tray.adultMales || 0) + (tray.adultFemales || 0);
+        if (tot > 0) {
+          const remF = Math.round(selectedCount * (tray.adultFemales || 0) / tot);
+          tray.adultMales   = Math.max(0, (tray.adultMales   || 0) - (selectedCount - remF));
+          tray.adultFemales = Math.max(0, (tray.adultFemales || 0) - remF);
+        }
+      }
       touch('trays', tray);
     }
 
@@ -4427,13 +4465,24 @@ function removeFromStageModal(trayId, stageName) {
       for (const c of matchCohorts) {
         if (left <= 0) break;
         const take = Math.min(left, cohortNet(c, today));
-        const r = rec('removals', { cohortId: c.id, trayId, date: qDate, stage: stageName, count: take,
-          males:   isAdult ? (sexMales   ?? 0) : undefined,
-          females: isAdult ? (sexFemales ?? 0) : undefined,
+        const r = rec('removals', { cohortId: c.id, trayId, speciesId: tray.speciesId || '', date: qDate, stage: stageName, count: take,
+          males:   isAdult && sexMales   != null ? sexMales   : undefined,
+          females: isAdult && sexFemales != null ? sexFemales : undefined,
           reason, cause });
         upsertLocal('removals', r);
         touch('removals', r);
         left -= take;
+      }
+
+      // No-cohort adult tray: create a removal record for the uncohorted portion
+      if (left > 0 && isAdult) {
+        const noCoR = rec('removals', { cohortId: '', trayId, speciesId: tray.speciesId || '', date: qDate, stage: stageName, count: left,
+          males:   sexMales   != null ? sexMales   : undefined,
+          females: sexFemales != null ? sexFemales : undefined,
+          reason, cause });
+        upsertLocal('removals', noCoR);
+        touch('removals', noCoR);
+        left = 0;
       }
 
       // Adjust stored adult sex counts
