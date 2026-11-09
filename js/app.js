@@ -1154,96 +1154,92 @@ function applyRecommendation(el) {
   const toId   = el.dataset.to;
   const count  = Number(el.dataset.count) || 1;
   const sex    = el.dataset.sex; // '♂' or '♀'
+  const now    = new Date();
 
-  // Find the latest adult cohort in the donor tray with the right sex data
-  const now = new Date();
+  const fromTray = byId('trays', fromId);
+  const toTray   = byId('trays', toId);
+  if (!fromTray || !toTray) { toast('Tray not found', true); el.checked = false; return; }
+
+  // Find the latest adult cohort in the donor tray (may not exist for sex-only-tracked trays)
   const donorCohorts = live('cohorts')
     .filter(c => c.trayId === fromId && cohortNet(c, now) > 0)
     .sort((a, b) => (b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1);
+  const donor = donorCohorts[0]; // may be null for no-cohort adult trays — that's fine
 
-  // Accept any adult cohort — sex is now tracked at tray level, not cohort level
-  const donor = donorCohorts[0];
-  if (!donor) { toast('No live adult cohort found in source tray'); el.checked = false; return; }
+  // Derive stage name from donor cohort or from tray's species definition
+  const fromSp = byId('species', fromTray.speciesId);
+  const lastFromStage = fromSp?.stages?.length
+    ? [...fromSp.stages].sort((a, b) => b.startDay - a.startDay)[0].name : '';
+  const stageName = donor ? (stageIndexAt(donor, now)?.name || lastFromStage) : lastFromStage;
 
-  // Create a removal record on the donor cohort
+  // Create a removal record (cohortId may be '' for no-cohort adult trays)
   const remRec = rec('removals', {
-    cohortId: donor.id,
-    trayId:   fromId,
-    date:     toYMD(now),
-    stage:    stageIndexAt(donor, now)?.name || '',
+    cohortId:  donor?.id || '',
+    trayId:    fromId,
+    speciesId: fromTray.speciesId || '',
+    date:      toYMD(now),
+    stage:     stageName,
     count,
-    males:    sex === '♂' ? count : 0,
-    females:  sex === '♀' ? count : 0,
-    reason:   'Transfer'
+    males:     sex === '♂' ? count : 0,
+    females:   sex === '♀' ? count : 0,
+    reason:    'Transfer'
   });
   upsertLocal('removals', remRec); touch('removals', remRec);
 
-  // Add to destination tray — find or create an adult cohort
-  const destCohorts = live('cohorts')
-    .filter(c => c.trayId === toId && cohortNet(c, now) > 0)
-    .sort((a, b) => (b.updatedAt || '') > (a.updatedAt || '') ? 1 : -1);
-
-  const sp = byId('species', byId('trays', toId)?.speciesId);
-  const lastStage = sp?.stages?.length
-    ? [...sp.stages].sort((a, b) => b.startDay - a.startDay)[0].name
-    : '';
-  const destAdult = destCohorts.find(c => stageIndexAt(c, now)?.name === lastStage);
-
-  // Update tray-level sex counts on source and destination
-  const fromTray = byId('trays', fromId);
-  if (fromTray) {
-    // Initialize from computed sex if not yet explicitly set
-    if (fromTray.adultMales == null && fromTray.adultFemales == null) {
-      const fromSp = byId('species', fromTray.speciesId);
-      const fromSex = trayAdultSex(fromId, fromSp);
-      fromTray.adultMales   = fromSex?.males   ?? 0;
-      fromTray.adultFemales = fromSex?.females ?? 0;
-    }
-    if (sex === '♂') fromTray.adultMales   = Math.max(0, (Number(fromTray.adultMales)   || 0) - count);
-    else             fromTray.adultFemales  = Math.max(0, (Number(fromTray.adultFemales) || 0) - count);
-    touch('trays', fromTray);
+  // ── Source tray: update sex counts ──
+  if (fromTray.adultMales == null && fromTray.adultFemales == null) {
+    const fromSex = trayAdultSex(fromId, fromSp);
+    fromTray.adultMales   = fromSex?.males   ?? 0;
+    fromTray.adultFemales = fromSex?.females ?? 0;
   }
-  const toTray = byId('trays', toId);
+  if (sex === '♂') fromTray.adultMales   = Math.max(0, (Number(fromTray.adultMales)   || 0) - count);
+  else             fromTray.adultFemales  = Math.max(0, (Number(fromTray.adultFemales) || 0) - count);
+  touch('trays', fromTray);
 
+  // ── Destination tray: update sex counts ──
+  if (toTray.adultMales == null && toTray.adultFemales == null) {
+    const toSp  = byId('species', toTray.speciesId);
+    const toSex = trayAdultSex(toId, toSp);
+    toTray.adultMales   = toSex?.males   ?? 0;
+    toTray.adultFemales = toSex?.females ?? 0;
+  }
+  if (sex === '♂') toTray.adultMales   = (Number(toTray.adultMales)   || 0) + count;
+  else             toTray.adultFemales  = (Number(toTray.adultFemales) || 0) + count;
+  touch('trays', toTray);
+
+  // ── Destination tray: also keep cohort count in sync when cohort-based tracking is used ──
+  const toSp = byId('species', toTray.speciesId);
+  const lastToStage = toSp?.stages?.length
+    ? [...toSp.stages].sort((a, b) => b.startDay - a.startDay)[0].name : '';
+  const destAdult = live('cohorts').find(
+    c => c.trayId === toId && cohortNet(c, now) > 0 && stageIndexAt(c, now)?.name === lastToStage
+  );
   if (destAdult) {
+    destAdult.initialCount = (Number(destAdult.initialCount) || 0) + count;
     if (sex === '♂') destAdult.males   = (Number(destAdult.males)   || 0) + count;
     else              destAdult.females = (Number(destAdult.females) || 0) + count;
     touch('cohorts', destAdult);
-  } else {
-    // Create a new cohort entry for the transferred animals
+  } else if (toTray.adultMales == null && toTray.adultFemales == null) {
+    // No sex tracking and no existing cohort: create a transfer intake cohort
     const newC = rec('cohorts', {
       trayId:       toId,
-      speciesId:    sp?.id || '',
+      speciesId:    toSp?.id || '',
       birthDate:    toYMD(now),
       initialCount: count,
       males:        sex === '♂' ? count : 0,
       females:      sex === '♀' ? count : 0,
-      notes:        `Transfer from ${byId('trays', fromId)?.name || fromId}`,
+      notes:        `Transfer from ${fromTray.name}`,
       type:         'intake'
     });
     upsertLocal('cohorts', newC); touch('cohorts', newC);
   }
-  // Update destination tray-level sex counts
-  if (toTray) {
-    // Initialize from computed sex if not yet explicitly set
-    if (toTray.adultMales == null && toTray.adultFemales == null) {
-      const toSp = byId('species', toTray.speciesId);
-      const toSex = trayAdultSex(toId, toSp);
-      toTray.adultMales   = toSex?.males   ?? 0;
-      toTray.adultFemales = toSex?.females ?? 0;
-    }
-    if (sex === '♂') toTray.adultMales   = (Number(toTray.adultMales)   || 0) + count;
-    else             toTray.adultFemales  = (Number(toTray.adultFemales) || 0) + count;
-    touch('trays', toTray);
-  }
-  toast(`Transferred ${count}${sex} — tray data updated`);
 
-  // Visually strike through this recommendation row
+  toast(`✓ Transferred ${count}${sex}  ${fromTray.name} → ${toTray.name}`);
+
+  // Remove this row immediately and re-render dashboard so counts refresh
   const row = el.closest('.rec-row');
-  if (row) { row.style.opacity = '0.4'; row.style.pointerEvents = 'none'; }
-
-  // Re-render dashboard after a short delay so state is saved
-  setTimeout(renderDashboard, 600);
+  if (row) row.remove();
+  renderDashboard();
 }
 
 /* ---------- Dashboard ---------- */
