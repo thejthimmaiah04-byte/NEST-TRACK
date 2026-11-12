@@ -304,6 +304,23 @@ function migrateTraySexData() {
   if (dirty) saveState();
 }
 
+function migrateTrayNamePrefixes() {
+  let dirty = false;
+  for (const tray of live('trays')) {
+    const shelf = byId('shelves', tray.shelfId);
+    if (!shelf) continue;
+    const shelfLetter = shelf.name.trim()[0]?.toUpperCase();
+    if (!shelfLetter) continue;
+    const m = tray.name.match(/^([A-Za-z]+)-(\d+.*)$/);
+    if (!m) continue;
+    if (m[1].toUpperCase() !== shelfLetter) {
+      tray.name = `${shelfLetter}-${m[2]}`;
+      dirty = true;
+    }
+  }
+  if (dirty) saveState();
+}
+
 // Returns current adult count for a tray.
 // When sex is tracked (tray.adultMales/adultFemales set), sex sum IS the count.
 // Falls back to cohort-based count otherwise.
@@ -6274,6 +6291,7 @@ function init() {
 
   migrateFrozenIntakeSpecies();
   migrateTraySexData();
+  migrateTrayNamePrefixes();
 
   // Layer 2: session snapshot — save state at boot so mid-session corruption is recoverable
   try {
