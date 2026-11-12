@@ -321,6 +321,22 @@ function migrateTrayNamePrefixes() {
   if (dirty) saveState();
 }
 
+// One-time migration: H shelf trays were numbered starting at 16 after G trays were
+// renamed from H- to G- prefix. Renumber H-16..H-30 → H-1..H-15.
+function migrateTrayHRenumber() {
+  let dirty = false;
+  for (const tray of live('trays')) {
+    const m = tray.name.match(/^H-(\d+)$/);
+    if (!m) continue;
+    const num = parseInt(m[1]);
+    if (num >= 16) {
+      tray.name = `H-${num - 15}`;
+      dirty = true;
+    }
+  }
+  if (dirty) saveState();
+}
+
 // Returns current adult count for a tray.
 // When sex is tracked (tray.adultMales/adultFemales set), sex sum IS the count.
 // Falls back to cohort-based count otherwise.
@@ -6318,6 +6334,7 @@ function init() {
   migrateFrozenIntakeSpecies();
   migrateTraySexData();
   migrateTrayNamePrefixes();
+  migrateTrayHRenumber();
 
   // Layer 2: session snapshot — save state at boot so mid-session corruption is recoverable
   try {
