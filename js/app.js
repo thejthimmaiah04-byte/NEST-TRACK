@@ -4141,16 +4141,22 @@ function editTrayCountsModal(trayId) {
         changed = true;
         const isAdult = stageName === lastStageName;
         if (diff > 0) {
-          const c = rec('cohorts', {
-            trayId, shelfId: tray.shelfId || '', speciesId: tray.speciesId || '',
-            birthDate: todayISO(), initialCount: diff,
-            type: 'intake', notes: `Intake · ${stageName}`
-          });
-          upsertLocal('cohorts', c); touch('cohorts', c);
-          // Only update sex tracking if it's already enabled — avoids masking existing cohort counts
           if (isAdult && (tray.adultMales != null || tray.adultFemales != null)) {
+            // Sex-tracked adults: bump males count only — no cohort, avoids Pinky ghost entries
             tray.adultMales = (Number(tray.adultMales) || 0) + diff;
             touch('trays', tray);
+          } else {
+            // Backdate birthDate so the new cohort is already at the target stage
+            const st = stages.find(s => s.name === stageName);
+            const birthDate = st?.startDay
+              ? _localYMDStr(addDays(new Date(), -(st.startDay)))
+              : todayISO();
+            const c = rec('cohorts', {
+              trayId, shelfId: tray.shelfId || '', speciesId: tray.speciesId || '',
+              birthDate, initialCount: diff,
+              type: 'intake', notes: `Intake · ${stageName}`
+            });
+            upsertLocal('cohorts', c); touch('cohorts', c);
           }
         } else {
           const abs = Math.abs(diff);
