@@ -4147,21 +4147,41 @@ function editTrayCountsModal(trayId) {
             type: 'intake', notes: `Intake · ${stageName}`
           });
           upsertLocal('cohorts', c); touch('cohorts', c);
-          if (isAdult) { tray.adultMales = (Number(tray.adultMales) || 0) + diff; touch('trays', tray); }
+          // Only update sex tracking if it's already enabled — avoids masking existing cohort counts
+          if (isAdult && (tray.adultMales != null || tray.adultFemales != null)) {
+            tray.adultMales = (Number(tray.adultMales) || 0) + diff;
+            touch('trays', tray);
+          }
         } else {
           const abs = Math.abs(diff);
-          const r = rec('removals', {
-            trayId, cohortId: '', stage: stageName,
-            count: abs, date: todayISO(), reason: 'Other', notes: 'Count adjustment'
-          });
-          upsertLocal('removals', r); touch('removals', r);
-          if (isAdult) {
+          const sexTracked = isAdult && (tray.adultMales != null || tray.adultFemales != null);
+          if (sexTracked) {
+            // Sex-tracked adult: adjust M/F counts directly
             const m = Number(tray.adultMales) || 0;
             const f = Number(tray.adultFemales) || 0;
             const fD = Math.min(f, abs);
             tray.adultFemales = f - fD;
             tray.adultMales   = Math.max(0, m - (abs - fD));
             touch('trays', tray);
+          } else {
+            // Cohort-tracked: attribute removal to existing cohorts so cohortNet() reflects the change
+            let remaining = abs;
+            const stageCohorts = live('cohorts')
+              .filter(c => c.trayId === trayId && stageIndexAt(c, today).name === stageName)
+              .sort((a, b) => cohortNet(b, today) - cohortNet(a, today));
+            for (const c of stageCohorts) {
+              if (remaining <= 0) break;
+              const net = cohortNet(c, today);
+              if (net <= 0) continue;
+              const take = Math.min(remaining, net);
+              const r = rec('removals', {
+                trayId, cohortId: c.id, speciesId: tray.speciesId || '',
+                stage: stageName, count: take, date: todayISO(),
+                reason: 'Other', notes: 'Count adjustment'
+              });
+              upsertLocal('removals', r); touch('removals', r);
+              remaining -= take;
+            }
           }
         }
       }
