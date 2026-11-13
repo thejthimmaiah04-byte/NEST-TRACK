@@ -4147,6 +4147,7 @@ function editTrayCountsModal(trayId) {
     $('#etc-save', root).onclick = () => {
       const inputs = $$('.etc-inp', root);
       let changed = false;
+      let partialWarning = '';
       for (const inp of inputs) {
         const stageName = inp.dataset.stage;
         const newCount  = parseInt(inp.value, 10);
@@ -4158,8 +4159,13 @@ function editTrayCountsModal(trayId) {
         const isAdult = stageName === lastStageName;
         if (diff > 0) {
           if (isAdult && (tray.adultMales != null || tray.adultFemales != null)) {
-            // Sex-tracked adults: bump males count only — no cohort, avoids Pinky ghost entries
-            tray.adultMales = (Number(tray.adultMales) || 0) + diff;
+            // Sex-tracked adults: distribute increase proportionally to current M/F ratio
+            const curM = Number(tray.adultMales) || 0;
+            const curF = Number(tray.adultFemales) || 0;
+            const total = curM + curF;
+            const addM = total > 0 ? Math.round(diff * curM / total) : Math.ceil(diff / 2);
+            tray.adultMales   = curM + addM;
+            tray.adultFemales = curF + (diff - addM);
             touch('trays', tray);
           } else {
             // Backdate birthDate so the new cohort is already at the target stage
@@ -4204,12 +4210,14 @@ function editTrayCountsModal(trayId) {
               upsertLocal('removals', r); touch('removals', r);
               remaining -= take;
             }
+            if (remaining > 0)
+              partialWarning = `Only removed ${abs - remaining} of ${abs} ${stageName}s — not enough animals at this stage`;
           }
         }
       }
       if (!changed) { toast('No changes made', true); return; }
       saveState(); uploadChanges();
-      toast('Counts updated');
+      if (partialWarning) { toast(partialWarning, true); } else { toast('Counts updated'); }
       closeModal(); render();
     };
   });
@@ -4509,6 +4517,15 @@ function removeFromStageModal(trayId, stageName) {
         sexFemales = fVal !== '' && fVal != null ? Number(fVal) : null;
         if (sexMales !== null && sexFemales !== null && sexMales + sexFemales !== n)
           return toast(`♂ + ♀ (${sexMales+sexFemales}) must equal count (${n})`, true);
+        // If sex-tracked and user left both M/F blank, infer proportionally from current ratio
+        if (sexMales === null && sexFemales === null &&
+            (tray.adultMales != null || tray.adultFemales != null)) {
+          const curM = Number(tray.adultMales) || 0;
+          const curF = Number(tray.adultFemales) || 0;
+          const total = curM + curF;
+          sexMales   = total > 0 ? Math.round(n * curM / total) : Math.ceil(n / 2);
+          sexFemales = n - sexMales;
+        }
       }
 
       // FIFO: remove from oldest cohorts first
