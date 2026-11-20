@@ -1156,9 +1156,10 @@ function computeShuffleRecommendations() {
     if (dueDate < now) {
       const overdueDays = Math.floor((now - dueDate) / 86400000);
       recs.push({
-        from: null, to: tray, count: 0, sex: '🤰',
+        id: 'overdue-' + tray.id,
+        from: null, to: tray, trayId: tray.id, count: 0, sex: '🤰',
         detail: `${tray.name}: ${tray.gravidFemales} gravid ♀ overdue by ${overdueDays}d (expected birth ${fmtDate(dueDate)}). Check tray.`,
-        actionLabel: 'Check tray', noCheckbox: true
+        actionLabel: 'Check tray', dismissable: true
       });
     }
   }
@@ -1178,7 +1179,8 @@ function computeShuffleRecommendations() {
     });
   }
 
-  return recs;
+  const dismissedRecs = getDismissedRecIds();
+  return recs.filter(r => !r.dismissable || !dismissedRecs.has(r.id));
 }
 
 /* ---------- Apply recommendation ---------- */
@@ -1429,6 +1431,21 @@ function renderDashboard() {
       const isTransfer = sexIcon === '♂' || sexIcon === '♀';
       const urgency = sexIcon === '♂' ? 'urgent' : sexIcon === '♀' ? 'moderate' : 'info';
       const urgencyLabel = sexIcon === '♂' ? t('urgent_lbl') : sexIcon === '♀' ? t('moderate_lbl') : sexIcon === '⏰' ? t('aging_lbl') : sexIcon === '🤰' ? t('overdue_lbl') : t('action_lbl');
+      if (r.dismissable) {
+        const actAttr = r.trayId ? `data-act="open-tray-from-rec" data-trayid="${esc(r.trayId)}"` : '';
+        return `
+        <label class="rec-row ${urgency}" title="Tick to mark as checked">
+          <input type="checkbox" class="rec-chk" data-act="rec-dismiss" data-rec-id="${esc(r.id)}" />
+          <div class="rec-row-body">
+            <div class="rec-row-top">
+              <span class="rec-pill ${urgency}">${urgencyLabel}</span>
+              <span class="rec-row-action">${sexIcon} ${esc(r.to?.name || '')}</span>
+            </div>
+            <div class="rec-row-detail">${esc(r.detail)}</div>
+            ${r.trayId ? `<button class="btn sm" style="margin-top:6px" ${actAttr}>${esc(r.actionLabel||t('view_btn'))}</button>` : ''}
+          </div>
+        </label>`;
+      }
       if (r.noCheckbox) {
         const actAttr = r.trayId ? `data-act="open-tray-from-rec" data-trayid="${esc(r.trayId)}"` : '';
         return `
@@ -3750,6 +3767,30 @@ function getAppNotifications() {
   return notifs;
 }
 
+function getDismissedRecIds() {
+  try {
+    const raw = localStorage.getItem('rbm.dismissed-recs');
+    if (!raw) return new Set();
+    const { date, ids } = JSON.parse(raw);
+    if (date !== toYMD(new Date())) return new Set();
+    return new Set(ids);
+  } catch { return new Set(); }
+}
+
+function dismissRec(id) {
+  try {
+    const today = toYMD(new Date());
+    const raw = localStorage.getItem('rbm.dismissed-recs');
+    let ids = [];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.date === today) ids = parsed.ids || [];
+    }
+    if (!ids.includes(id)) ids.push(id);
+    localStorage.setItem('rbm.dismissed-recs', JSON.stringify({ date: today, ids }));
+  } catch {}
+}
+
 function getDismissedNotifIds() {
   try {
     const raw = localStorage.getItem('rbm.dismissed-notifs');
@@ -5042,6 +5083,16 @@ function onClick(e) {
       return;
     }
     case 'rec-done': return applyRecommendation(el);
+    case 'rec-dismiss': {
+      dismissRec(el.dataset.recId);
+      const row = el.closest('.rec-row');
+      if (row) row.remove();
+      // Update badge or remove section if no rows left
+      const rows = document.querySelectorAll('.rec-row');
+      if (!rows.length) renderDashboard();
+      else { const badge = document.querySelector('.rec-count-badge'); if (badge) badge.textContent = rows.length; }
+      return;
+    }
     case 'open-tray-from-rec': { const tId = el.dataset.id || el.dataset.trayid; const t = byId('trays', tId); if (t) { closeNotifPanel(); switchTab('trays'); setTimeout(() => trayDetailModal(t.id), 120); } return; }
     case 'sync-now':
     case 'upload-changes': uploadChanges(); return;
