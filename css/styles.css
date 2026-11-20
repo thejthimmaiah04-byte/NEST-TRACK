@@ -145,7 +145,18 @@ html, body {
 .notif-item {
   display: flex; align-items: flex-start; gap: 10px;
   padding: 10px 14px; border-bottom: 1px solid var(--border);
-  transition: background .15s;
+  touch-action: pan-y;
+  transition: background .15s, transform .25s ease, opacity .25s ease,
+              max-height .25s ease, padding .25s ease, border-width .25s ease;
+  max-height: 200px; overflow: hidden;
+  will-change: transform;
+}
+.notif-item.swiping { transition: background .15s; } /* no easing while finger is down */
+.notif-item.dismissed {
+  transform: translateX(calc(100% + 20px));
+  opacity: 0; max-height: 0;
+  padding-top: 0; padding-bottom: 0;
+  border-bottom-width: 0; pointer-events: none;
 }
 .notif-item:last-child { border-bottom: none; }
 .notif-item:hover { background: color-mix(in srgb, var(--border) 40%, transparent); }
@@ -168,6 +179,19 @@ html, body {
   transition: opacity .15s;
 }
 .notif-act:hover { opacity: .82; }
+.notif-dismiss {
+  flex-shrink: 0; align-self: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: none; background: transparent; color: var(--muted);
+  font-size: 13px; cursor: pointer; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .15s, background .15s;
+}
+.notif-item:hover .notif-dismiss,
+.notif-dismiss:focus { opacity: 1; }
+.notif-dismiss:hover { background: color-mix(in srgb, var(--border) 70%, transparent); }
+/* On touch devices show dismiss button at low opacity as a hint */
+@media (hover: none) { .notif-dismiss { opacity: .35; } }
 
 /* Backdrop (tap to close) */
 .notif-backdrop {

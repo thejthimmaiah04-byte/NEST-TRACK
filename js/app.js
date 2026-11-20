@@ -3750,10 +3750,54 @@ function getAppNotifications() {
   return notifs;
 }
 
+function getDismissedNotifIds() {
+  try {
+    const raw = localStorage.getItem('rbm.dismissed-notifs');
+    if (!raw) return new Set();
+    const { date, ids } = JSON.parse(raw);
+    if (date !== toYMD(new Date())) return new Set(); // resets each day
+    return new Set(ids);
+  } catch { return new Set(); }
+}
+
+function dismissNotif(id) {
+  try {
+    const today = toYMD(new Date());
+    const raw = localStorage.getItem('rbm.dismissed-notifs');
+    let ids = [];
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.date === today) ids = parsed.ids || [];
+    }
+    if (!ids.includes(id)) ids.push(id);
+    localStorage.setItem('rbm.dismissed-notifs', JSON.stringify({ date: today, ids }));
+  } catch {}
+  renderNotificationBell();
+}
+
+function dismissNotifItem(item, id) {
+  item.classList.remove('swiping');
+  item.style.transform = '';
+  item.style.opacity = '';
+  item.classList.add('dismissed');
+  dismissNotif(id);
+  setTimeout(() => {
+    item.remove();
+    const list = $('#notif-list');
+    if (list && !list.querySelector('.notif-item')) {
+      list.innerHTML = `<div class="notif-empty">
+        <span style="font-size:28px">✓</span>
+        <span>All clear — no alerts</span>
+      </div>`;
+    }
+  }, 280);
+}
+
 function renderNotificationBell() {
   const badge = $('#notif-badge');
   if (!badge) return;
-  const count = getAppNotifications().length;
+  const dismissed = getDismissedNotifIds();
+  const count = getAppNotifications().filter(n => !dismissed.has(n.id)).length;
   badge.textContent = count > 9 ? '9+' : String(count);
   badge.hidden = count === 0;
   const bell = $('#notif-bell');
@@ -3766,7 +3810,9 @@ function openNotifPanel() {
   const list     = $('#notif-list');
   if (!panel || !list) return;
 
-  const notifs = getAppNotifications();
+  const dismissed = getDismissedNotifIds();
+  const notifs = getAppNotifications().filter(n => !dismissed.has(n.id));
+
   if (!notifs.length) {
     list.innerHTML = `<div class="notif-empty">
       <span style="font-size:28px">✓</span>
@@ -3774,7 +3820,7 @@ function openNotifPanel() {
     </div>`;
   } else {
     list.innerHTML = notifs.map(n => `
-      <div class="notif-item notif-type-${n.type}">
+      <div class="notif-item notif-type-${n.type}" data-notif-id="${esc(n.id)}">
         <span class="notif-icon">${n.iconSvg || n.icon || ''}</span>
         <div class="notif-content">
           <div class="notif-title">${esc(n.title)}</div>
@@ -3783,10 +3829,51 @@ function openNotifPanel() {
         ${n.action ? `<button class="btn sm notif-act" data-act="${esc(n.action)}"${n.trayId ? ` data-id="${esc(n.trayId)}"` : ''}>
           ${esc(n.actionLabel)}
         </button>` : ''}
+        <button class="notif-dismiss" aria-label="Dismiss">✕</button>
       </div>`).join('');
-    // Close panel when an action button inside it is clicked
+
     list.querySelectorAll('.notif-act').forEach(btn => {
       btn.addEventListener('click', closeNotifPanel);
+    });
+
+    list.querySelectorAll('.notif-item').forEach(item => {
+      const id = item.dataset.notifId;
+
+      item.querySelector('.notif-dismiss').addEventListener('click', () => {
+        dismissNotifItem(item, id);
+      });
+
+      let startX = 0, startY = 0, dragging = false;
+
+      item.addEventListener('touchstart', e => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        dragging = false;
+        item.classList.add('swiping');
+      }, { passive: true });
+
+      item.addEventListener('touchmove', e => {
+        const dx = e.touches[0].clientX - startX;
+        const dy = e.touches[0].clientY - startY;
+        if (!dragging && Math.abs(dy) > Math.abs(dx)) {
+          item.classList.remove('swiping');
+          return; // vertical scroll, ignore
+        }
+        dragging = true;
+        item.style.transform = `translateX(${dx}px)`;
+        item.style.opacity = String(Math.max(0, 1 - Math.abs(dx) / 150));
+      }, { passive: true });
+
+      item.addEventListener('touchend', () => {
+        item.classList.remove('swiping');
+        const tx = new DOMMatrix(getComputedStyle(item).transform).m41;
+        if (Math.abs(tx) > 80) {
+          dismissNotifItem(item, id);
+        } else {
+          item.style.transform = '';
+          item.style.opacity = '';
+        }
+      });
     });
   }
 
