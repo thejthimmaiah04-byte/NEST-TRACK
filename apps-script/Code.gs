@@ -1,5 +1,5 @@
 /**
- * RAT-TRACK — Google Apps Script sync backend (v5)
+ * RAT-TRACK — Google Apps Script sync backend (v6)
  *
  * Sheet tabs:  Species | Shelves | Trays | Birth | Removal | Frozen
  *
@@ -9,6 +9,10 @@
  *
  * After pasting this code, run  reformatSheets()  ONCE from the editor
  * (click the function name → Run) to rename & clean existing sheets.
+ *
+ * Gmail scope: ensure appsscript.json includes
+ *   "oauthScopes": ["https://mail.google.com/", ...]
+ * OR run  authoriseGmail()  once from the editor to grant permission.
  */
 
 // ── Sheet tab names ───────────────────────────────────────────────────────────
@@ -208,7 +212,7 @@ function doPost(e) {
       var to = toList.map(function(a) { return a.trim(); })
                      .filter(function(a) { return a && emailRe.test(a); })
                      .join(',');
-      var subject = String(body.subject || 'NestTrak Colony Report').slice(0, 200);
+      var subject = String(body.subject || 'RAT-TRACK Colony Report').slice(0, 200);
       var html    = String(body.html || '');
       if (!to)   return json({ error: 'No valid recipients specified' });
       if (!html) return json({ error: 'No report content' });
@@ -517,7 +521,7 @@ function _updateBirthHistory() {
 // ── Death History sheet ───────────────────────────────────────────────────────
 // Creates / refreshes a "Death History" sheet tab.
 // Shows only removals with reason = "Dead" / "dead" / "Death".
-// Columns: DATE | TRAY | STAGE | COUNT | CAUSE
+// Columns: DATE | TRAY | SPECIES | STAGE | COUNT | ♂ | ♀ | CAUSE
 // Sorted by date descending (newest first).
 function _updateDeathHistory() {
   try {
@@ -542,7 +546,7 @@ function _updateDeathHistory() {
       return db - da;
     });
 
-    var headers = ['DATE', 'TRAY', 'STAGE', 'COUNT', 'CAUSE'];
+    var headers = ['DATE', 'TRAY', 'SPECIES', 'STAGE', 'COUNT', '♂', '♀', 'CAUSE'];
     var rows = deaths.map(function(r) {
       var dateStr = '';
       try {
@@ -551,11 +555,16 @@ function _updateDeathHistory() {
           dateStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
         }
       } catch(e) { dateStr = String(r.date || ''); }
+      var males   = (r.males   !== '' && r.males   != null) ? Number(r.males)   : '';
+      var females = (r.females !== '' && r.females != null) ? Number(r.females) : '';
       return [
         dateStr,
         ctx.trayName(r.trayId),
+        ctx.speciesName(r.speciesId),
         r.stage || '',
         Number(r.count) || 0,
+        males,
+        females,
         r.cause || ''
       ];
     });
@@ -763,6 +772,24 @@ function rebuildFrozenSummary() {
   try { SpreadsheetApp.getUi().alert('Frozen sheet rebuilt successfully.'); } catch(e) {}
 }
 
+// ── Gmail authorisation helper ────────────────────────────────────────────────
+// Run ONCE from the Apps Script editor to grant Gmail permission.
+// Without this (or an appsscript.json oauthScopes entry), the first
+// GmailApp.sendEmail() call from the web app fails with a permission error.
+function authoriseGmail() {
+  try {
+    GmailApp.sendEmail(
+      Session.getEffectiveUser().getEmail(),
+      'RAT-TRACK — Gmail auth test',
+      'Gmail permission granted. You can delete this email.',
+      { name: 'RAT-TRACK' }
+    );
+    SpreadsheetApp.getUi().alert('Gmail authorised! A test email was sent to ' + Session.getEffectiveUser().getEmail() + '.\n\nRe-deploy the web app as a NEW version to apply the new permissions.');
+  } catch(err) {
+    SpreadsheetApp.getUi().alert('Error: ' + err + '\n\nMake sure you are running this from the Apps Script editor while signed in as the script owner.');
+  }
+}
+
 // ── Sheet helpers ─────────────────────────────────────────────────────────────
 
 function sheetFor(entity) {
@@ -964,7 +991,7 @@ function hydrate(entity, row) {
           var mM = v.match(/males[=:]([0-9.]+)/), fM = v.match(/females[=:]([0-9.]+)/);
           v = (mM && fM) ? { males: parseFloat(mM[1]), females: parseFloat(fM[1]) } : [];
         } else {
-          v = JSON.parse(v || '[]');
+          v = JSON.parse(v || (c === 'ratio' ? '{}' : '[]'));
         }
       } catch(e) { v = []; }
     } else if (c === 'deleted') {
