@@ -861,8 +861,14 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 }
 
 .sex-row { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.sex-row.sex-required {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 10px; padding: 10px 10px 4px; margin-bottom: 2px !important;
+}
 .sex-lbl { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 72px; }
 .sex-lbl span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.sex-row.sex-required .sex-lbl span { color: var(--danger); }
 .stg-hint { margin: 6px 0 0; }
 
 .stg-add-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }

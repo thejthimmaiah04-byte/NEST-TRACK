@@ -1991,6 +1991,13 @@ function wireReasonDeathToggle(root) {
     const pf = $('#photo-field', root);
     if (cf) cf.style.display = isDead ? '' : 'none';
     if (pf) pf.style.display = isDead ? '' : 'none';
+    // Highlight sex row as required when Dead is chosen
+    const sr   = $('#rsm-sex-row', root);
+    const note = $('#rsm-sex-note', root);
+    if (sr)   sr.classList.toggle('sex-required', isDead);
+    if (note) note.textContent = isDead
+      ? 'Required for dead animals — which sex died?'
+      : '♂ + ♀ must equal the count above';
   });
 }
 
@@ -2204,12 +2211,13 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
       <input id="rbst-count" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="${avail}" value="${defCount}" />
     </label>
     ${isAdult ? `
-    <div class="gap" style="margin-bottom:16px">
-      <label class="field" style="flex:1"><span>&#9794; removed</span>
-        <input id="rbst-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="—" /></label>
-      <label class="field" style="flex:1"><span>&#9792; removed</span>
-        <input id="rbst-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="—" /></label>
-    </div>` : ''}
+    <div class="sex-row${reason === 'Dead' ? ' sex-required' : ''}" style="margin-bottom:${reason === 'Dead' ? '10px' : '16px'}">
+      <label class="sex-lbl" style="flex:1"><span>♂ removed</span>
+        <input id="rbst-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
+      <label class="sex-lbl" style="flex:1"><span>♀ removed</span>
+        <input id="rbst-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
+    </div>
+    ${reason === 'Dead' ? '<div class="small muted" style="margin-bottom:16px">Required — specify which sex died</div>' : ''}` : ''}
     ${reason === 'Dead' ? `<div class="field" style="margin-bottom:16px">
       <span class="small" style="display:block;margin-bottom:6px;font-weight:500">Photo (optional)</span>
       <input type="file" id="rbst-photo" accept="image/*"
@@ -2233,6 +2241,8 @@ function _rbsFromTray(stageName, stageIdx, trayId, needed, avail, suggestTake, r
       const fRaw = $('#rbst-f', root)?.value;
       const males   = isAdult && mRaw !== '' && mRaw != null ? Number(mRaw) : null;
       const females = isAdult && fRaw !== '' && fRaw != null ? Number(fRaw) : null;
+      if (reason === 'Dead' && isAdult && males === null && females === null)
+        return toast('Please specify ♂ or ♀ — which sex died?', true);
       const photoFile = reason === 'Dead' ? ($('#rbst-photo', root)?.files?.[0] || null) : null;
 
       // Distribute n across cohorts in this tray, oldest first
@@ -4594,13 +4604,13 @@ function removeFromStageModal(trayId, stageName) {
   if (!available) return toast(`No ${stageName}s to remove in this tray`, true);
 
   const sexRowHtml = isAdult ? `
-    <div class="sex-row" style="margin-bottom:14px">
+    <div class="sex-row" id="rsm-sex-row" style="margin-bottom:14px">
       <label class="sex-lbl" style="flex:1"><span>${t('males_removed_lbl')}</span>
         <input id="rsm-m" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
       <label class="sex-lbl" style="flex:1"><span>${t('females_removed_lbl')}</span>
         <input id="rsm-f" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="0" /></label>
     </div>
-    <div class="small muted" style="margin-bottom:12px">♂ + ♀ must equal the count above</div>` : '';
+    <div id="rsm-sex-note" class="small muted" style="margin-bottom:12px">♂ + ♀ must equal the count above</div>` : '';
 
   openModal(`Remove ${esc(stageName)}s — ${esc(tray.name)}`, `
     <div class="field-row" style="margin-bottom:14px">
@@ -4645,8 +4655,11 @@ function removeFromStageModal(trayId, stageName) {
         sexFemales = fVal !== '' && fVal != null ? Number(fVal) : null;
         if (sexMales !== null && sexFemales !== null && sexMales + sexFemales !== n)
           return toast(`♂ + ♀ (${sexMales+sexFemales}) must equal count (${n})`, true);
-        // If sex-tracked and user left both M/F blank, infer proportionally from current ratio
-        if (sexMales === null && sexFemales === null &&
+        // Dead removals must specify sex — cannot guess who died
+        if (reason === 'Dead' && sexMales === null && sexFemales === null)
+          return toast('Please specify ♂ or ♀ — which sex died?', true);
+        // If sex-tracked and user left both M/F blank (non-Dead), infer proportionally
+        if (sexMales === null && sexFemales === null && reason !== 'Dead' &&
             (tray.adultMales != null || tray.adultFemales != null)) {
           const curM = Number(tray.adultMales) || 0;
           const curF = Number(tray.adultFemales) || 0;
