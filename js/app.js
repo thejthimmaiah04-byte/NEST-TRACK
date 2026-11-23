@@ -1847,6 +1847,9 @@ function wireForeCastHover() {
     svg.dispatchEvent(new MouseEvent('mousemove', { clientX: touch.clientX, clientY: touch.clientY, bubbles: true }));
   }, { passive: false });
   svg.addEventListener('touchend', () => { setTimeout(hide, 2200); }, { passive: true });
+
+  // Block all clicks inside the forecast card from reaching the global action router
+  wrap.addEventListener('click', e => e.stopPropagation());
 }
 
 function renderCharts() {
