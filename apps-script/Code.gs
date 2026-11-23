@@ -778,15 +778,13 @@ function rebuildFrozenSummary() {
 // GmailApp.sendEmail() call from the web app fails with a permission error.
 function authoriseGmail() {
   try {
-    GmailApp.sendEmail(
-      Session.getEffectiveUser().getEmail(),
-      'RAT-TRACK — Gmail auth test',
-      'Gmail permission granted. You can delete this email.',
-      { name: 'RAT-TRACK' }
-    );
-    SpreadsheetApp.getUi().alert('Gmail authorised! A test email was sent to ' + Session.getEffectiveUser().getEmail() + '.\n\nRe-deploy the web app as a NEW version to apply the new permissions.');
+    var me = Session.getEffectiveUser().getEmail();
+    GmailApp.sendEmail(me, 'RAT-TRACK — Gmail auth test',
+      'Gmail permission granted for RAT-TRACK. You can delete this email.',
+      { name: 'RAT-TRACK' });
+    Logger.log('SUCCESS: Gmail authorised. Test email sent to ' + me + '. Now re-deploy the web app as a NEW version.');
   } catch(err) {
-    SpreadsheetApp.getUi().alert('Error: ' + err + '\n\nMake sure you are running this from the Apps Script editor while signed in as the script owner.');
+    Logger.log('FAILED: ' + err);
   }
 }
 
