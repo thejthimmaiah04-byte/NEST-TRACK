@@ -5776,24 +5776,91 @@ function renderReports() {
   const frozenTotMonth = Object.values(frozenMonth).reduce((s,v)=>s+v,0);
   const frozenTotAll   = Object.values(frozenAll).reduce((s,v)=>s+v,0);
 
-  /* ── ③ RECENT REMOVALS ──────────────────────────────────────────── */
-  const allRems = live('removals')
-    .filter(r => r.count > 0 && r.reason !== 'Transfer')
-    .sort((a,b) => normYMD(b.date).localeCompare(normYMD(a.date)))
-    .slice(0,20);
-  const remRows = allRems.map(r => {
-    const tray = byId('trays', r.trayId);
-    const col  = r.reason==='Dead'?'var(--danger)':r.reason==='Feeding'?'var(--accent)':r.reason==='Frozen'?'#2dd4bf':'var(--text-2)';
-    const validCause = DEATH_CAUSES.includes(r.cause) ? r.cause : null;
-    const causeTag = r.reason==='Dead'&&validCause ? `<span class="rpt-cause-tag">${esc(validCause)}</span>` : '';
-    return `<tr class="rpt-rem-row">
-      <td>${fmtDisplayDate(ymdToInput(normYMD(r.date)))}</td>
-      <td>${esc(tray?.name||r.trayId||'—')}</td>
-      <td>${esc(r.stage||'—')}</td>
-      <td class="rpt-rem-count">${r.count}</td>
-      <td style="color:${col};font-weight:600">${esc(r.reason||'—')} ${causeTag}</td>
-    </tr>`;
+  /* ── ③ REMOVAL SUMMARY ──────────────────────────────────────────── */
+  // Build: spId → stage → reason → count  (all-time)
+  const REM_REASONS = ['Feeding','Frozen','Dead','Other'];
+  const remBySpStageReason = {}; // spId → { spObj, stages: Set, data: { stage→{reason→count} } }
+  const deathsByCauseAllTime = {};
+  const deathsByStageAllTime = {};
+
+  live('removals').filter(r => r.count > 0 && r.reason !== 'Transfer').forEach(r => {
+    const cohort = byId('cohorts', r.cohortId);
+    const sp = cohort ? speciesOf(cohort) : null;
+    const spKey = sp ? sp.id : '__none__';
+    const spName = sp ? sp.name : 'Unknown';
+    const stage = r.stage || '—';
+    const reason = REM_REASONS.includes(r.reason) ? r.reason : 'Other';
+    const cnt = Number(r.count) || 0;
+    if (!remBySpStageReason[spKey]) remBySpStageReason[spKey] = { spName, stages: new Set(), data: {} };
+    remBySpStageReason[spKey].stages.add(stage);
+    if (!remBySpStageReason[spKey].data[stage]) remBySpStageReason[spKey].data[stage] = {};
+    remBySpStageReason[spKey].data[stage][reason] = (remBySpStageReason[spKey].data[stage][reason]||0) + cnt;
+    if (r.reason === 'Dead') {
+      const cause = DEATH_CAUSES.includes(r.cause) ? r.cause : 'Unknown';
+      deathsByCauseAllTime[cause] = (deathsByCauseAllTime[cause]||0) + cnt;
+      if (!deathsByStageAllTime[stage]) deathsByStageAllTime[stage] = {};
+      deathsByStageAllTime[stage][cause] = (deathsByStageAllTime[stage][cause]||0) + cnt;
+    }
+  });
+
+  // Build summary cards per species
+  const STAGE_ORDER = ['Pinky','Fuzzy','Hopper','Adult','Juvenile','Sub-adult','Weaner','Pup'];
+  const remSummaryCards = Object.keys(remBySpStageReason).map(spKey => {
+    const { spName, stages, data } = remBySpStageReason[spKey];
+    const stageList = [...stages].sort((a,b) => {
+      const ia = STAGE_ORDER.indexOf(a), ib = STAGE_ORDER.indexOf(b);
+      if (ia >= 0 && ib >= 0) return ia - ib;
+      if (ia >= 0) return -1; if (ib >= 0) return 1;
+      return a.localeCompare(b);
+    });
+    const usedReasons = REM_REASONS.filter(rr => stageList.some(st => data[st]?.[rr]));
+    const totals = {};
+    usedReasons.forEach(rr => { totals[rr] = stageList.reduce((s,st)=>s+(data[st]?.[rr]||0),0); });
+    const grandTotal = usedReasons.reduce((s,rr)=>s+totals[rr],0);
+    const rCols = { Feeding: 'var(--accent)', Frozen: '#2dd4bf', Dead: 'var(--danger)', Other: 'var(--muted)' };
+    const thCols = usedReasons.map(rr => `<th class="rpt2-num" style="color:${rCols[rr]}">${rr}</th>`).join('');
+    const rows = stageList.map(st => {
+      const cells = usedReasons.map(rr => `<td class="rpt2-num">${data[st]?.[rr]||'—'}</td>`).join('');
+      const rowTot = usedReasons.reduce((s,rr)=>s+(data[st]?.[rr]||0),0);
+      return `<tr><td><b>${esc(st)}</b></td>${cells}<td class="rpt2-num" style="font-weight:700">${rowTot}</td></tr>`;
+    }).join('');
+    const totRow = `<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td>${usedReasons.map(rr=>`<td class="rpt2-num" style="color:${rCols[rr]}">${totals[rr]}</td>`).join('')}<td class="rpt2-num">${grandTotal}</td></tr>`;
+    return `<div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;text-transform:uppercase">${esc(spName)}</div>
+      <div style="overflow-x:auto"><table class="rpt-rem-table">
+        <thead><tr><th>Stage</th>${thCols}<th class="rpt2-num">Total</th></tr></thead>
+        <tbody>${rows}${totRow}</tbody>
+      </table></div>
+    </div>`;
   }).join('');
+
+  // Deaths chart: horizontal bars by cause (all-time)
+  const causeKeys = Object.keys(deathsByCauseAllTime).sort((a,b)=>deathsByCauseAllTime[b]-deathsByCauseAllTime[a]);
+  const maxDeaths = causeKeys.length ? Math.max(...causeKeys.map(c=>deathsByCauseAllTime[c])) : 0;
+  const deathChartRows = causeKeys.map((cause, i) => {
+    const cnt = deathsByCauseAllTime[cause];
+    const pct = maxDeaths > 0 ? Math.round(cnt / maxDeaths * 100) : 0;
+    const col = `hsl(${0 + i*22},65%,55%)`;
+    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="width:90px;font-size:12px;color:var(--muted);text-align:right;flex-shrink:0">${esc(cause)}</div>
+      <div style="flex:1;background:var(--border);border-radius:4px;height:18px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${col};border-radius:4px;transition:width .3s"></div>
+      </div>
+      <div style="width:28px;font-size:13px;font-weight:700;color:var(--danger);flex-shrink:0">${cnt}</div>
+    </div>`;
+  }).join('');
+
+  // Deaths by stage sub-table (all-time)
+  const dStageKeys = Object.keys(deathsByStageAllTime).sort();
+  const dCauseKeys = [...new Set(dStageKeys.flatMap(st=>Object.keys(deathsByStageAllTime[st])))].sort();
+  const dStageRows = dStageKeys.map(st => {
+    const cells = dCauseKeys.map(c=>`<td class="rpt2-num">${deathsByStageAllTime[st][c]||'—'}</td>`).join('');
+    const tot = dCauseKeys.reduce((s,c)=>s+(deathsByStageAllTime[st][c]||0),0);
+    return `<tr><td><b>${esc(st)}</b></td>${cells}<td class="rpt2-num" style="color:var(--danger);font-weight:700">${tot}</td></tr>`;
+  }).join('');
+  const dTotRow = dCauseKeys.length
+    ? `<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Total</td>${dCauseKeys.map(c=>`<td class="rpt2-num">${Object.values(deathsByStageAllTime).reduce((s,m)=>s+(m[c]||0),0)}</td>`).join('')}<td class="rpt2-num" style="color:var(--danger)">${Object.values(deathsByCauseAllTime).reduce((s,v)=>s+v,0)}</td></tr>`
+    : '';
 
   /* ── ④ Email / Schedule ─────────────────────────────────────────── */
   const savedEmails   = state.meta.reportEmails   || '';
@@ -5840,21 +5907,36 @@ function renderReports() {
       </table></div>
     </div>
 
-    <!-- ═══ RECENT REMOVALS ═══ -->
+    <!-- ═══ REMOVALS SUMMARY ═══ -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 10px">
       <div class="rpt2-section-head" style="margin:0">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-        REMOVALS &amp; DEATHS
+        REMOVALS SUMMARY
       </div>
       ${state.meta.scriptUrl?`<button class="btn sm" data-act="pull-sheets">&#8635; Pull from sheet</button>`:''}
     </div>
     <div class="card" style="margin-bottom:20px">
-      ${allRems.length
-        ? `<div style="overflow-x:auto"><table class="rpt-rem-table">
-            <thead><tr><th>Date</th><th>Tray</th><th>Stage</th><th>Count</th><th>Reason</th></tr></thead>
-            <tbody>${remRows}</tbody>
-           </table></div>`
+      ${Object.keys(remBySpStageReason).length
+        ? remSummaryCards
         : `<p class="small muted" style="margin:0">No removals recorded yet.</p>`}
+    </div>
+
+    <!-- ═══ DEATHS & CAUSES ═══ -->
+    <div class="rpt2-section-head" style="margin-bottom:10px">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      <span style="color:var(--danger)">DEATHS &amp; CAUSES</span>
+    </div>
+    <div class="card" style="margin-bottom:20px">
+      ${causeKeys.length ? `
+        <div class="rpt2-sub-title" style="margin-bottom:10px">All-time by cause</div>
+        ${deathChartRows}
+        ${dStageKeys.length ? `
+          <div class="rpt2-sub-title" style="margin-top:16px;margin-bottom:8px">Deaths by stage &amp; cause</div>
+          <div style="overflow-x:auto"><table class="rpt-rem-table">
+            <thead><tr><th>Stage</th>${dCauseKeys.map(c=>`<th class="rpt2-num">${esc(c)}</th>`).join('')}<th class="rpt2-num">Total</th></tr></thead>
+            <tbody>${dStageRows}${dTotRow}</tbody>
+          </table></div>` : ''}
+      ` : `<p class="small muted" style="margin:0">No deaths recorded.</p>`}
     </div>
 
     <!-- ═══ AUTO-REPORTS & EMAIL ═══ -->
@@ -6417,7 +6499,7 @@ function _sendReportHtml(emails, subject, html) {
   return fetch(state.meta.scriptUrl, {
     method:  'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body:    JSON.stringify({ action: 'sendReport', to: emails, subject, html })
+    body:    JSON.stringify({ action: 'sendReport', to: emails, subject, html, key: (_apiKey || state.meta.scriptApiKey) || undefined })
   }).then(r => r.json()).then(resp => {
     if (!resp.ok) throw new Error(resp.error || 'Unknown error');
   });
