@@ -2765,8 +2765,9 @@ function renderFreezer() {
   const frozen    = frozenByStage();
   const names     = orderedStageNames();
 
-  const stagesWithStock = new Set([...frozen.keys()]);
+  const stagesWithStock = new Set();
   names.forEach(nm => stagesWithStock.add(nm));
+  [...frozen.keys()].forEach(nm => stagesWithStock.add(nm));
 
   const total = totalFrozen();
   const allSpecies = live('species');
@@ -5783,7 +5784,11 @@ function renderReports() {
   const chickMonth   = live('removals').filter(r => r.itemType==='chick' && normYMD(r.date)>=monthStartYMD && normYMD(r.date)<=todayYMD).reduce((s,r)=>s+(Number(r.count)||0),0);
   const chickAll     = live('removals').filter(r => r.itemType==='chick').reduce((s,r)=>s+(Number(r.count)||0),0);
 
-  const allFrozenStages = [...new Set([...frozenNow.keys(), ...Object.keys(frozenAll)])].sort();
+  const _frzOrd = ['Pinky','Fuzzy','Hopper','Adult','Juvenile','Sub-adult','Weaner','Pup'];
+  const allFrozenStages = [...new Set([...frozenNow.keys(), ...Object.keys(frozenAll)])].sort((a,b)=>{
+    const ia=_frzOrd.indexOf(a), ib=_frzOrd.indexOf(b);
+    if (ia>=0&&ib>=0) return ia-ib; if (ia>=0) return -1; if (ib>=0) return 1; return a.localeCompare(b);
+  });
   const frozenRows = allFrozenStages.map(st => {
     const cur = Math.max(0, frozenNow.get(st)||0);
     const mon = frozenMonth[st]||0;
@@ -5799,6 +5804,58 @@ function renderReports() {
   const frozenTotNow   = allFrozenStages.reduce((s,st)=>s+Math.max(0,frozenNow.get(st)||0),0);
   const frozenTotMonth = Object.values(frozenMonth).reduce((s,v)=>s+v,0);
   const frozenTotAll   = Object.values(frozenAll).reduce((s,v)=>s+v,0);
+
+  /* ── ② FREEZER USAGE ANALYSIS ───────────────────────────────────── */
+  const FRZSTAGE_ORDER = ['Pinky','Fuzzy','Hopper','Adult','Juvenile','Sub-adult','Weaner','Pup'];
+  const last30YMD  = toYMD(addDays(now, -30));
+  const prior30YMD = toYMD(addDays(now, -60));
+  const usesLast30 = {}, usesPrior30 = {};
+  live('frozen_uses').filter(u => u.stage && u.itemType !== 'chick' && u.stage !== 'Chick').forEach(u => {
+    const d = normYMD(u.date);
+    if (d >= last30YMD && d <= todayYMD) usesLast30[u.stage]  = (usesLast30[u.stage] ||0) + (Number(u.count)||0);
+    if (d >= prior30YMD && d < last30YMD) usesPrior30[u.stage] = (usesPrior30[u.stage]||0) + (Number(u.count)||0);
+  });
+  const sortByFrzOrder = arr => arr.sort((a,b)=>{
+    const ia=FRZSTAGE_ORDER.indexOf(a), ib=FRZSTAGE_ORDER.indexOf(b);
+    if (ia>=0&&ib>=0) return ia-ib; if (ia>=0) return -1; if (ib>=0) return 1; return a.localeCompare(b);
+  });
+  const analysisStages = sortByFrzOrder([...new Set([...allFrozenStages, ...Object.keys(usesLast30)])]);
+
+  const usageRows = analysisStages.map(st => {
+    const stock  = Math.max(0, frozenNow.get(st)||0);
+    const u30    = usesLast30[st]  || 0;
+    const u60    = usesPrior30[st] || 0;
+    const dailyRate = u30 / 30;
+    let daysLeft = '∞', daysColor = 'var(--muted)', daysLabel = '';
+    if (dailyRate > 0) {
+      const d = Math.round(stock / dailyRate);
+      daysLeft = d;
+      daysColor = d < 7 ? 'var(--danger)' : d < 30 ? '#f59e0b' : '#22c55e';
+      daysLabel = d < 7 ? ' ⚠' : '';
+    }
+    let trend = '—';
+    if (u30 > u60 * 1.1) trend = '↑';
+    else if (u30 < u60 * 0.9 && u60 > 0) trend = '↓';
+    const trendColor = trend === '↑' ? '#f59e0b' : trend === '↓' ? '#60a5fa' : 'var(--muted)';
+    const rateLabel = dailyRate > 0 ? (dailyRate >= 1 ? Math.round(dailyRate) : dailyRate.toFixed(1)) + '/day' : '—';
+    return `<tr>
+      <td><b>${esc(tStage(st))}</b></td>
+      <td class="rpt2-num" style="color:#2dd4bf;font-weight:700">${stock}</td>
+      <td class="rpt2-num">${u30||'—'}</td>
+      <td class="rpt2-num muted">${rateLabel}</td>
+      <td class="rpt2-num" style="color:${daysColor};font-weight:700">${daysLeft}${daysLabel}</td>
+      <td class="rpt2-num" style="color:${trendColor};font-weight:700">${trend}</td>
+    </tr>`;
+  }).join('');
+
+  const lowStages = analysisStages.filter(st => {
+    const stock = Math.max(0, frozenNow.get(st)||0);
+    const u30 = usesLast30[st] || 0;
+    if (!u30) return false;
+    return Math.round(stock / (u30/30)) < 14;
+  });
+  const totalUsed30 = Object.values(usesLast30).reduce((s,v)=>s+v,0);
+  const totalUsed60 = Object.values(usesPrior30).reduce((s,v)=>s+v,0);
 
   /* ── ③ REMOVAL SUMMARY ──────────────────────────────────────────── */
   // Build: spId → stage → reason → count  (all-time)
@@ -5929,6 +5986,29 @@ function renderReports() {
           </tr>
         </tbody>
       </table></div>
+
+      ${analysisStages.length ? `
+      <div style="margin-top:18px">
+        <div class="rpt2-sub-title" style="margin-bottom:4px">Usage &amp; Forecast</div>
+        ${lowStages.length ? `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:var(--danger)">
+          ⚠ <b>${lowStages.map(s=>tStage(s)).join(', ')}</b> — less than 2 weeks of stock at current usage rate.
+        </div>` : ''}
+        ${totalUsed30 > 0 ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+          Last 30 days: <b style="color:var(--fg)">${totalUsed30}</b> used${totalUsed60 > 0 ? ` · Prior 30 days: <b style="color:var(--fg)">${totalUsed60}</b>${totalUsed30 > totalUsed60*1.1 ? ' <span style="color:#f59e0b">↑ consumption rising</span>' : totalUsed30 < totalUsed60*0.9 ? ' <span style="color:#60a5fa">↓ consumption falling</span>' : ' <span style="color:var(--muted)">→ stable</span>'}` : ''}
+        </div>` : ''}
+        <div style="overflow-x:auto"><table class="rpt-rem-table">
+          <thead><tr>
+            <th>Stage</th>
+            <th class="rpt2-num">Stock</th>
+            <th class="rpt2-num">Used (30d)</th>
+            <th class="rpt2-num muted">Rate</th>
+            <th class="rpt2-num">Days Left</th>
+            <th class="rpt2-num muted">Trend</th>
+          </tr></thead>
+          <tbody>${usageRows}</tbody>
+        </table></div>
+        <p class="small muted" style="margin:8px 0 0;font-size:11px">Days Left = current stock ÷ 30-day daily average. Trend: ↑ usage rising, ↓ falling vs prior 30 days.</p>
+      </div>` : ''}
     </div>
 
     <!-- ═══ REMOVALS SUMMARY ═══ -->
