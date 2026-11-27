@@ -2789,14 +2789,16 @@ function renderFreezer() {
         const i = names.indexOf(nm);
         const color = stageColor(i >= 0 ? i : 0);
         const count = bySpStage.get(sp.id)?.get(nm) || 0;
-        spCards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+        spCards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default;position:relative">
           <span class="stage-edge" style="background:${color}"></span>
+          <button class="btn" data-act="fz-edit" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}" data-count="${count}"
+            style="position:absolute;top:8px;right:8px;padding:4px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;opacity:0.6">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
           <div class="n">${count}</div>
           <div class="l">${esc(tStage(nm))}</div>
           <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}"
             style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
-          <button class="btn sm" data-act="fz-edit" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}" data-count="${count}"
-            style="margin-top:5px;width:100%">Edit</button>
         </div>`;
       }
       if (spCards) cards += `<div style="grid-column:1/-1;margin-top:4px">
@@ -2811,14 +2813,16 @@ function renderFreezer() {
       const color = stageColor(i >= 0 ? i : 0);
       const count = frozen.get(nm) || 0;
       const spId  = allSpecies[0]?.id || '';
-      cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
+      cards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default;position:relative">
         <span class="stage-edge" style="background:${color}"></span>
+        <button class="btn" data-act="fz-edit" data-stage="${esc(nm)}" data-spid="${esc(spId)}" data-count="${count}"
+          style="position:absolute;top:8px;right:8px;padding:4px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;opacity:0.6">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
         <div class="n">${count}</div>
         <div class="l">${esc(tStage(nm))} · ${t('fz_in_freezer')}</div>
         <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(spId)}"
           style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
-        <button class="btn sm" data-act="fz-edit" data-stage="${esc(nm)}" data-spid="${esc(spId)}" data-count="${count}"
-          style="margin-top:5px;width:100%">Edit</button>
       </div>`;
     }
   }
