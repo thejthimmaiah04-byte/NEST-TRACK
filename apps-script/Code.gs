@@ -778,11 +778,8 @@ function rebuildFrozenSummary() {
 // GmailApp.sendEmail() call from the web app fails with a permission error.
 function authoriseGmail() {
   try {
-    var me = Session.getEffectiveUser().getEmail();
-    GmailApp.sendEmail(me, 'RAT-TRACK — Gmail auth test',
-      'Gmail permission granted for RAT-TRACK. You can delete this email.',
-      { name: 'RAT-TRACK' });
-    Logger.log('SUCCESS: Gmail authorised. Test email sent to ' + me + '. Now re-deploy the web app as a NEW version.');
+    var aliases = GmailApp.getAliases(); // triggers Gmail OAuth without sending anything
+    Logger.log('SUCCESS: Gmail authorised. Aliases: [' + aliases.join(', ') + ']. Re-deploy the web app as a NEW version now.');
   } catch(err) {
     Logger.log('FAILED: ' + err);
   }

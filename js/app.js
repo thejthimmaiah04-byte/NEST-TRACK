@@ -2531,6 +2531,38 @@ function useFrozenModal(stage, presetSpId) {
   });
 }
 
+/* ---------- Edit freezer count directly ---------- */
+function freezerEditModal(stage, spId, current) {
+  const sp = spId ? byId('species', spId) : null;
+  const label = sp ? `${esc(sp.name)} · ${esc(tStage(stage))}` : esc(tStage(stage));
+  openModal(`Edit freezer count · ${label}`, `
+    <p class="small muted" style="margin-bottom:14px">Current count: <b>${current}</b>. Set the new total — the difference will be recorded as an adjustment.</p>
+    <label class="field" style="margin-bottom:18px"><span>New count</span>
+      <input id="fz-edit-count" type="number" inputmode="numeric" pattern="[0-9]*" min="0" placeholder="${current}" value="${current}" /></label>
+    <button class="btn primary block" style="margin-top:14px" data-save>Save</button>
+  `, root => {
+    const inp = $('#fz-edit-count', root);
+    inp.select();
+    $('[data-save]', root).onclick = () => {
+      const newCount = Number(inp.value);
+      if (isNaN(newCount) || newCount < 0) return toast('Enter a valid count', true);
+      const diff = newCount - current;
+      if (diff === 0) { closeModal(); return; }
+      if (diff < 0) {
+        // Record usage (reduce stock)
+        const r = rec('frozen_uses', { speciesId: spId || null, stage, date: todayISO(), count: Math.abs(diff) });
+        upsertLocal('frozen_uses', r); touch('frozen_uses', r);
+      } else {
+        // Record addition (increase stock)
+        const r = rec('removals', { speciesId: spId || null, trayId: null, cohortId: null, stage, date: todayISO(), count: diff, reason: 'Frozen', cause: 'Manual adjustment' });
+        upsertLocal('removals', r); touch('removals', r);
+      }
+      toast(`Freezer updated: ${tStage(stage)} → ${newCount}`);
+      closeModal(); render();
+    };
+  });
+}
+
 /* ---------- Add to freezer modal (from Freezer tab — picks tray + stage) ---------- */
 function addToFreezerModal() {
   const today = new Date();
@@ -2763,6 +2795,8 @@ function renderFreezer() {
           <div class="l">${esc(tStage(nm))}</div>
           <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}"
             style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
+          <button class="btn sm" data-act="fz-edit" data-stage="${esc(nm)}" data-spid="${esc(sp.id)}" data-count="${count}"
+            style="margin-top:5px;width:100%">Edit</button>
         </div>`;
       }
       if (spCards) cards += `<div style="grid-column:1/-1;margin-top:4px">
@@ -2771,27 +2805,6 @@ function renderFreezer() {
       </div>`;
     }
 
-    // Unattributed section: stock logged via bulk intake (no tray/cohort link)
-    let unCards = '';
-    for (const nm of stagesActuallyFrozen) {
-      const totalNm = frozen.get(nm) || 0;
-      const attributed = allSpecies.reduce((s, sp) => s + (bySpStage.get(sp.id)?.get(nm) || 0), 0);
-      const uncount = totalNm - attributed;
-      if (uncount <= 0) continue;
-      const i = names.indexOf(nm);
-      const color = stageColor(i >= 0 ? i : 0);
-      unCards += `<div class="stat-stage" data-s="${i >= 0 ? i : 0}" style="cursor:default">
-        <span class="stage-edge" style="background:${color}"></span>
-        <div class="n">${uncount}</div>
-        <div class="l">${esc(tStage(nm))}</div>
-        <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid=""
-          style="margin-top:10px;width:100%">Use</button>
-      </div>`;
-    }
-    if (unCards) cards += `<div style="grid-column:1/-1;margin-top:4px">
-      <div class="small" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:2px 0 6px">Unattributed</div>
-      <div class="stats-grid" style="margin:0">${unCards}</div>
-    </div>`;
   } else {
     for (const nm of stagesWithStock) {
       const i = names.indexOf(nm);
@@ -2804,6 +2817,8 @@ function renderFreezer() {
         <div class="l">${esc(tStage(nm))} · ${t('fz_in_freezer')}</div>
         <button class="btn sm primary" data-act="fz-use" data-stage="${esc(nm)}" data-spid="${esc(spId)}"
           style="margin-top:10px;width:100%" ${count < 1 ? 'disabled' : ''}>Use</button>
+        <button class="btn sm" data-act="fz-edit" data-stage="${esc(nm)}" data-spid="${esc(spId)}" data-count="${count}"
+          style="margin-top:5px;width:100%">Edit</button>
       </div>`;
     }
   }
@@ -5060,6 +5075,7 @@ function onClick(e) {
     case 'show-ratio-info': { e.stopPropagation(); toast(el.dataset.msg); return; }
     case 'go-freezer':  return switchTab('freezer');
     case 'fz-use':      return useFrozenModal(el.dataset.stage, el.dataset.spid || null);
+    case 'fz-edit':     return freezerEditModal(el.dataset.stage, el.dataset.spid || null, Number(el.dataset.count) || 0);
     case 'fz-add':      return addToFreezerModal();
     case 'fz-intake':        return freezerIntakeModal();
     case 'fz-chick-intake':  return chickIntakeModal();
